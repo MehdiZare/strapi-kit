@@ -17,10 +17,20 @@ A modern Python client for Strapi CMS with comprehensive import/export capabilit
 pip install py-strapi
 ```
 
+Or with uv (recommended for faster installs):
+
+```bash
+uv pip install py-strapi
+```
+
 For development:
 
 ```bash
-pip install py-strapi[dev]
+# With pip
+pip install -e ".[dev]"
+
+# With uv (recommended)
+uv pip install -e ".[dev]"
 ```
 
 ## Quick Start
@@ -100,7 +110,9 @@ cd py-strapi
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install dependencies
+# Install dependencies (uv is recommended for faster installs)
+uv pip install -e ".[dev]"
+# Or with pip
 pip install -e ".[dev]"
 ```
 

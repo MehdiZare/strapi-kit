@@ -286,6 +286,29 @@ def test_something(respx_mock):
 
 ## Development Workflow
 
+### Dependency Management
+
+**py-strapi uses uv for fast dependency management:**
+
+```bash
+# Install dependencies
+uv pip install -e ".[dev]"
+
+# Install specific package
+uv pip install package-name
+
+# Upgrade dependencies
+uv pip install --upgrade package-name
+```
+
+**Why uv?**
+- 10-100x faster than pip
+- Drop-in pip replacement (`uv pip` command)
+- Used in CI/CD workflows
+- Better dependency resolution
+
+**Fallback to pip:** If uv is not available, `pip` commands work identically.
+
 ### Adding New Features
 1. **Update models** if new data structures needed (models/)
 2. **Implement in BaseClient** if shared logic (client/base.py)

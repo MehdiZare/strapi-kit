@@ -19,11 +19,11 @@ help: ## Show this help message
 # Installation
 install: ## Install package for production use
 	@echo "$(BLUE)Installing py-strapi...$(NC)"
-	pip install -e .
+	uv pip install -e .
 
 install-dev: ## Install package with development dependencies
 	@echo "$(BLUE)Installing py-strapi with dev dependencies...$(NC)"
-	pip install -e ".[dev]"
+	uv pip install -e ".[dev]"
 	@echo "$(GREEN)✓ Installation complete$(NC)"
 
 # Testing

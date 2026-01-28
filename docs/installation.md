@@ -3,19 +3,37 @@
 ## Requirements
 
 - Python 3.12 or higher
-- pip or uv package manager
+- pip or uv package manager (uv recommended for faster installs)
 
 ## Install from PyPI
 
-```bash
-pip install py-strapi
-```
+=== "uv (Recommended)"
+
+    ```bash
+    uv pip install py-strapi
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install py-strapi
+    ```
+
+**Why uv?** It's 10-100x faster than pip while being a drop-in replacement.
 
 ## Install with Development Dependencies
 
-```bash
-pip install py-strapi[dev]
-```
+=== "uv (Recommended)"
+
+    ```bash
+    uv pip install py-strapi[dev]
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install py-strapi[dev]
+    ```
 
 This includes:
 - pytest and testing tools
@@ -25,11 +43,21 @@ This includes:
 
 ## Install from Source
 
-```bash
-git clone https://github.com/mehdizare/py-strapi.git
-cd py-strapi
-pip install -e ".[dev]"
-```
+=== "uv (Recommended)"
+
+    ```bash
+    git clone https://github.com/mehdizare/py-strapi.git
+    cd py-strapi
+    uv pip install -e ".[dev]"
+    ```
+
+=== "pip"
+
+    ```bash
+    git clone https://github.com/mehdizare/py-strapi.git
+    cd py-strapi
+    pip install -e ".[dev]"
+    ```
 
 ## Verify Installation
 
