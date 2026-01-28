@@ -154,12 +154,12 @@ jobs:
 
             ### 📦 Installation
             ```bash
-            pip install py-strapi==${{ steps.version.outputs.VERSION_NUMBER }}
+            pip install strapi-kit==${{ steps.version.outputs.VERSION_NUMBER }}
             ```
 
             ### 🔗 Links
-            - [PyPI Package](https://pypi.org/project/py-strapi/${{ steps.version.outputs.VERSION_NUMBER }}/)
-            - [Documentation](https://mehdizare.github.io/py-strapi/)
+            - [PyPI Package](https://pypi.org/project/strapi-kit/${{ steps.version.outputs.VERSION_NUMBER }}/)
+            - [Documentation](https://mehdizare.github.io/strapi-kit/)
           files: dist/*
           prerelease: false
           generate_release_notes: true

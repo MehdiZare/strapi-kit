@@ -1,6 +1,6 @@
 # Testing Guide
 
-This guide covers testing practices and patterns for py-strapi.
+This guide covers testing practices and patterns for strapi-kit.
 
 ## Running Tests
 

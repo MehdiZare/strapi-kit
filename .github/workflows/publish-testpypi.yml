@@ -129,7 +129,7 @@ jobs:
 
             ### Installation
             \`\`\`bash
-            pip install -i https://test.pypi.org/simple/ py-strapi==${version}
+            pip install -i https://test.pypi.org/simple/ strapi-kit==${version}
             \`\`\`
 
             ### Verification Steps

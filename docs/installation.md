@@ -10,13 +10,13 @@
 === "uv (Recommended)"
 
     ```bash
-    uv pip install py-strapi
+    uv pip install strapi-kit
     ```
 
 === "pip"
 
     ```bash
-    pip install py-strapi
+    pip install strapi-kit
     ```
 
 **Why uv?** It's 10-100x faster than pip while being a drop-in replacement.
@@ -26,13 +26,13 @@
 === "uv (Recommended)"
 
     ```bash
-    uv pip install py-strapi[dev]
+    uv pip install strapi-kit[dev]
     ```
 
 === "pip"
 
     ```bash
-    pip install py-strapi[dev]
+    pip install strapi-kit[dev]
     ```
 
 This includes:
@@ -46,16 +46,16 @@ This includes:
 === "uv (Recommended)"
 
     ```bash
-    git clone https://github.com/mehdizare/py-strapi.git
-    cd py-strapi
+    git clone https://github.com/mehdizare/strapi-kit.git
+    cd strapi-kit
     uv pip install -e ".[dev]"
     ```
 
 === "pip"
 
     ```bash
-    git clone https://github.com/mehdizare/py-strapi.git
-    cd py-strapi
+    git clone https://github.com/mehdizare/strapi-kit.git
+    cd strapi-kit
     pip install -e ".[dev]"
     ```
 

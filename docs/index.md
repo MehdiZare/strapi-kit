@@ -1,4 +1,4 @@
-# py-strapi
+# strapi-kit
 
 A modern Python client for Strapi CMS with comprehensive import/export capabilities.
 
@@ -50,13 +50,13 @@ asyncio.run(main())
 ## Installation
 
 ```bash
-pip install py-strapi
+pip install strapi-kit
 ```
 
 For development:
 
 ```bash
-pip install py-strapi[dev]
+pip install strapi-kit[dev]
 ```
 
 ## Documentation
@@ -69,7 +69,7 @@ pip install py-strapi[dev]
 
 ## Project Status
 
-This project is in active development. See [IMPLEMENTATION_STATUS.md](https://github.com/mehdizare/py-strapi/blob/main/IMPLEMENTATION_STATUS.md) for detailed progress.
+This project is in active development. See [IMPLEMENTATION_STATUS.md](https://github.com/mehdizare/strapi-kit/blob/main/IMPLEMENTATION_STATUS.md) for detailed progress.
 
 Currently implemented:
 - ✅ HTTP clients (sync and async)
@@ -86,4 +86,4 @@ Contributions are welcome! Please see the [Contributing Guide](development/contr
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/mehdizare/py-strapi/blob/main/LICENSE) for details.
+MIT License - see [LICENSE](https://github.com/mehdizare/strapi-kit/blob/main/LICENSE) for details.

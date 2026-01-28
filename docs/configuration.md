@@ -68,7 +68,7 @@ STRAPI_TIMEOUT=30
 
 ## API Version Detection
 
-The `api_version` setting controls how py-strapi detects your Strapi version:
+The `api_version` setting controls how strapi-kit detects your Strapi version:
 
 - `"auto"` (default): Automatically detects v4 or v5 from first response
 - `"v4"`: Forces Strapi v4 format

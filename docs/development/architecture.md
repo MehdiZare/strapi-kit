@@ -1,6 +1,6 @@
 # Architecture
 
-This document provides an overview of py-strapi's architecture and design decisions.
+This document provides an overview of strapi-kit's architecture and design decisions.
 
 ## High-Level Overview
 

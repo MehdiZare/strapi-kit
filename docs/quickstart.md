@@ -2,10 +2,10 @@
 
 ## Basic Setup
 
-### 1. Install py-strapi
+### 1. Install strapi-kit
 
 ```bash
-pip install py-strapi
+pip install strapi-kit
 ```
 
 ### 2. Configure Your Client

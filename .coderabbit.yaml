@@ -1,4 +1,4 @@
-# CodeRabbit Configuration for py-strapi
+# CodeRabbit Configuration for strapi-kit
 # AI-powered code review for pull requests
 
 # Language configuration
@@ -78,7 +78,7 @@ chat:
 knowledge_base:
   # Project context
   learnings:
-    - "py-strapi is a Strapi CMS client library for Python 3.12+"
+    - "strapi-kit is a Strapi CMS client library for Python 3.12+"
     - "Dual client design: BaseClient with SyncClient and AsyncClient implementations"
     - "Supports both Strapi v4 and v5 with automatic version detection"
     - "Uses Pydantic for configuration and validation"

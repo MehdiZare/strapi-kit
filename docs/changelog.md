@@ -34,5 +34,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type-safe configuration
 - Exception handling
 
-[Unreleased]: https://github.com/mehdizare/py-strapi/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/mehdizare/py-strapi/releases/tag/v0.1.0
+[Unreleased]: https://github.com/mehdizare/strapi-kit/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mehdizare/strapi-kit/releases/tag/v0.1.0

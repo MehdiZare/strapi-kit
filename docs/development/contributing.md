@@ -1,6 +1,6 @@
-# Contributing to py-strapi
+# Contributing to strapi-kit
 
-Thank you for your interest in contributing to py-strapi! This guide will help you get started.
+Thank you for your interest in contributing to strapi-kit! This guide will help you get started.
 
 ## Development Setup
 
@@ -14,8 +14,8 @@ Thank you for your interest in contributing to py-strapi! This guide will help y
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/py-strapi.git
-cd py-strapi
+git clone https://github.com/YOUR_USERNAME/strapi-kit.git
+cd strapi-kit
 
 # Create virtual environment
 python -m venv .venv

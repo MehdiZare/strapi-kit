@@ -1,10 +1,10 @@
-site_name: py-strapi
+site_name: strapi-kit
 site_description: A modern Python client for Strapi CMS with comprehensive import/export capabilities
 site_author: Mehdi Zare
-site_url: https://mehdizare.github.io/py-strapi/
+site_url: https://mehdizare.github.io/strapi-kit/
 
-repo_name: mehdizare/py-strapi
-repo_url: https://github.com/mehdizare/py-strapi
+repo_name: mehdizare/strapi-kit
+repo_url: https://github.com/mehdizare/strapi-kit
 edit_uri: edit/main/docs/
 
 theme:
@@ -111,9 +111,9 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/mehdizare/py-strapi
+      link: https://github.com/mehdizare/strapi-kit
     - icon: fontawesome/brands/python
-      link: https://pypi.org/project/py-strapi/
+      link: https://pypi.org/project/strapi-kit/
   version:
     provider: mike
 

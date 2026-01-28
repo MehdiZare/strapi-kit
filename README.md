@@ -1,5 +1,7 @@
 # py-strapi
 
+**PyPI Package**: `strapi-kit`
+
 A modern Python client for Strapi CMS with comprehensive import/export capabilities.
 
 ## Features
@@ -14,13 +16,13 @@ A modern Python client for Strapi CMS with comprehensive import/export capabilit
 ## Installation
 
 ```bash
-pip install py-strapi
+pip install strapi-kit
 ```
 
 Or with uv (recommended for faster installs):
 
 ```bash
-uv pip install py-strapi
+uv pip install strapi-kit
 ```
 
 For development:

@@ -11,18 +11,18 @@ RED := \033[0;31m
 NC := \033[0m # No Color
 
 help: ## Show this help message
-	@echo "$(BLUE)py-strapi Development Commands$(NC)"
+	@echo "$(BLUE)strapi-kit Development Commands$(NC)"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 
 # Installation
 install: ## Install package for production use
-	@echo "$(BLUE)Installing py-strapi...$(NC)"
+	@echo "$(BLUE)Installing strapi-kit...$(NC)"
 	uv pip install -e .
 
 install-dev: ## Install package with development dependencies
-	@echo "$(BLUE)Installing py-strapi with dev dependencies...$(NC)"
+	@echo "$(BLUE)Installing strapi-kit with dev dependencies...$(NC)"
 	uv pip install -e ".[dev]"
 	@echo "$(GREEN)✓ Installation complete$(NC)"
 
@@ -168,7 +168,7 @@ shell: ## Start Python shell with project loaded
 	@python -c "import py_strapi; import IPython; IPython.embed()"
 
 info: ## Show project information
-	@echo "$(BLUE)py-strapi Project Information$(NC)"
+	@echo "$(BLUE)strapi-kit Project Information$(NC)"
 	@echo ""
 	@echo "  Python version:    $$(python --version)"
 	@echo "  Package version:   $$(python -c 'import py_strapi; print(py_strapi.__version__)' 2>/dev/null || echo 'Not installed')"
