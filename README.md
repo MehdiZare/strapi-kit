@@ -162,3 +162,14 @@ MIT License - see LICENSE file for details.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Development Process
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes and add tests
+4. Run quality checks: `make pre-commit`
+5. Commit your changes with conventional commits format
+6. Push to your fork and submit a Pull Request
+
+**Automated Reviews:** All PRs are automatically reviewed by CodeRabbit AI for code quality, security, and best practices.

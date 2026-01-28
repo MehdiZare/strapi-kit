@@ -286,6 +286,21 @@ def test_something(respx_mock):
 
 ## Development Workflow
 
+### Code Review & CI
+
+**Automated Code Review:**
+- CodeRabbit AI reviews all pull requests automatically
+- Configuration: `.coderabbit.yaml`
+- Focuses on: security, type safety, test coverage, code quality
+- Checks: conventional commits, PR title format
+- Auto-labels PRs based on changed files
+
+**Required Checks:**
+- All tests must pass (pytest)
+- Type checking must pass (mypy strict mode)
+- Linting must pass (ruff)
+- Coverage should maintain 85%+
+
 ### Dependency Management
 
 **py-strapi uses uv for fast dependency management:**
