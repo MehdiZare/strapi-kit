@@ -74,11 +74,11 @@ jobs:
           fi
 
           # Install project with docs dependencies
-          uv sync --group docs
+          uv sync --extra docs
 
           # Install git for version detection
           echo "📦 Installing git and hatchling for versioning"
-          uv pip install --system hatchling hatch-vcs
+          uv pip install hatchling hatch-vcs
 
       - name: Get package version
         id: version
@@ -135,6 +135,6 @@ jobs:
           echo "🔗 **[View Documentation](${{ steps.deployment.outputs.page_url }})**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Quick Links" >> $GITHUB_STEP_SUMMARY
-          echo "- [API Reference](${{ steps.deployment.outputs.page_url }}api/)" >> $GITHUB_STEP_SUMMARY
           echo "- [Installation Guide](${{ steps.deployment.outputs.page_url }}installation/)" >> $GITHUB_STEP_SUMMARY
-          echo "- [Examples](${{ steps.deployment.outputs.page_url }}examples/)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Quickstart](${{ steps.deployment.outputs.page_url }}quickstart/)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Configuration](${{ steps.deployment.outputs.page_url }}configuration/)" >> $GITHUB_STEP_SUMMARY

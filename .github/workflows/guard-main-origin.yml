@@ -14,9 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check if PR is from allowed branch
+        env:
+          BRANCH: ${{ github.head_ref }}
         run: |
-          BRANCH="${{ github.head_ref }}"
-
           # Allow PRs from dev, hotfix, or updates branches
           if [[ "$BRANCH" == "dev" ]] || [[ "$BRANCH" =~ ^hotfix-.* ]] || [[ "$BRANCH" =~ ^updates-.* ]]; then
             echo "✅ Origin branch '$BRANCH' is allowed"
