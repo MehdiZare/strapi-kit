@@ -8,7 +8,36 @@ This file helps Claude Code instances work efficiently in this codebase. It cont
 
 ## Essential Commands
 
-### Testing
+### Using Makefile (Recommended)
+
+The project includes a comprehensive Makefile for common tasks:
+
+```bash
+# See all available commands
+make help
+
+# Quick shortcuts
+make t          # Run tests
+make c          # Run tests with coverage
+make f          # Format code
+make l          # Run linting
+make tc         # Type check
+
+# Full pre-commit checks (format + lint + type-check + test)
+make pre-commit
+
+# Documentation
+make docs-serve  # Serve docs locally at http://127.0.0.1:8000
+make docs-build  # Build documentation
+
+# Quality checks
+make quality     # Run lint + type-check
+make clean       # Remove all build/test artifacts
+```
+
+### Direct Commands (without Make)
+
+#### Testing
 ```bash
 # Run all tests with output
 pytest -v
@@ -18,12 +47,9 @@ pytest --cov=py_strapi --cov-report=html --cov-report=term
 
 # Run specific test file
 pytest tests/unit/test_client.py -v
-
-# Run async tests specifically
-pytest tests/unit/test_async_client.py -v
 ```
 
-### Type Checking
+#### Type Checking
 ```bash
 # Full type check (strict mode enabled)
 mypy src/py_strapi/
@@ -32,7 +58,7 @@ mypy src/py_strapi/
 mypy src/py_strapi/ --show-error-codes
 ```
 
-### Linting & Formatting
+#### Linting & Formatting
 ```bash
 # Format all code (modifies files)
 ruff format src/ tests/
@@ -42,6 +68,18 @@ ruff check src/ tests/
 
 # Auto-fix linting issues
 ruff check src/ tests/ --fix
+```
+
+#### Documentation
+```bash
+# Serve documentation locally
+mkdocs serve
+
+# Build documentation
+mkdocs build
+
+# Deploy to GitHub Pages
+mkdocs gh-deploy
 ```
 
 ### Coverage Requirements
@@ -90,28 +128,25 @@ BaseClient (client/base.py)
 
 ```
 StrapiError (base)
-├─ HTTPError (HTTP failures)
-│  ├─ AuthenticationError (401)
-│  ├─ AuthorizationError (403)
-│  ├─ NotFoundError (404)
-│  ├─ ValidationError (400)
-│  ├─ ConflictError (409)
-│  └─ ServerError (5xx)
+├─ AuthenticationError (401)
+├─ AuthorizationError (403)
+├─ NotFoundError (404)
+├─ ValidationError (400)
+├─ ConflictError (409)
+├─ ServerError (5xx)
 ├─ NetworkError (connection issues)
 │  ├─ ConnectionError
 │  ├─ TimeoutError
 │  └─ RateLimitError
-└─ DataError (data operations)
-   ├─ ImportError
-   │  ├─ FormatError
-   │  ├─ RelationError
-   │  └─ MediaError
-   └─ ExportError
+└─ ImportExportError (data operations)
+   ├─ FormatError
+   ├─ RelationError
+   └─ MediaError
 ```
 
 **Usage pattern**: Always catch specific exceptions before generic ones. All exceptions carry optional `details: dict[str, Any]` for context.
 
-**HTTP mapping** (client/base.py:_handle_http_error):
+**HTTP mapping** (client/base.py:_handle_error_response):
 - 401 → AuthenticationError
 - 403 → AuthorizationError
 - 404 → NotFoundError
@@ -128,27 +163,31 @@ StrapiError (base)
 
 ```python
 StrapiConfig(
-    base_url: str                    # Required: Strapi instance URL
-    api_token: str | None           # Required for authenticated endpoints
+    base_url: str                    # Required: Strapi instance URL (trailing slash stripped)
+    api_token: SecretStr             # Required for authenticated endpoints
     api_version: Literal["auto", "v4", "v5"] = "auto"
     timeout: float = 30.0
     max_connections: int = 10
-    max_keepalive: int = 5
+    retry: RetryConfig
+    rate_limit_per_second: float | None = None
+    verify_ssl: bool = True
+)
 
-    # Retry configuration
-    retry_max_attempts: int = 3
-    retry_multiplier: float = 1.0
-    retry_min_wait: float = 1.0
-    retry_max_wait: float = 10.0
+RetryConfig(
+    max_attempts: int = 3
+    initial_wait: float = 1.0
+    max_wait: float = 60.0
+    exponential_base: float = 2.0
+    retry_on_status: set[int] = {500, 502, 503, 504}
 )
 ```
 
 **Environment variable support**: All fields can be set via `STRAPI_*` env vars (e.g., `STRAPI_BASE_URL`).
 
 **Validation rules**:
-- `base_url` must be valid HTTP(S) URL (enforced by Pydantic `HttpUrl`)
+- `base_url` trailing slash is stripped; enforce HTTP(S) URLs if you change config types
 - `timeout` must be positive
-- `retry_max_attempts` range: 1-10
+- `retry.max_attempts` range: 1-10
 
 ---
 
@@ -157,7 +196,7 @@ StrapiConfig(
 While import/export functionality isn't implemented yet, the foundation is prepared:
 
 ### Exception Infrastructure
-- `ImportError`, `ExportError`, `FormatError`, `RelationError`, `MediaError` already defined
+- `ImportExportError`, `FormatError`, `RelationError`, `MediaError` already defined
 - These will be raised during data validation and transfer operations
 
 ### Design Principles for Future Implementation
@@ -213,7 +252,7 @@ def test_something(respx_mock):
 - Future: `tests/integration/`: Tests against real Strapi instance (Docker)
 
 ### Async Testing
-- pytest-asyncio handles `async def test_*` automatically
+- pytest-asyncio handles `async def test_*` automatically (marks optional with auto mode)
 - Use `async with AsyncClient(...) as client` in tests
 - No need for `@pytest.mark.asyncio` (auto mode enabled)
 
@@ -253,8 +292,9 @@ def test_something(respx_mock):
 3. **Extend sync/async clients** if client-specific (client/sync_client.py, client/async_client.py)
 4. **Add exceptions** if new error cases (exceptions/errors.py)
 5. **Write tests** for both sync and async paths (tests/unit/)
-6. **Update type hints** and verify with mypy
-7. **Run full test suite** including coverage check
+6. **Update docs/metadata** so README, `pyproject.toml`, and public docstrings match reality
+7. **Update type hints** and verify with mypy
+8. **Run full test suite** including coverage check
 
 ### Pre-commit Checklist
 ```bash
@@ -284,19 +324,19 @@ pytest --cov=py_strapi --cov-report=term
 
 ### Authentication (auth/api_token.py)
 - API token injected as `Authorization: Bearer <token>` header
-- Token validation happens in `APITokenAuth.__init__`
-- Token masked in logs/repr as `"token-****<last-4>"`
+- Token validation happens in `BaseClient.__init__`
+- Token masked in logs/repr as `"abcd...wxyz"` (or `"****"` if too short)
 
 ### Connection Pooling
-- **Sync**: `httpx.Client` with limits (max_connections, max_keepalive)
+- **Sync**: `httpx.Client` with limits (max_connections, keepalive uses same value)
 - **Async**: `httpx.AsyncClient` with same limits
 - **Context managers**: Ensure proper cleanup (`__enter__`/`__exit__` and `__aenter__`/`__aexit__`)
 
 ### Retry Logic (Planned - Phase 4)
 - Decorator infrastructure ready with tenacity
-- Configured via `StrapiConfig.retry_*` fields
-- Not yet active - needs explicit `@retry` decorator application
-- Will target: `ConnectionError`, `TimeoutError`, `RateLimitError`, `ServerError` (5xx)
+- Configured via nested `RetryConfig`
+- Not yet active - needs explicit use of `self._create_retry_decorator()`
+- `retry_on_status` is currently unused; wire it up if retry is implemented
 
 ---
 
