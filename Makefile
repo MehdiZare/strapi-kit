@@ -134,20 +134,10 @@ build: clean ## Build source and wheel distributions
 	@echo "$(GREEN)✓ Build complete - packages in dist/$(NC)"
 
 # Version Management
-bump-patch: ## Bump patch version (0.1.0 -> 0.1.1)
-	@echo "$(BLUE)Bumping patch version...$(NC)"
-	bump2version patch
-	@echo "$(GREEN)✓ Version bumped$(NC)"
-
-bump-minor: ## Bump minor version (0.1.0 -> 0.2.0)
-	@echo "$(BLUE)Bumping minor version...$(NC)"
-	bump2version minor
-	@echo "$(GREEN)✓ Version bumped$(NC)"
-
-bump-major: ## Bump major version (0.1.0 -> 1.0.0)
-	@echo "$(BLUE)Bumping major version...$(NC)"
-	bump2version major
-	@echo "$(GREEN)✓ Version bumped$(NC)"
+# Note: Versioning is git-tag based via hatch-vcs
+# To create a new version, create and push a git tag:
+#   git tag -a v0.2.0 -m "Release v0.2.0"
+#   git push origin v0.2.0
 
 # Release
 release-check: quality test coverage ## Run all checks before release
@@ -187,21 +177,8 @@ git-status: ## Show git status and branch info
 	@echo "$(BLUE)Recent commits:$(NC)"
 	@git log --oneline -5
 
-# Strapi test instance (requires Docker)
-strapi-up: ## Start a local Strapi instance for testing (requires Docker)
-	@echo "$(BLUE)Starting Strapi test instance...$(NC)"
-	@echo "$(YELLOW)Note: This requires Docker to be installed$(NC)"
-	docker run -d \
-		--name strapi-test \
-		-p 1337:1337 \
-		-e DATABASE_CLIENT=sqlite \
-		-e DATABASE_FILENAME=.tmp/data.db \
-		strapi/strapi:latest
-	@echo "$(GREEN)✓ Strapi running at http://localhost:1337$(NC)"
-
-strapi-down: ## Stop the local Strapi test instance
-	@echo "$(BLUE)Stopping Strapi test instance...$(NC)"
-	docker stop strapi-test && docker rm strapi-test
+# Strapi test instance (TODO - not yet implemented)
+# Integration tests with Docker-based Strapi instance are planned for future phases
 	@echo "$(GREEN)✓ Strapi stopped$(NC)"
 
 # Quick shortcuts

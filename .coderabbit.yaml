@@ -2,7 +2,7 @@
 # AI-powered code review for pull requests
 
 # Language configuration
-language: python
+language: en-US
 
 # Review settings
 reviews:
@@ -76,16 +76,14 @@ chat:
 
 # Knowledge base - key project information
 knowledge_base:
-  # Project context
+  # Use project guidelines from CLAUDE.md
   learnings:
-    - "strapi-kit is a Strapi CMS client library for Python 3.12+"
-    - "Dual client design: BaseClient with SyncClient and AsyncClient implementations"
-    - "Supports both Strapi v4 and v5 with automatic version detection"
-    - "Uses Pydantic for configuration and validation"
-    - "httpx for HTTP operations (sync and async)"
-    - "Strict mypy type checking is enforced"
-    - "Target is 85%+ test coverage"
-    - "All new features need both sync and async tests"
+    scope: local
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CLAUDE.md"
+      - "AGENTS.md"
 
 # Code scanning rules
 tone_instructions: |

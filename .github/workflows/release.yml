@@ -110,13 +110,12 @@ jobs:
 
       - name: 📋 Generate release notes from PR
         id: release_notes
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
-          # Get PR body and title
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
-          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
-
           # Determine release type based on branch
           if [[ "$PR_BRANCH" =~ ^hotfix-.* ]]; then
             RELEASE_TYPE="🔥 Hotfix"
