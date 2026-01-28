@@ -48,7 +48,7 @@ docs = [
 
 [project.urls]
 Homepage = "https://github.com/mehdizare/py-strapi"
-Documentation = "https://mehdizare.github.io/py-strapi/"
+Documentation = "https://mehdizare.github.io/strapi-kit/"
 Repository = "https://github.com/mehdizare/py-strapi"
 Issues = "https://github.com/mehdizare/py-strapi/issues"
 
