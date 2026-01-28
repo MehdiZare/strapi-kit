@@ -115,5 +115,5 @@ config = StrapiConfig(
 
 ## Next Steps
 
-- [Client Documentation](guide/clients.md)
-- [Error Handling](guide/errors.md)
+- [Client Architecture](development/architecture.md#client-architecture)
+- [Exception Handling](development/architecture.md#exception-hierarchy)

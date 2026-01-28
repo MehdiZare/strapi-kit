@@ -67,5 +67,5 @@ config = StrapiConfig()
 ## Next Steps
 
 - [Configuration Guide](configuration.md)
-- [Client Documentation](guide/clients.md)
-- [More Examples](examples/basic.md)
+- [Client Architecture](development/architecture.md#client-architecture)
+- [Development Guide](development/contributing.md)

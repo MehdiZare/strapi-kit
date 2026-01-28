@@ -181,6 +181,8 @@ def create_entry(collection: str, data: dict[str, Any]) -> dict[str, Any]:
 - Include context in exception details
 
 ```python
+from py_strapi.exceptions import ConnectionError
+
 # Good
 try:
     response = client.post("articles", json=data)

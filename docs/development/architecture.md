@@ -124,8 +124,8 @@ StrapiError (base)
 ├─ ConflictError (409)
 ├─ ServerError (5xx)
 ├─ NetworkError
-│  ├─ ConnectionError
-│  ├─ TimeoutError
+│  ├─ ConnectionError (from py_strapi.exceptions, not builtin)
+│  ├─ TimeoutError (from py_strapi.exceptions, not builtin)
 │  └─ RateLimitError
 └─ ImportExportError
    ├─ FormatError
@@ -210,6 +210,8 @@ async with AsyncClient(config) as client:
 Always preserve the original exception:
 
 ```python
+from py_strapi.exceptions import ConnectionError
+
 try:
     response = httpx_client.get(url)
 except httpx.HTTPError as e:

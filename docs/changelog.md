@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Authentication via API tokens
 - Complete exception hierarchy
 - Automatic Strapi v4/v5 version detection
-- Comprehensive test suite with 82% coverage
+- Comprehensive test suite with 85%+ coverage target
 - GitHub Actions CI/CD workflows
 - Documentation with MkDocs
 

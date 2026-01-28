@@ -135,8 +135,8 @@ StrapiError (base)
 ├─ ConflictError (409)
 ├─ ServerError (5xx)
 ├─ NetworkError (connection issues)
-│  ├─ ConnectionError
-│  ├─ TimeoutError
+│  ├─ ConnectionError (from py_strapi.exceptions, not builtin)
+│  ├─ TimeoutError (from py_strapi.exceptions, not builtin)
 │  └─ RateLimitError
 └─ ImportExportError (data operations)
    ├─ FormatError
@@ -426,7 +426,7 @@ pytest --cov=py_strapi --cov-report=term
 
 4. **Async test setup**: No need for explicit event loop fixtures - pytest-asyncio auto mode handles it.
 
-5. **Import naming conflict**: `ConnectionError` conflicts with builtin - import as `StrapiConnectionError`.
+5. **Import naming conflict**: `ConnectionError` and `TimeoutError` conflict with builtins - always import explicitly from `py_strapi.exceptions` to avoid confusion.
 
 6. **API prefix**: Don't include `/api/` in endpoint strings - it's added automatically.
 
