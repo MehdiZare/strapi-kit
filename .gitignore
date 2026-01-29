@@ -104,12 +104,17 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
+.env.*.local
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# UV (Python package installer)
+uv.lock
 
 # Spyder project settings
 .spyderproject
@@ -132,6 +137,9 @@ dmypy.json
 # pytype static type analyzer
 .pytype/
 
+# Ruff cache
+.ruff_cache/
+
 # Cython debug symbols
 cython_debug/
 
@@ -146,7 +154,21 @@ cython_debug/
 .DS_Store
 Thumbs.db
 
+# Secrets & Keys
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.yaml
+secrets.json
+credentials.json
+
 # Project-specific
 /backup/
 /examples/backup/
 *.bak
+temp/
+tmp/
+
+# Hatch version file (auto-generated during build)
+src/py_strapi/_version.py

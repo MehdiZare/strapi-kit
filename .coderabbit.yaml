@@ -1,0 +1,83 @@
+# CodeRabbit Configuration for strapi-kit
+# AI-powered code review for pull requests
+# Configuration follows CodeRabbit v2 schema
+
+# Language configuration
+language: en-US
+
+# Early access features
+early_access: false
+
+# Tone and style
+tone_instructions: |
+  - Be constructive and helpful
+  - Focus on code quality, security, and maintainability
+  - Suggest improvements with examples when possible
+  - Acknowledge good practices
+  - Be concise but clear
+
+# Review settings
+reviews:
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+      - dev
+
+  # Path-based filters (files to skip reviewing)
+  path_filters:
+    - "!**/*.md"
+    - "!**/*.txt"
+    - "!**/*.json"
+    - "!**/*.yaml"
+    - "!**/*.yml"
+    - "!**/__pycache__/**"
+    - "!**/*.pyc"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/.venv/**"
+
+  # Path-specific instructions
+  path_instructions:
+    - path: "tests/**"
+      instructions: |
+        - Focus on test correctness and coverage
+        - Ensure both sync and async tests are present
+        - Check for proper use of fixtures and mocks
+        - Verify async tests use proper asyncio patterns
+
+    - path: "src/py_strapi/**"
+      instructions: |
+        - Verify type hints are complete and accurate (mypy strict mode)
+        - Check for proper exception handling with specific exception types
+        - Ensure docstrings follow Google style
+        - Look for security issues (injection, secrets, etc.)
+        - Verify both sync and async implementations are consistent
+        - Check Pydantic models have proper validation
+
+    - path: "**/*.py"
+      instructions: |
+        - Python 3.12+ features are encouraged
+        - Use type hints for all functions
+        - Follow project's exception hierarchy
+        - Keep functions focused and single-purpose
+        - Avoid over-engineering or premature abstraction
+
+# AI chat
+chat:
+  auto_reply: true
+
+# Knowledge base
+knowledge_base:
+  learnings:
+    scope: local
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CLAUDE.md"
+      - "AGENTS.md"

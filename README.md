@@ -1,5 +1,7 @@
 # py-strapi
 
+**PyPI Package**: `strapi-kit`
+
 A modern Python client for Strapi CMS with comprehensive import/export capabilities.
 
 ## Features
@@ -14,13 +16,23 @@ A modern Python client for Strapi CMS with comprehensive import/export capabilit
 ## Installation
 
 ```bash
-pip install py-strapi
+pip install strapi-kit
+```
+
+Or with uv (recommended for faster installs):
+
+```bash
+uv pip install strapi-kit
 ```
 
 For development:
 
 ```bash
-pip install py-strapi[dev]
+# With pip
+pip install -e ".[dev]"
+
+# With uv (recommended)
+uv pip install -e ".[dev]"
 ```
 
 ## Quick Start
@@ -100,7 +112,9 @@ cd py-strapi
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install dependencies
+# Install dependencies (uv is recommended for faster installs)
+uv pip install -e ".[dev]"
+# Or with pip
 pip install -e ".[dev]"
 ```
 
@@ -150,3 +164,14 @@ MIT License - see LICENSE file for details.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Development Process
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes and add tests
+4. Run quality checks: `make pre-commit`
+5. Commit your changes with conventional commits format
+6. Push to your fork and submit a Pull Request
+
+**Automated Reviews:** All PRs are automatically reviewed by CodeRabbit AI for code quality, security, and best practices.

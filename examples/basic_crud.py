@@ -33,8 +33,8 @@ def main() -> None:
         try:
             new_article = {
                 "data": {
-                    "title": "Test Article from py-strapi",
-                    "content": "This article was created using the py-strapi library.",
+                    "title": "Test Article from strapi-kit",
+                    "content": "This article was created using the strapi-kit library.",
                 }
             }
             response = client.post("articles", json=new_article)

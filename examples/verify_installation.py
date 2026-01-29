@@ -1,4 +1,4 @@
-"""Verify py-strapi installation and basic functionality.
+"""Verify strapi-kit installation and basic functionality.
 
 This script verifies that the package is properly installed and
 can be imported without errors.
@@ -19,7 +19,7 @@ def verify_imports() -> None:
     print("Verifying imports...")
 
     # Check version
-    print(f"  py-strapi version: {__version__}")
+    print(f"  strapi-kit version: {__version__}")
 
     # Check clients
     assert SyncClient is not None
@@ -76,7 +76,7 @@ def verify_client_creation() -> None:
 def main() -> None:
     """Run all verification checks."""
     print("=" * 60)
-    print("py-strapi Installation Verification")
+    print("strapi-kit Installation Verification")
     print("=" * 60)
 
     try:

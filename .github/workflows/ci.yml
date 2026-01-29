@@ -1,0 +1,102 @@
+name: Test-Matrix
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+          - "3.12"
+          - "3.13"
+
+    steps:
+      - name: 🛎️  Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 🐍  Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: ⚡  Install uv (with cache)
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: ▶️  Run Tests
+        env:
+          CI: "true"
+        run: |
+          # Install project with dev dependencies
+          uv pip install --system -e ".[dev]"
+
+          # Run tests
+          echo "Running tests for Python ${{ matrix.python }}"
+          pytest -v
+
+      - name: 🔍 Quality Gates
+        if: matrix.python == '3.13'
+        run: |
+          # Run linting
+          ruff check src/ tests/
+
+          # Run type checking
+          mypy src/py_strapi/
+
+  # Coverage job - run all tests in one job for simplicity
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🛎️  Checkout
+        uses: actions/checkout@v6
+
+      - name: 🐍  Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: ⚡  Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: 📊 Run all tests with coverage
+        run: |
+          # Install project with dev dependencies
+          uv pip install --system -e ".[dev]"
+
+          # Run tests with coverage
+          pytest --cov=py_strapi --cov-report=xml --cov-report=term -v
+
+      - name: 📈 Coverage upload
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+
+  test-matrix-expected:
+    name: Test-MatrixExpected
+    runs-on: ubuntu-latest
+    needs: [tests, coverage]
+    if: ${{ always() }}
+    steps:
+      - name: ✅ Verify matrix results
+        run: |
+          if [[ "${{ needs.tests.result }}" != "success" || "${{ needs.coverage.result }}" != "success" ]]; then
+            echo "Upstream checks failed"
+            exit 1
+          fi
+          echo "All required checks passed"
