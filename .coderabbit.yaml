@@ -1,50 +1,48 @@
 # CodeRabbit Configuration for strapi-kit
 # AI-powered code review for pull requests
+# Configuration follows CodeRabbit v2 schema
 
 # Language configuration
 language: en-US
 
+# Early access features
+early_access: false
+
+# Tone and style
+tone_instructions: |
+  - Be constructive and helpful
+  - Focus on code quality, security, and maintainability
+  - Suggest improvements with examples when possible
+  - Acknowledge good practices
+  - Be concise but clear
+
 # Review settings
 reviews:
-  # Request changes for critical issues
-  request_changes_workflow: true
-
-  # High-level overview comments
   high_level_summary: true
-
-  # Poem style summary (fun!)
-  poem: false
-
-  # Review entire files for context
   review_status: true
-
-  # Collapse resolved threads
   collapse_walkthrough: false
 
-  # Auto-review settings
   auto_review:
     enabled: true
-
-    # Don't auto-review drafts
     drafts: false
-
-    # Review base branches
     base_branches:
       - main
       - dev
 
-  # Path-based filters
+  # Path-based filters (files to skip reviewing)
   path_filters:
-    # Always review
-    - "!**/*.md"  # Skip markdown files (docs)
+    - "!**/*.md"
     - "!**/*.txt"
     - "!**/*.json"
     - "!**/*.yaml"
     - "!**/*.yml"
-    - "!**/LICENSE"
-    - "!**/.gitignore"
+    - "!**/__pycache__/**"
+    - "!**/*.pyc"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/.venv/**"
 
-  # Excluded paths (never review)
+  # Path-specific instructions
   path_instructions:
     - path: "tests/**"
       instructions: |
@@ -70,13 +68,12 @@ reviews:
         - Keep functions focused and single-purpose
         - Avoid over-engineering or premature abstraction
 
-# AI instructions for code review
+# AI chat
 chat:
   auto_reply: true
 
-# Knowledge base - key project information
+# Knowledge base
 knowledge_base:
-  # Use project guidelines from CLAUDE.md
   learnings:
     scope: local
   code_guidelines:
@@ -84,170 +81,3 @@ knowledge_base:
     filePatterns:
       - "CLAUDE.md"
       - "AGENTS.md"
-
-# Code scanning rules
-tone_instructions: |
-  - Be constructive and helpful
-  - Focus on code quality, security, and maintainability
-  - Suggest improvements with examples when possible
-  - Acknowledge good practices
-  - Be concise but clear
-
-# Early access features
-early_access: false
-
-# Custom review guidelines
-guidelines:
-  # Security checks
-  - "Check for SQL injection, command injection, XSS vulnerabilities"
-  - "Verify API tokens and secrets are not hardcoded"
-  - "Ensure user input is validated and sanitized"
-  - "Check for proper exception handling that doesn't leak sensitive info"
-
-  # Code quality
-  - "Verify all public functions have type hints and docstrings"
-  - "Check for code duplication between sync and async clients"
-  - "Ensure proper exception chaining (raise ... from e)"
-  - "Look for over-engineering or unnecessary complexity"
-
-  # Testing
-  - "New features should have corresponding tests"
-  - "Tests should cover both success and error cases"
-  - "Both sync and async variants should be tested"
-  - "Mock external HTTP calls with respx"
-
-  # Documentation
-  - "Public APIs need docstrings with Args, Returns, Raises sections"
-  - "Complex logic should have inline comments"
-  - "README examples should be tested"
-
-# Integration with external tools
-tools:
-  # Respect existing linters
-  ruff:
-    enabled: true
-
-  mypy:
-    enabled: true
-
-  pytest:
-    enabled: true
-
-# Ignore patterns
-ignore:
-  # Generated files
-  - "**/__pycache__/**"
-  - "**/*.pyc"
-  - "**/*.pyo"
-  - "**/*.egg-info/**"
-  - "**/dist/**"
-  - "**/build/**"
-  - "**/.pytest_cache/**"
-  - "**/.mypy_cache/**"
-  - "**/.ruff_cache/**"
-
-  # Documentation build artifacts
-  - "**/site/**"
-  - "**/docs/_build/**"
-
-  # Virtual environments
-  - "**/.venv/**"
-  - "**/venv/**"
-  - "**/env/**"
-
-  # IDE files
-  - "**/.vscode/**"
-  - "**/.idea/**"
-  - "**/*.swp"
-
-  # OS files
-  - "**/.DS_Store"
-  - "**/Thumbs.db"
-
-  # Lock files
-  - "**/uv.lock"
-  - "**/poetry.lock"
-  - "**/Pipfile.lock"
-
-# Review scope
-scope:
-  # Focus on these file types
-  include_file_types:
-    - ".py"
-    - ".pyi"
-
-  # Exclude these
-  exclude_file_types:
-    - ".md"
-    - ".txt"
-    - ".json"
-    - ".yaml"
-    - ".yml"
-    - ".toml"
-
-# Thresholds for alerts
-thresholds:
-  # File size warnings
-  file_size: 500  # lines
-
-  # Function complexity
-  cyclomatic_complexity: 10
-
-  # Function length
-  function_length: 50  # lines
-
-# PR title checks
-pr_title:
-  # Check PR titles follow conventional commits
-  conventional_commits: true
-
-  # Required format
-  pattern: "^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\\(.+\\))?: .+"
-
-# Commit message checks
-commit_messages:
-  # Check conventional commits format
-  conventional_commits: true
-
-# Labels to add based on changes
-labeling:
-  # Auto-add labels based on paths changed
-  path_based:
-    "type: tests":
-      - "tests/**"
-
-    "type: docs":
-      - "docs/**"
-      - "**/*.md"
-      - "mkdocs.yml"
-
-    "type: ci":
-      - ".github/**"
-      - "Makefile"
-
-    "type: dependencies":
-      - "pyproject.toml"
-      - "requirements*.txt"
-
-    "area: client":
-      - "src/py_strapi/client/**"
-
-    "area: config":
-      - "src/py_strapi/models/config.py"
-
-    "area: exceptions":
-      - "src/py_strapi/exceptions/**"
-
-    "area: auth":
-      - "src/py_strapi/auth/**"
-
-# Summary settings
-summary:
-  # Include file-level changes
-  file_level: true
-
-  # Include function-level changes
-  function_level: true
-
-  # Show statistics
-  statistics: true
