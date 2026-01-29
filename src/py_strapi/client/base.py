@@ -30,6 +30,13 @@ from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
 from ..models.config import StrapiConfig
+from ..models.response.normalized import (
+    NormalizedCollectionResponse,
+    NormalizedEntity,
+    NormalizedSingleResponse,
+)
+from ..models.response.v4 import V4CollectionResponse, V4SingleResponse
+from ..models.response.v5 import V5CollectionResponse, V5SingleResponse
 
 logger = logging.getLogger(__name__)
 
@@ -239,3 +246,75 @@ class BaseClient:
             API version or None if not yet detected
         """
         return self._api_version
+
+    def _parse_single_response(
+        self, response_data: dict[str, Any]
+    ) -> NormalizedSingleResponse:
+        """Parse a single entity response into normalized format.
+
+        Args:
+            response_data: Raw JSON response from Strapi
+
+        Returns:
+            Normalized single entity response
+
+        Examples:
+            >>> response_data = {"data": {"id": 1, "documentId": "abc", ...}}
+            >>> normalized = client._parse_single_response(response_data)
+            >>> normalized.data.id
+            1
+        """
+        # Detect API version from response
+        api_version = self._detect_api_version(response_data)
+
+        if api_version == "v4":
+            # Parse as v4 and normalize
+            v4_response = V4SingleResponse(**response_data)
+            if v4_response.data:
+                normalized_entity = NormalizedEntity.from_v4(v4_response.data)
+            else:
+                normalized_entity = None
+
+            return NormalizedSingleResponse(data=normalized_entity, meta=v4_response.meta)
+        else:
+            # Parse as v5 and normalize
+            v5_response = V5SingleResponse(**response_data)
+            if v5_response.data:
+                normalized_entity = NormalizedEntity.from_v5(v5_response.data)
+            else:
+                normalized_entity = None
+
+            return NormalizedSingleResponse(data=normalized_entity, meta=v5_response.meta)
+
+    def _parse_collection_response(
+        self, response_data: dict[str, Any]
+    ) -> NormalizedCollectionResponse:
+        """Parse a collection response into normalized format.
+
+        Args:
+            response_data: Raw JSON response from Strapi
+
+        Returns:
+            Normalized collection response
+
+        Examples:
+            >>> response_data = {"data": [{"id": 1, ...}, {"id": 2, ...}]}
+            >>> normalized = client._parse_collection_response(response_data)
+            >>> len(normalized.data)
+            2
+        """
+        # Detect API version from response
+        api_version = self._detect_api_version(response_data)
+
+        if api_version == "v4":
+            # Parse as v4 and normalize
+            v4_response = V4CollectionResponse(**response_data)
+            normalized_entities = [NormalizedEntity.from_v4(entity) for entity in v4_response.data]
+
+            return NormalizedCollectionResponse(data=normalized_entities, meta=v4_response.meta)
+        else:
+            # Parse as v5 and normalize
+            v5_response = V5CollectionResponse(**response_data)
+            normalized_entities = [NormalizedEntity.from_v5(entity) for entity in v5_response.data]
+
+            return NormalizedCollectionResponse(data=normalized_entities, meta=v5_response.meta)

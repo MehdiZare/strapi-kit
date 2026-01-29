@@ -16,6 +16,8 @@ from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
 )
 from ..models.config import StrapiConfig
+from ..models.request.query import StrapiQuery
+from ..models.response.normalized import NormalizedCollectionResponse, NormalizedSingleResponse
 from .base import BaseClient
 
 logger = logging.getLogger(__name__)
@@ -214,3 +216,151 @@ class AsyncClient(BaseClient):
             Response JSON data
         """
         return await self.request("DELETE", endpoint, params=params, headers=headers)
+
+    # Typed methods for normalized responses
+
+    async def get_one(
+        self,
+        endpoint: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Get a single entity with typed, normalized response.
+
+        Args:
+            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123")
+            query: Optional query configuration (populate, fields, locale, etc.)
+            headers: Additional headers
+
+        Returns:
+            Normalized single entity response
+
+        Examples:
+            >>> from py_strapi.models import StrapiQuery, Populate
+            >>> query = (StrapiQuery()
+            ...     .populate_fields(["author", "category"])
+            ...     .select(["title", "content"]))
+            >>> response = await client.get_one("articles/1", query=query)
+            >>> article = response.data
+            >>> article.attributes["title"]
+            'My Article'
+        """
+        params = query.to_query_params() if query else None
+        raw_response = await self.get(endpoint, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    async def get_many(
+        self,
+        endpoint: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedCollectionResponse:
+        """Get multiple entities with typed, normalized response.
+
+        Args:
+            endpoint: API endpoint path (e.g., "articles")
+            query: Optional query configuration (filters, sort, pagination, etc.)
+            headers: Additional headers
+
+        Returns:
+            Normalized collection response
+
+        Examples:
+            >>> from py_strapi.models import StrapiQuery, FilterBuilder, SortDirection
+            >>> query = (StrapiQuery()
+            ...     .filter(FilterBuilder().eq("status", "published"))
+            ...     .sort_by("publishedAt", SortDirection.DESC)
+            ...     .paginate(page=1, page_size=25)
+            ...     .populate_fields(["author"]))
+            >>> response = await client.get_many("articles", query=query)
+            >>> for article in response.data:
+            ...     print(article.attributes["title"])
+        """
+        params = query.to_query_params() if query else None
+        raw_response = await self.get(endpoint, params=params, headers=headers)
+        return self._parse_collection_response(raw_response)
+
+    async def create(
+        self,
+        endpoint: str,
+        data: dict[str, Any],
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Create a new entity with typed, normalized response.
+
+        Args:
+            endpoint: API endpoint path (e.g., "articles")
+            data: Entity data to create (wrapped in {"data": {...}} automatically)
+            query: Optional query configuration (populate, fields, etc.)
+            headers: Additional headers
+
+        Returns:
+            Normalized single entity response
+
+        Examples:
+            >>> data = {"title": "New Article", "content": "Article body"}
+            >>> response = await client.create("articles", data)
+            >>> created = response.data
+            >>> created.id
+            42
+        """
+        params = query.to_query_params() if query else None
+        # Wrap data in Strapi format
+        payload = {"data": data}
+        raw_response = await self.post(endpoint, json=payload, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    async def update(
+        self,
+        endpoint: str,
+        data: dict[str, Any],
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Update an existing entity with typed, normalized response.
+
+        Args:
+            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123")
+            data: Entity data to update (wrapped in {"data": {...}} automatically)
+            query: Optional query configuration (populate, fields, etc.)
+            headers: Additional headers
+
+        Returns:
+            Normalized single entity response
+
+        Examples:
+            >>> data = {"title": "Updated Title"}
+            >>> response = await client.update("articles/1", data)
+            >>> updated = response.data
+            >>> updated.attributes["title"]
+            'Updated Title'
+        """
+        params = query.to_query_params() if query else None
+        # Wrap data in Strapi format
+        payload = {"data": data}
+        raw_response = await self.put(endpoint, json=payload, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    async def remove(
+        self,
+        endpoint: str,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Delete an entity with typed, normalized response.
+
+        Args:
+            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123")
+            headers: Additional headers
+
+        Returns:
+            Normalized single entity response (deleted entity)
+
+        Examples:
+            >>> response = await client.remove("articles/1")
+            >>> deleted = response.data
+            >>> deleted.id
+            1
+        """
+        raw_response = await self.delete(endpoint, headers=headers)
+        return self._parse_single_response(raw_response)
