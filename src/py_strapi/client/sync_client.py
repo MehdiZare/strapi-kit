@@ -5,6 +5,7 @@ and applications that don't require concurrency.
 """
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -13,11 +14,15 @@ from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
 from ..exceptions import (
+    MediaError,
     TimeoutError as StrapiTimeoutError,
 )
 from ..models.config import StrapiConfig
 from ..models.request.query import StrapiQuery
+from ..models.response.media import MediaFile
 from ..models.response.normalized import NormalizedCollectionResponse, NormalizedSingleResponse
+from ..operations.media import build_media_download_url, build_upload_payload
+from ..protocols import AuthProvider, ConfigProvider, HTTPClient, ResponseParser
 from .base import BaseClient
 
 logger = logging.getLogger(__name__)
@@ -46,21 +51,41 @@ class SyncClient(BaseClient):
         ```
     """
 
-    def __init__(self, config: StrapiConfig) -> None:
-        """Initialize the synchronous client.
+    def __init__(
+        self,
+        config: ConfigProvider,
+        http_client: HTTPClient | None = None,
+        auth: AuthProvider | None = None,
+        parser: ResponseParser | None = None,
+    ) -> None:
+        """Initialize the synchronous client with dependency injection.
 
         Args:
-            config: Strapi configuration
+            config: Configuration provider (typically StrapiConfig)
+            http_client: HTTP client (defaults to httpx.Client with pooling)
+            auth: Authentication provider (passed to BaseClient)
+            parser: Response parser (passed to BaseClient)
         """
-        super().__init__(config)
+        super().__init__(config, auth=auth, parser=parser)
 
-        # Create HTTPX client with connection pooling
-        self._client = httpx.Client(
-            timeout=config.timeout,
-            verify=config.verify_ssl,
+        # Dependency injection with default factory
+        self._client: HTTPClient | httpx.Client = (
+            http_client or self._create_default_http_client()
+        )
+        self._owns_client = http_client is None
+
+    def _create_default_http_client(self) -> httpx.Client:
+        """Create default HTTP client with connection pooling.
+
+        Returns:
+            Configured httpx.Client instance
+        """
+        return httpx.Client(
+            timeout=self.config.timeout,
+            verify=self.config.verify_ssl,
             limits=httpx.Limits(
-                max_connections=config.max_connections,
-                max_keepalive_connections=config.max_connections,
+                max_connections=self.config.max_connections,
+                max_keepalive_connections=self.config.max_connections,
             ),
         )
 
@@ -73,8 +98,13 @@ class SyncClient(BaseClient):
         self.close()
 
     def close(self) -> None:
-        """Close the HTTP client and release connections."""
-        self._client.close()
+        """Close the HTTP client and release connections.
+
+        Only closes the client if it was created by this instance
+        (not injected from outside).
+        """
+        if self._owns_client:
+            self._client.close()
         logger.info("Closed synchronous Strapi client")
 
     def request(
@@ -360,3 +390,319 @@ class SyncClient(BaseClient):
         """
         raw_response = self.delete(endpoint, headers=headers)
         return self._parse_single_response(raw_response)
+
+    # Media Operations
+
+    def upload_file(
+        self,
+        file_path: str | Path,
+        *,
+        ref: str | None = None,
+        ref_id: str | int | None = None,
+        field: str | None = None,
+        folder: str | None = None,
+        alternative_text: str | None = None,
+        caption: str | None = None,
+    ) -> MediaFile:
+        """Upload a single file to Strapi media library.
+
+        Args:
+            file_path: Path to file to upload
+            ref: Reference model name (e.g., "api::article.article")
+            ref_id: Reference document ID (numeric or string)
+            field: Field name in reference model
+            folder: Folder ID for organization
+            alternative_text: Alt text for images
+            caption: Caption text
+
+        Returns:
+            MediaFile with upload details
+
+        Raises:
+            MediaError: On upload failure
+            FileNotFoundError: If file doesn't exist
+
+        Examples:
+            >>> # Simple upload
+            >>> media = client.upload_file("image.jpg")
+            >>> media.name
+            'image.jpg'
+
+            >>> # Upload with metadata
+            >>> media = client.upload_file(
+            ...     "hero.jpg",
+            ...     alternative_text="Hero image",
+            ...     caption="Main article image"
+            ... )
+
+            >>> # Upload and attach to entity
+            >>> media = client.upload_file(
+            ...     "cover.jpg",
+            ...     ref="api::article.article",
+            ...     ref_id="abc123",
+            ...     field="cover"
+            ... )
+        """
+        try:
+            # Build multipart payload
+            payload = build_upload_payload(
+                file_path,
+                ref=ref,
+                ref_id=ref_id,
+                field=field,
+                folder=folder,
+                alternative_text=alternative_text,
+                caption=caption,
+            )
+
+            # Build URL and headers
+            url = self._build_url("upload")
+            headers = self._build_upload_headers()
+
+            # Make request with multipart data
+            response = self._client.post(
+                url,
+                files={"files": payload["files"]},
+                data=payload.get("data"),
+                headers=headers,
+            )
+
+            # Handle errors
+            if not response.is_success:
+                self._handle_error_response(response)
+
+            # Parse response (upload returns single file object, not wrapped in data)
+            response_json = response.json()
+            # Upload endpoint returns array with single file
+            if isinstance(response_json, list) and response_json:
+                return self._parse_media_response(response_json[0])
+            else:
+                return self._parse_media_response(response_json)
+
+        except FileNotFoundError:
+            raise
+        except Exception as e:
+            raise MediaError(f"File upload failed: {e}") from e
+
+    def upload_files(
+        self,
+        file_paths: list[str | Path],
+        **kwargs: Any,
+    ) -> list[MediaFile]:
+        """Upload multiple files sequentially.
+
+        Args:
+            file_paths: List of file paths to upload
+            **kwargs: Same metadata options as upload_file
+
+        Returns:
+            List of MediaFile objects
+
+        Raises:
+            MediaError: On any upload failure (partial uploads NOT rolled back)
+
+        Examples:
+            >>> files = ["image1.jpg", "image2.jpg", "image3.jpg"]
+            >>> media_list = client.upload_files(files)
+            >>> len(media_list)
+            3
+
+            >>> # Upload with shared metadata
+            >>> media_list = client.upload_files(
+            ...     ["thumb1.jpg", "thumb2.jpg"],
+            ...     folder="thumbnails"
+            ... )
+        """
+        uploaded: list[MediaFile] = []
+
+        for idx, file_path in enumerate(file_paths):
+            try:
+                media = self.upload_file(file_path, **kwargs)
+                uploaded.append(media)
+            except Exception as e:
+                raise MediaError(
+                    f"Batch upload failed at file {idx} ({file_path}): {e}. "
+                    f"{len(uploaded)} files were uploaded successfully before failure."
+                ) from e
+
+        return uploaded
+
+    def download_file(
+        self,
+        media_url: str,
+        save_path: str | Path | None = None,
+    ) -> bytes:
+        """Download a media file from Strapi.
+
+        Args:
+            media_url: Media URL (relative /uploads/... or absolute)
+            save_path: Optional path to save file (if None, returns bytes only)
+
+        Returns:
+            File content as bytes
+
+        Raises:
+            MediaError: On download failure
+
+        Examples:
+            >>> # Download to bytes
+            >>> content = client.download_file("/uploads/image.jpg")
+            >>> len(content)
+            102400
+
+            >>> # Download and save to file
+            >>> content = client.download_file(
+            ...     "/uploads/image.jpg",
+            ...     save_path="downloaded_image.jpg"
+            ... )
+        """
+        try:
+            # Build full URL
+            url = build_media_download_url(self.base_url, media_url)
+
+            # Download with streaming for large files
+            with self._client.stream("GET", url) as response:
+                if not response.is_success:
+                    self._handle_error_response(response)
+
+                # Read content
+                content = b"".join(response.iter_bytes())
+
+                # Save to file if path provided
+                if save_path:
+                    path = Path(save_path)
+                    path.write_bytes(content)
+                    logger.info(f"Downloaded {len(content)} bytes to {save_path}")
+
+                return content
+
+        except Exception as e:
+            raise MediaError(f"File download failed: {e}") from e
+
+    def list_media(
+        self,
+        query: StrapiQuery | None = None,
+    ) -> NormalizedCollectionResponse:
+        """List media files from media library.
+
+        Args:
+            query: Optional query for filtering, sorting, pagination
+
+        Returns:
+            NormalizedCollectionResponse with MediaFile entities
+
+        Examples:
+            >>> # List all media
+            >>> response = client.list_media()
+            >>> for media in response.data:
+            ...     print(media.attributes["name"])
+
+            >>> # List with filters
+            >>> from py_strapi.models import StrapiQuery, FilterBuilder
+            >>> query = (StrapiQuery()
+            ...     .filter(FilterBuilder().eq("mime", "image/jpeg"))
+            ...     .paginate(page=1, page_size=10))
+            >>> response = client.list_media(query)
+        """
+        params = query.to_query_params() if query else None
+        raw_response = self.get("upload/files", params=params)
+        return self._parse_media_list_response(raw_response)
+
+    def get_media(
+        self,
+        media_id: str | int,
+    ) -> MediaFile:
+        """Get specific media file details.
+
+        Args:
+            media_id: Media file ID (numeric or documentId)
+
+        Returns:
+            MediaFile details
+
+        Raises:
+            NotFoundError: If media doesn't exist
+
+        Examples:
+            >>> media = client.get_media(42)
+            >>> media.name
+            'image.jpg'
+            >>> media.url
+            '/uploads/image.jpg'
+        """
+        raw_response = self.get(f"upload/files/{media_id}")
+        return self._parse_media_response(raw_response)
+
+    def delete_media(
+        self,
+        media_id: str | int,
+    ) -> None:
+        """Delete a media file.
+
+        Args:
+            media_id: Media file ID (numeric or documentId)
+
+        Raises:
+            NotFoundError: If media doesn't exist
+            MediaError: On deletion failure
+
+        Examples:
+            >>> client.delete_media(42)
+            >>> # File deleted successfully
+        """
+        try:
+            self.delete(f"upload/files/{media_id}")
+        except Exception as e:
+            raise MediaError(f"Media deletion failed: {e}") from e
+
+    def update_media(
+        self,
+        media_id: str | int,
+        *,
+        alternative_text: str | None = None,
+        caption: str | None = None,
+        name: str | None = None,
+    ) -> MediaFile:
+        """Update media file metadata.
+
+        Args:
+            media_id: Media file ID (numeric or documentId)
+            alternative_text: New alt text
+            caption: New caption
+            name: New file name
+
+        Returns:
+            Updated MediaFile
+
+        Raises:
+            NotFoundError: If media doesn't exist
+            MediaError: On update failure
+
+        Examples:
+            >>> media = client.update_media(
+            ...     42,
+            ...     alternative_text="Updated alt text",
+            ...     caption="Updated caption"
+            ... )
+            >>> media.alternative_text
+            'Updated alt text'
+        """
+        try:
+            # Build update payload
+            file_info: dict[str, Any] = {}
+            if alternative_text is not None:
+                file_info["alternativeText"] = alternative_text
+            if caption is not None:
+                file_info["caption"] = caption
+            if name is not None:
+                file_info["name"] = name
+
+            # Make update request
+            raw_response = self.put(
+                f"upload/files/{media_id}",
+                json={"fileInfo": file_info} if file_info else {},
+            )
+            return self._parse_media_response(raw_response)
+
+        except Exception as e:
+            raise MediaError(f"Media update failed: {e}") from e

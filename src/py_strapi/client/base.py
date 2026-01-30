@@ -30,13 +30,14 @@ from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
 from ..models.config import StrapiConfig
+from ..models.response.media import MediaFile
 from ..models.response.normalized import (
     NormalizedCollectionResponse,
-    NormalizedEntity,
     NormalizedSingleResponse,
 )
-from ..models.response.v4 import V4CollectionResponse, V4SingleResponse
-from ..models.response.v5 import V5CollectionResponse, V5SingleResponse
+from ..operations.media import normalize_media_response
+from ..parsers import VersionDetectingParser
+from ..protocols import AuthProvider, ConfigProvider, ResponseParser
 
 logger = logging.getLogger(__name__)
 
@@ -55,21 +56,36 @@ class BaseClient:
     Not intended to be used directly - use SyncClient or AsyncClient instead.
     """
 
-    def __init__(self, config: StrapiConfig) -> None:
-        """Initialize the base client.
+    def __init__(
+        self,
+        config: ConfigProvider,
+        auth: AuthProvider | None = None,
+        parser: ResponseParser | None = None,
+    ) -> None:
+        """Initialize the base client with dependency injection.
 
         Args:
-            config: Strapi configuration with URL, token, and options
+            config: Configuration provider (typically StrapiConfig)
+            auth: Authentication provider (defaults to APITokenAuth)
+            parser: Response parser (defaults to VersionDetectingParser)
+
+        Raises:
+            ValueError: If authentication token is invalid
         """
-        self.config = config
+        self.config: ConfigProvider = config
         self.base_url = config.get_base_url()
-        self.auth = APITokenAuth(config.get_api_token())
+
+        # Dependency injection with sensible defaults
+        self.auth: AuthProvider = auth or APITokenAuth(config.get_api_token())
+        self.parser: ResponseParser = parser or VersionDetectingParser(
+            default_version=None if config.api_version == "auto" else config.api_version
+        )
 
         # Validate authentication
         if not self.auth.validate_token():
             raise ValueError("API token is required and cannot be empty")
 
-        # API version detection
+        # API version detection (for backward compatibility)
         self._api_version: Literal["v4", "v5"] | None = (
             None if config.api_version == "auto" else config.api_version
         )
@@ -252,6 +268,8 @@ class BaseClient:
     ) -> NormalizedSingleResponse:
         """Parse a single entity response into normalized format.
 
+        Delegates to the injected parser for actual parsing logic.
+
         Args:
             response_data: Raw JSON response from Strapi
 
@@ -264,32 +282,15 @@ class BaseClient:
             >>> normalized.data.id
             1
         """
-        # Detect API version from response
-        api_version = self._detect_api_version(response_data)
-
-        if api_version == "v4":
-            # Parse as v4 and normalize
-            v4_response = V4SingleResponse(**response_data)
-            if v4_response.data:
-                normalized_entity = NormalizedEntity.from_v4(v4_response.data)
-            else:
-                normalized_entity = None
-
-            return NormalizedSingleResponse(data=normalized_entity, meta=v4_response.meta)
-        else:
-            # Parse as v5 and normalize
-            v5_response = V5SingleResponse(**response_data)
-            if v5_response.data:
-                normalized_entity = NormalizedEntity.from_v5(v5_response.data)
-            else:
-                normalized_entity = None
-
-            return NormalizedSingleResponse(data=normalized_entity, meta=v5_response.meta)
+        # Delegate to injected parser
+        return self.parser.parse_single(response_data)
 
     def _parse_collection_response(
         self, response_data: dict[str, Any]
     ) -> NormalizedCollectionResponse:
         """Parse a collection response into normalized format.
+
+        Delegates to the injected parser for actual parsing logic.
 
         Args:
             response_data: Raw JSON response from Strapi
@@ -303,18 +304,75 @@ class BaseClient:
             >>> len(normalized.data)
             2
         """
-        # Detect API version from response
-        api_version = self._detect_api_version(response_data)
+        # Delegate to injected parser
+        return self.parser.parse_collection(response_data)
 
-        if api_version == "v4":
-            # Parse as v4 and normalize
-            v4_response = V4CollectionResponse(**response_data)
-            normalized_entities = [NormalizedEntity.from_v4(entity) for entity in v4_response.data]
+    def _build_upload_headers(self) -> dict[str, str]:
+        """Build headers for multipart file upload.
 
-            return NormalizedCollectionResponse(data=normalized_entities, meta=v4_response.meta)
-        else:
-            # Parse as v5 and normalize
-            v5_response = V5CollectionResponse(**response_data)
-            normalized_entities = [NormalizedEntity.from_v5(entity) for entity in v5_response.data]
+        Omits Content-Type header to let httpx set the multipart boundary automatically.
 
-            return NormalizedCollectionResponse(data=normalized_entities, meta=v5_response.meta)
+        Returns:
+            Headers dictionary without Content-Type
+        """
+        headers = {
+            "Accept": "application/json",
+            **self.auth.get_headers(),
+        }
+        return headers
+
+    def _parse_media_response(self, response_data: dict[str, Any]) -> MediaFile:
+        """Parse media upload/download response into MediaFile model.
+
+        Automatically detects v4/v5 format and normalizes the response.
+
+        Args:
+            response_data: Raw JSON response from Strapi media endpoint
+
+        Returns:
+            Validated MediaFile instance
+
+        Examples:
+            >>> # v5 response
+            >>> response_data = {
+            ...     "id": 1,
+            ...     "documentId": "abc123",
+            ...     "name": "image.jpg",
+            ...     "url": "/uploads/image.jpg",
+            ...     ...
+            ... }
+            >>> media = client._parse_media_response(response_data)
+            >>> media.name
+            'image.jpg'
+        """
+        api_version = self._detect_api_version({"data": response_data})
+        return normalize_media_response(response_data, api_version)
+
+    def _parse_media_list_response(
+        self, response_data: dict[str, Any]
+    ) -> NormalizedCollectionResponse:
+        """Parse media library list response into normalized collection.
+
+        Media list responses follow the standard Strapi collection format,
+        so we can reuse the existing collection parser.
+
+        Args:
+            response_data: Raw JSON response from media list endpoint
+
+        Returns:
+            Normalized collection response with MediaFile entities
+
+        Examples:
+            >>> response_data = {
+            ...     "data": [
+            ...         {"id": 1, "name": "image1.jpg", ...},
+            ...         {"id": 2, "name": "image2.jpg", ...}
+            ...     ],
+            ...     "meta": {"pagination": {...}}
+            ... }
+            >>> result = client._parse_media_list_response(response_data)
+            >>> len(result.data)
+            2
+        """
+        # Media list follows standard collection format
+        return self._parse_collection_response(response_data)
