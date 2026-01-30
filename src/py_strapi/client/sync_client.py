@@ -5,8 +5,9 @@ and applications that don't require concurrency.
 """
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -16,10 +17,11 @@ from ..exceptions import (
 from ..exceptions import (
     MediaError,
     StrapiError,
+)
+from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
 )
 from ..models.bulk import BulkOperationFailure, BulkOperationResult
-from ..models.config import StrapiConfig
 from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
 from ..models.response.normalized import NormalizedCollectionResponse, NormalizedSingleResponse
@@ -71,9 +73,7 @@ class SyncClient(BaseClient):
         super().__init__(config, auth=auth, parser=parser)
 
         # Dependency injection with default factory
-        self._client: HTTPClient | httpx.Client = (
-            http_client or self._create_default_http_client()
-        )
+        self._client: HTTPClient | httpx.Client = http_client or self._create_default_http_client()
         self._owns_client = http_client is None
 
     def _create_default_http_client(self) -> httpx.Client:
@@ -175,9 +175,7 @@ class SyncClient(BaseClient):
                 return data
 
             except httpx.ConnectError as e:
-                raise StrapiConnectionError(
-                    f"Failed to connect to {self.base_url}: {e}"
-                ) from e
+                raise StrapiConnectionError(f"Failed to connect to {self.base_url}: {e}") from e
             except httpx.TimeoutException as e:
                 raise StrapiTimeoutError(
                     f"Request timed out after {self.config.timeout}s: {e}"

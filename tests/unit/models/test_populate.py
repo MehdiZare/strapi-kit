@@ -1,6 +1,5 @@
 """Tests for populate functionality."""
 
-import pytest
 
 from py_strapi.models.enums import SortDirection
 from py_strapi.models.request.filters import FilterBuilder
@@ -27,9 +26,7 @@ class TestPopulateField:
 
     def test_field_with_filters(self) -> None:
         """Test populate field with filters."""
-        field = PopulateField(
-            field="comments", filters=FilterBuilder().eq("approved", True)
-        )
+        field = PopulateField(field="comments", filters=FilterBuilder().eq("approved", True))
         result = field.to_dict()
 
         assert "comments" in result
@@ -95,9 +92,7 @@ class TestPopulate:
 
     def test_add_field_with_filters(self) -> None:
         """Test add_field with filters."""
-        populate = Populate().add_field(
-            "comments", filters=FilterBuilder().eq("approved", True)
-        )
+        populate = Populate().add_field("comments", filters=FilterBuilder().eq("approved", True))
         result = populate.to_query_dict()
 
         assert "populate" in result
@@ -140,9 +135,7 @@ class TestPopulate:
 
     def test_nested_population(self) -> None:
         """Test nested population."""
-        populate = Populate().add_field(
-            "author", nested=Populate().add_field("profile")
-        )
+        populate = Populate().add_field("author", nested=Populate().add_field("profile"))
         result = populate.to_query_dict()
 
         assert "populate" in result
@@ -154,9 +147,7 @@ class TestPopulate:
         """Test deeply nested population."""
         populate = Populate().add_field(
             "author",
-            nested=Populate().add_field(
-                "profile", nested=Populate().add_field("avatar")
-            ),
+            nested=Populate().add_field("profile", nested=Populate().add_field("avatar")),
         )
         result = populate.to_query_dict()
 

@@ -1,21 +1,19 @@
 """Tests for export and import functionality."""
 
-import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-import pytest
 import httpx
+import pytest
 import respx
 
 from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter
 from py_strapi.client.sync_client import SyncClient
 from py_strapi.models import (
     ExportData,
-    ExportMetadata,
     ExportedEntity,
+    ExportMetadata,
     ImportOptions,
-    ConflictResolution,
 )
 
 
@@ -150,10 +148,7 @@ def test_export_multiple_content_types(strapi_config: StrapiConfig) -> None:
 
     with SyncClient(strapi_config) as client:
         exporter = StrapiExporter(client)
-        export_data = exporter.export_content_types([
-            "api::article.article",
-            "api::author.author"
-        ])
+        export_data = exporter.export_content_types(["api::article.article", "api::author.author"])
 
         assert len(export_data.entities) == 2
         assert "api::article.article" in export_data.entities
@@ -181,7 +176,9 @@ def test_uid_to_endpoint() -> None:
     """Test UID to endpoint conversion."""
     assert StrapiExporter._uid_to_endpoint("api::article.article") == "articles"
     assert StrapiExporter._uid_to_endpoint("api::author.author") == "authors"
-    assert StrapiExporter._uid_to_endpoint("api::category.category") == "categorys"  # Simple pluralization
+    assert (
+        StrapiExporter._uid_to_endpoint("api::category.category") == "categorys"
+    )  # Simple pluralization
 
 
 # Import Tests

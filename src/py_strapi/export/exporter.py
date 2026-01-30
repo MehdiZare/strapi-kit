@@ -6,19 +6,19 @@ and media files from a Strapi instance.
 
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from py_strapi.exceptions import ImportExportError
+from py_strapi.export.media_handler import MediaHandler
+from py_strapi.export.relation_resolver import RelationResolver
 from py_strapi.models.export_format import (
     ExportData,
     ExportedEntity,
-    ExportedMediaFile,
     ExportMetadata,
 )
 from py_strapi.operations.streaming import stream_entities
-from py_strapi.export.relation_resolver import RelationResolver
-from py_strapi.export.media_handler import MediaHandler
 
 if TYPE_CHECKING:
     from py_strapi.client.sync_client import SyncClient
@@ -60,6 +60,7 @@ class StrapiExporter:
         content_types: list[str],
         *,
         include_media: bool = True,
+        media_dir: Path | str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> ExportData:
         """Export specified content types with all their entities.
@@ -67,6 +68,7 @@ class StrapiExporter:
         Args:
             content_types: List of content type UIDs to export
             include_media: Whether to include media file references
+            media_dir: Directory to download media files to (if include_media=True)
             progress_callback: Optional callback(current, total, message)
 
         Returns:
@@ -79,7 +81,7 @@ class StrapiExporter:
             >>> export_data = exporter.export_content_types([
             ...     "api::article.article",
             ...     "api::author.author"
-            ... ])
+            ... ], media_dir="export/media")
             >>> print(f"Exported {export_data.get_entity_count()} entities")
         """
         try:
@@ -137,7 +139,7 @@ class StrapiExporter:
                         "Exporting media files",
                     )
 
-                self._export_media(export_data, progress_callback)
+                self._export_media(export_data, media_dir, progress_callback)
 
             if progress_callback:
                 progress_callback(
@@ -189,7 +191,7 @@ class StrapiExporter:
         """
         try:
             path = Path(file_path)
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
 
             return ExportData.model_validate(data)
@@ -200,12 +202,14 @@ class StrapiExporter:
     def _export_media(
         self,
         export_data: ExportData,
+        media_dir: Path | str | None,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> None:
         """Export media files referenced in entities.
 
         Args:
             export_data: Export data to add media to
+            media_dir: Directory to download media files to
             progress_callback: Optional progress callback
         """
         # Collect all media IDs from entities
@@ -223,12 +227,41 @@ class StrapiExporter:
 
         logger.info(f"Found {len(media_ids)} media files to export")
 
-        # For now, just track the media IDs
-        # Actual file download would require a download directory
-        # which should be specified in export options
-        # TODO: Add download directory parameter and actually download files
+        # If no media directory specified, just track the count
+        if media_dir is None:
+            logger.warning(
+                "Media directory not specified - media references tracked but files not downloaded"
+            )
+            export_data.metadata.total_media = len(media_ids)
+            return
 
-        export_data.metadata.total_media = len(media_ids)
+        # Download media files
+        output_dir = Path(media_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        downloaded = 0
+        for idx, media_id in enumerate(sorted(media_ids)):
+            try:
+                # Get media metadata
+                media = self.client.get_media(media_id)
+
+                # Download file
+                local_path = MediaHandler.download_media_file(self.client, media, output_dir)
+
+                # Create export metadata
+                exported_media = MediaHandler.create_media_export(media, local_path)
+                export_data.media.append(exported_media)
+
+                downloaded += 1
+
+                if progress_callback:
+                    progress_callback(idx + 1, len(media_ids), f"Downloaded {media.name}")
+
+            except Exception as e:
+                logger.warning(f"Failed to download media {media_id}: {e}")
+
+        export_data.metadata.total_media = downloaded
+        logger.info(f"Successfully downloaded {downloaded}/{len(media_ids)} media files")
 
     @staticmethod
     def _uid_to_endpoint(uid: str) -> str:

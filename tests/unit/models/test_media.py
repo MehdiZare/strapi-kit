@@ -1,8 +1,6 @@
 """Tests for media file models."""
 
-from datetime import datetime
 
-import pytest
 
 from py_strapi.models.response.media import MediaFile, MediaFormat
 

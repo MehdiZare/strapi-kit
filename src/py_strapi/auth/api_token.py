@@ -4,7 +4,6 @@ This module provides bearer token authentication for Strapi API requests.
 """
 
 
-
 class APITokenAuth:
     """API Token authentication handler.
 

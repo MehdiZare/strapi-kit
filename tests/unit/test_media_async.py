@@ -1,6 +1,5 @@
 """Tests for AsyncClient media operations."""
 
-import tempfile
 from pathlib import Path
 
 import httpx
@@ -131,9 +130,7 @@ class TestUploadFile:
                 await client.upload_file("/nonexistent/file.jpg")
 
     @respx.mock
-    async def test_upload_file_api_error(
-        self, strapi_config: StrapiConfig, tmp_path: Path
-    ) -> None:
+    async def test_upload_file_api_error(self, strapi_config: StrapiConfig, tmp_path: Path) -> None:
         """Test handling upload API errors."""
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")

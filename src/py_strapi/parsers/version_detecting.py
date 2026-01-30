@@ -94,9 +94,7 @@ class VersionDetectingParser:
 
         return self._detected_version
 
-    def parse_single(
-        self, response_data: dict[str, Any]
-    ) -> NormalizedSingleResponse:
+    def parse_single(self, response_data: dict[str, Any]) -> NormalizedSingleResponse:
         """Parse a single entity response into normalized format.
 
         Args:
@@ -123,9 +121,7 @@ class VersionDetectingParser:
             else:
                 normalized_entity = None
 
-            return NormalizedSingleResponse(
-                data=normalized_entity, meta=v4_response.meta
-            )
+            return NormalizedSingleResponse(data=normalized_entity, meta=v4_response.meta)
         else:
             # Parse as v5 and normalize
             v5_response = V5SingleResponse(**response_data)
@@ -134,13 +130,9 @@ class VersionDetectingParser:
             else:
                 normalized_entity = None
 
-            return NormalizedSingleResponse(
-                data=normalized_entity, meta=v5_response.meta
-            )
+            return NormalizedSingleResponse(data=normalized_entity, meta=v5_response.meta)
 
-    def parse_collection(
-        self, response_data: dict[str, Any]
-    ) -> NormalizedCollectionResponse:
+    def parse_collection(self, response_data: dict[str, Any]) -> NormalizedCollectionResponse:
         """Parse a collection response into normalized format.
 
         Args:
@@ -162,20 +154,12 @@ class VersionDetectingParser:
         if api_version == "v4":
             # Parse as v4 and normalize
             v4_response = V4CollectionResponse(**response_data)
-            normalized_entities = [
-                NormalizedEntity.from_v4(entity) for entity in v4_response.data
-            ]
+            normalized_entities = [NormalizedEntity.from_v4(entity) for entity in v4_response.data]
 
-            return NormalizedCollectionResponse(
-                data=normalized_entities, meta=v4_response.meta
-            )
+            return NormalizedCollectionResponse(data=normalized_entities, meta=v4_response.meta)
         else:
             # Parse as v5 and normalize
             v5_response = V5CollectionResponse(**response_data)
-            normalized_entities = [
-                NormalizedEntity.from_v5(entity) for entity in v5_response.data
-            ]
+            normalized_entities = [NormalizedEntity.from_v5(entity) for entity in v5_response.data]
 
-            return NormalizedCollectionResponse(
-                data=normalized_entities, meta=v5_response.meta
-            )
+            return NormalizedCollectionResponse(data=normalized_entities, meta=v5_response.meta)

@@ -2,8 +2,6 @@
 
 from datetime import datetime
 
-import pytest
-
 from py_strapi.models.response.v5 import V5CollectionResponse, V5Entity
 
 
@@ -103,9 +101,7 @@ class TestV5CollectionResponse:
                 {"id": 1, "documentId": "abc", "title": "Article 1"},
                 {"id": 2, "documentId": "def", "title": "Article 2"},
             ],
-            "meta": {
-                "pagination": {"page": 1, "pageSize": 25, "pageCount": 10, "total": 250}
-            },
+            "meta": {"pagination": {"page": 1, "pageSize": 25, "pageCount": 10, "total": 250}},
         }
 
         response = V5CollectionResponse(**api_data)
@@ -144,9 +140,7 @@ class TestV5CollectionResponse:
                     "publishedAt": "2024-01-04T00:00:00.000Z",
                 },
             ],
-            "meta": {
-                "pagination": {"page": 1, "pageSize": 2, "pageCount": 5, "total": 10}
-            },
+            "meta": {"pagination": {"page": 1, "pageSize": 2, "pageCount": 5, "total": 10}},
         }
 
         response = V5CollectionResponse(**api_data)

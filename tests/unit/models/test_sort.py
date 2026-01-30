@@ -1,6 +1,5 @@
 """Tests for sort functionality."""
 
-import pytest
 
 from py_strapi.models.enums import SortDirection
 from py_strapi.models.request.sort import Sort, SortField

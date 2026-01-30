@@ -4,7 +4,7 @@ Defines the structure of exported Strapi data for portability
 and version compatibility.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -32,7 +32,7 @@ class ExportMetadata(BaseModel):
         description="Strapi API version (v4 or v5)",
     )
     exported_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         description="ISO timestamp of export",
     )
     source_url: str = Field(

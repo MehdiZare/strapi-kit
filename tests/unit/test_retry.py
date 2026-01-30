@@ -1,17 +1,18 @@
 """Tests for retry functionality."""
 
-import pytest
-import httpx
-import respx
-from unittest.mock import MagicMock
 
-from py_strapi import SyncClient, AsyncClient, StrapiConfig, RetryConfig
+import httpx
+import pytest
+import respx
+
+from py_strapi import AsyncClient, RetryConfig, StrapiConfig, SyncClient
 from py_strapi.exceptions import (
-    ServerError,
-    RateLimitError,
     AuthenticationError,
     NotFoundError,
+    ServerError,
     ValidationError,
+)
+from py_strapi.exceptions import (
     ConnectionError as StrapiConnectionError,
 )
 

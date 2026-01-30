@@ -2,8 +2,6 @@
 
 from datetime import datetime
 
-import pytest
-
 from py_strapi.models.response.v4 import V4Attributes, V4CollectionResponse, V4Entity
 
 
@@ -55,9 +53,7 @@ class TestV4Entity:
         """Test basic v4 entity structure."""
         entity = V4Entity(
             id=1,
-            attributes=V4Attributes(
-                createdAt=datetime(2024, 1, 1), title="Test", content="Body"
-            ),
+            attributes=V4Attributes(createdAt=datetime(2024, 1, 1), title="Test", content="Body"),
         )
 
         assert entity.id == 1
@@ -111,9 +107,7 @@ class TestV4CollectionResponse:
                 {"id": 1, "attributes": {"title": "Article 1"}},
                 {"id": 2, "attributes": {"title": "Article 2"}},
             ],
-            "meta": {
-                "pagination": {"page": 1, "pageSize": 25, "pageCount": 10, "total": 250}
-            },
+            "meta": {"pagination": {"page": 1, "pageSize": 25, "pageCount": 10, "total": 250}},
         }
 
         response = V4CollectionResponse(**api_data)

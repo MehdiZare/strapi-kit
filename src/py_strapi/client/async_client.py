@@ -6,8 +6,9 @@ applications and batch operations.
 
 import asyncio
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -17,15 +18,16 @@ from ..exceptions import (
 from ..exceptions import (
     MediaError,
     StrapiError,
+)
+from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
 )
 from ..models.bulk import BulkOperationFailure, BulkOperationResult
-from ..models.config import StrapiConfig
 from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
 from ..models.response.normalized import NormalizedCollectionResponse, NormalizedSingleResponse
 from ..operations.media import build_media_download_url, build_upload_payload
-from ..protocols import AuthProvider, AsyncHTTPClient, ConfigProvider, ResponseParser
+from ..protocols import AsyncHTTPClient, AuthProvider, ConfigProvider, ResponseParser
 from .base import BaseClient
 
 logger = logging.getLogger(__name__)
@@ -180,9 +182,7 @@ class AsyncClient(BaseClient):
                 return data
 
             except httpx.ConnectError as e:
-                raise StrapiConnectionError(
-                    f"Failed to connect to {self.base_url}: {e}"
-                ) from e
+                raise StrapiConnectionError(f"Failed to connect to {self.base_url}: {e}") from e
             except httpx.TimeoutException as e:
                 raise StrapiTimeoutError(
                     f"Request timed out after {self.config.timeout}s: {e}"

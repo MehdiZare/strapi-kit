@@ -7,7 +7,6 @@ including mock injection for testing.
 from unittest.mock import Mock
 
 import httpx
-import pytest
 
 from py_strapi import (
     AsyncClient,
@@ -52,9 +51,7 @@ class MockHTTPClient:
         self.requests.append((method, url, kwargs))
         mock_response = Mock()
         mock_response.is_success = True
-        mock_response.json.return_value = {
-            "data": {"id": 1, "documentId": "abc", "title": "Test"}
-        }
+        mock_response.json.return_value = {"data": {"id": 1, "documentId": "abc", "title": "Test"}}
         return mock_response
 
     def close(self):
@@ -74,9 +71,7 @@ class MockAsyncHTTPClient:
         self.requests.append((method, url, kwargs))
         mock_response = Mock()
         mock_response.is_success = True
-        mock_response.json.return_value = {
-            "data": {"id": 1, "documentId": "abc", "title": "Test"}
-        }
+        mock_response.json.return_value = {"data": {"id": 1, "documentId": "abc", "title": "Test"}}
         return mock_response
 
     async def aclose(self):
@@ -95,12 +90,14 @@ class MockParser:
         """Mark single parse as called."""
         self.parse_single_called = True
         from py_strapi.models.response.normalized import NormalizedSingleResponse
+
         return NormalizedSingleResponse(data=None, meta=None)
 
     def parse_collection(self, response_data):
         """Mark collection parse as called."""
         self.parse_collection_called = True
         from py_strapi.models.response.normalized import NormalizedCollectionResponse
+
         return NormalizedCollectionResponse(data=[], meta=None)
 
 
@@ -117,9 +114,7 @@ class TestSyncClientDependencyInjection:
         mock_parser = MockParser()
 
         # Inject all dependencies
-        client = SyncClient(
-            config, http_client=mock_http, auth=mock_auth, parser=mock_parser
-        )
+        client = SyncClient(config, http_client=mock_http, auth=mock_auth, parser=mock_parser)
 
         # Verify injected dependencies are used
         assert client.auth is mock_auth
@@ -161,7 +156,7 @@ class TestSyncClientDependencyInjection:
         config = StrapiConfig(base_url="http://localhost:1337", api_token="test")
 
         with SyncClient(config) as client:
-            http_client = client._client
+            _ = client._client
 
         # Owned client should be closed after context exit
         # Note: We can't check httpx.Client.is_closed without making a request
@@ -207,9 +202,7 @@ class TestAsyncClientDependencyInjection:
         mock_parser = MockParser()
 
         # Inject all dependencies
-        client = AsyncClient(
-            config, http_client=mock_http, auth=mock_auth, parser=mock_parser
-        )
+        client = AsyncClient(config, http_client=mock_http, auth=mock_auth, parser=mock_parser)
 
         # Verify injected dependencies are used
         assert client.auth is mock_auth
@@ -339,7 +332,7 @@ class TestDIUsageExamples:
         client = SyncClient(config, http_client=mock_http)
 
         # Make "request" (no actual HTTP)
-        result = client.get("articles")
+        _ = client.get("articles")
 
         # Verify our mock was called
         assert len(mock_http.requests) == 1

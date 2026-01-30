@@ -1,6 +1,5 @@
 """Tests for relation resolver."""
 
-import pytest
 
 from py_strapi.export.relation_resolver import RelationResolver
 

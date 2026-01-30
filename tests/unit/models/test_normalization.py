@@ -2,8 +2,6 @@
 
 from datetime import datetime
 
-import pytest
-
 from py_strapi.models.response.normalized import NormalizedEntity
 from py_strapi.models.response.v4 import V4Attributes, V4Entity
 from py_strapi.models.response.v5 import V5Entity

@@ -27,14 +27,14 @@ Examples:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from py_strapi.models.enums import FilterOperator
 
 if TYPE_CHECKING:
-    from typing import Self
+    pass
 
 
 class FilterCondition(BaseModel):
@@ -86,7 +86,7 @@ class FilterGroup(BaseModel):
         logical_operator: Logical operator combining conditions (default: AND)
     """
 
-    conditions: list[Union[FilterCondition, "FilterGroup"]] = Field(
+    conditions: list[FilterCondition | FilterGroup] = Field(
         default_factory=list, description="Filter conditions or nested groups"
     )
     logical_operator: FilterOperator | None = Field(
@@ -186,9 +186,9 @@ class FilterBuilder:
 
     def __init__(self) -> None:
         """Initialize an empty filter builder."""
-        self._conditions: list[Union[FilterCondition, FilterGroup]] = []
+        self._conditions: list[FilterCondition | FilterGroup] = []
 
-    def _add_condition(self, field: str, operator: FilterOperator, value: Any) -> "FilterBuilder":
+    def _add_condition(self, field: str, operator: FilterOperator, value: Any) -> FilterBuilder:
         """Add a filter condition to the builder.
 
         Args:
@@ -203,7 +203,7 @@ class FilterBuilder:
         return self
 
     # Equality operators
-    def eq(self, field: str, value: Any) -> "FilterBuilder":
+    def eq(self, field: str, value: Any) -> FilterBuilder:
         """Equal to (case-sensitive).
 
         Args:
@@ -218,7 +218,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.EQ, value)
 
-    def eqi(self, field: str, value: str) -> "FilterBuilder":
+    def eqi(self, field: str, value: str) -> FilterBuilder:
         """Equal to (case-insensitive).
 
         Args:
@@ -233,7 +233,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.EQI, value)
 
-    def ne(self, field: str, value: Any) -> "FilterBuilder":
+    def ne(self, field: str, value: Any) -> FilterBuilder:
         """Not equal to (case-sensitive).
 
         Args:
@@ -245,7 +245,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.NE, value)
 
-    def nei(self, field: str, value: str) -> "FilterBuilder":
+    def nei(self, field: str, value: str) -> FilterBuilder:
         """Not equal to (case-insensitive).
 
         Args:
@@ -258,7 +258,7 @@ class FilterBuilder:
         return self._add_condition(field, FilterOperator.NEI, value)
 
     # Comparison operators
-    def lt(self, field: str, value: Any) -> "FilterBuilder":
+    def lt(self, field: str, value: Any) -> FilterBuilder:
         """Less than.
 
         Args:
@@ -273,7 +273,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.LT, value)
 
-    def lte(self, field: str, value: Any) -> "FilterBuilder":
+    def lte(self, field: str, value: Any) -> FilterBuilder:
         """Less than or equal to.
 
         Args:
@@ -285,7 +285,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.LTE, value)
 
-    def gt(self, field: str, value: Any) -> "FilterBuilder":
+    def gt(self, field: str, value: Any) -> FilterBuilder:
         """Greater than.
 
         Args:
@@ -300,7 +300,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.GT, value)
 
-    def gte(self, field: str, value: Any) -> "FilterBuilder":
+    def gte(self, field: str, value: Any) -> FilterBuilder:
         """Greater than or equal to.
 
         Args:
@@ -313,7 +313,7 @@ class FilterBuilder:
         return self._add_condition(field, FilterOperator.GTE, value)
 
     # String matching operators
-    def contains(self, field: str, value: str) -> "FilterBuilder":
+    def contains(self, field: str, value: str) -> FilterBuilder:
         """Contains substring (case-sensitive).
 
         Args:
@@ -328,7 +328,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.CONTAINS, value)
 
-    def not_contains(self, field: str, value: str) -> "FilterBuilder":
+    def not_contains(self, field: str, value: str) -> FilterBuilder:
         """Does not contain substring (case-sensitive).
 
         Args:
@@ -340,7 +340,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.NOT_CONTAINS, value)
 
-    def containsi(self, field: str, value: str) -> "FilterBuilder":
+    def containsi(self, field: str, value: str) -> FilterBuilder:
         """Contains substring (case-insensitive).
 
         Args:
@@ -352,7 +352,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.CONTAINSI, value)
 
-    def not_containsi(self, field: str, value: str) -> "FilterBuilder":
+    def not_containsi(self, field: str, value: str) -> FilterBuilder:
         """Does not contain substring (case-insensitive).
 
         Args:
@@ -364,7 +364,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.NOT_CONTAINSI, value)
 
-    def starts_with(self, field: str, value: str) -> "FilterBuilder":
+    def starts_with(self, field: str, value: str) -> FilterBuilder:
         """Starts with string (case-sensitive).
 
         Args:
@@ -376,7 +376,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.STARTS_WITH, value)
 
-    def starts_withi(self, field: str, value: str) -> "FilterBuilder":
+    def starts_withi(self, field: str, value: str) -> FilterBuilder:
         """Starts with string (case-insensitive).
 
         Args:
@@ -388,7 +388,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.STARTS_WITHI, value)
 
-    def ends_with(self, field: str, value: str) -> "FilterBuilder":
+    def ends_with(self, field: str, value: str) -> FilterBuilder:
         """Ends with string (case-sensitive).
 
         Args:
@@ -400,7 +400,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.ENDS_WITH, value)
 
-    def ends_withi(self, field: str, value: str) -> "FilterBuilder":
+    def ends_withi(self, field: str, value: str) -> FilterBuilder:
         """Ends with string (case-insensitive).
 
         Args:
@@ -413,7 +413,7 @@ class FilterBuilder:
         return self._add_condition(field, FilterOperator.ENDS_WITHI, value)
 
     # Array operators
-    def in_(self, field: str, values: list[Any]) -> "FilterBuilder":
+    def in_(self, field: str, values: list[Any]) -> FilterBuilder:
         """Value is in array.
 
         Args:
@@ -428,7 +428,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.IN, values)
 
-    def not_in(self, field: str, values: list[Any]) -> "FilterBuilder":
+    def not_in(self, field: str, values: list[Any]) -> FilterBuilder:
         """Value is not in array.
 
         Args:
@@ -441,7 +441,7 @@ class FilterBuilder:
         return self._add_condition(field, FilterOperator.NOT_IN, values)
 
     # Null operators
-    def null(self, field: str, is_null: bool = True) -> "FilterBuilder":
+    def null(self, field: str, is_null: bool = True) -> FilterBuilder:
         """Value is null.
 
         Args:
@@ -457,7 +457,7 @@ class FilterBuilder:
         """
         return self._add_condition(field, FilterOperator.NULL, is_null)
 
-    def not_null(self, field: str) -> "FilterBuilder":
+    def not_null(self, field: str) -> FilterBuilder:
         """Value is not null.
 
         Args:
@@ -469,7 +469,7 @@ class FilterBuilder:
         return self._add_condition(field, FilterOperator.NOT_NULL, True)
 
     # Range operators
-    def between(self, field: str, start: Any, end: Any) -> "FilterBuilder":
+    def between(self, field: str, start: Any, end: Any) -> FilterBuilder:
         """Value is between start and end (inclusive).
 
         Args:
@@ -487,7 +487,7 @@ class FilterBuilder:
         return self._add_condition(field, FilterOperator.BETWEEN, [start, end])
 
     # Logical operators
-    def and_group(self, *builders: "FilterBuilder") -> "FilterBuilder":
+    def and_group(self, *builders: FilterBuilder) -> FilterBuilder:
         """Create an AND group of filters.
 
         Args:
@@ -510,7 +510,7 @@ class FilterBuilder:
         self._conditions.append(group)
         return self
 
-    def or_group(self, *builders: "FilterBuilder") -> "FilterBuilder":
+    def or_group(self, *builders: FilterBuilder) -> FilterBuilder:
         """Create an OR group of filters.
 
         Args:
@@ -533,7 +533,7 @@ class FilterBuilder:
         self._conditions.append(group)
         return self
 
-    def not_group(self, builder: "FilterBuilder") -> "FilterBuilder":
+    def not_group(self, builder: FilterBuilder) -> FilterBuilder:
         """Create a NOT group (negation).
 
         Args:

@@ -1,6 +1,5 @@
 """Tests for media operations utilities."""
 
-import tempfile
 from pathlib import Path
 
 import pytest

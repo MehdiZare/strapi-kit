@@ -72,9 +72,7 @@ class NormalizedEntity(BaseModel):
     updated_at: datetime | None = Field(None, description="Last update timestamp")
     published_at: datetime | None = Field(None, description="Publication timestamp")
     locale: str | None = Field(None, description="Locale code")
-    attributes: dict[str, Any] = Field(
-        default_factory=dict, description="All custom entity fields"
-    )
+    attributes: dict[str, Any] = Field(default_factory=dict, description="All custom entity fields")
 
     @classmethod
     def from_v4(cls, entity: V4Entity) -> NormalizedEntity:

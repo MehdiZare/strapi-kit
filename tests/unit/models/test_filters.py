@@ -1,6 +1,5 @@
 """Tests for filter builder functionality."""
 
-import pytest
 
 from py_strapi.models.enums import FilterOperator
 from py_strapi.models.request.filters import FilterBuilder, FilterCondition, FilterGroup
@@ -92,9 +91,7 @@ class TestFilterGroup:
         group = FilterGroup(conditions=conditions, logical_operator=FilterOperator.AND)
         result = group.to_dict()
 
-        assert result == {
-            "$and": [{"status": {"$eq": "published"}}, {"views": {"$gt": 100}}]
-        }
+        assert result == {"$and": [{"status": {"$eq": "published"}}, {"views": {"$gt": 100}}]}
 
     def test_not_operator(self) -> None:
         """Test group with NOT operator."""
@@ -299,9 +296,7 @@ class TestFilterBuilder:
         )
         result = builder.to_query_dict()
 
-        assert result == {
-            "$and": [{"status": {"$eq": "published"}}, {"views": {"$gt": 100}}]
-        }
+        assert result == {"$and": [{"status": {"$eq": "published"}}, {"views": {"$gt": 100}}]}
 
     def test_not_group(self) -> None:
         """Test NOT group."""
@@ -313,8 +308,10 @@ class TestFilterBuilder:
     def test_complex_nested_logic(self) -> None:
         """Test complex nested logical operators."""
         # (status = published) AND (views > 1000 OR likes > 500)
-        builder = FilterBuilder().eq("status", "published").or_group(
-            FilterBuilder().gt("views", 1000), FilterBuilder().gt("likes", 500)
+        builder = (
+            FilterBuilder()
+            .eq("status", "published")
+            .or_group(FilterBuilder().gt("views", 1000), FilterBuilder().gt("likes", 500))
         )
         result = builder.to_query_dict()
 

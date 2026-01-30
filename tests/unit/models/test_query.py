@@ -89,9 +89,7 @@ class TestStrapiQuery:
 
     def test_populate_complex(self) -> None:
         """Test populate with complex configuration."""
-        query = StrapiQuery().populate(
-            Populate().add_field("author", fields=["name", "email"])
-        )
+        query = StrapiQuery().populate(Populate().add_field("author", fields=["name", "email"]))
         params = query.to_query_params()
 
         assert "populate" in params

@@ -1,6 +1,5 @@
 """Tests for ConfigProvider protocol and configuration DI."""
 
-import pytest
 
 from py_strapi import ConfigProvider, StrapiConfig, SyncClient
 
@@ -10,10 +9,7 @@ class TestConfigProviderProtocol:
 
     def test_strapi_config_satisfies_config_provider(self):
         """Test that StrapiConfig satisfies ConfigProvider protocol."""
-        config = StrapiConfig(
-            base_url="http://localhost:1337",
-            api_token="test-token"
-        )
+        config = StrapiConfig(base_url="http://localhost:1337", api_token="test-token")
 
         # Should satisfy protocol (runtime check)
         assert isinstance(config, ConfigProvider)

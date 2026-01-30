@@ -5,8 +5,6 @@ Models for handling components and dynamic zones which have special structure.
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, ConfigDict, Field
 
 

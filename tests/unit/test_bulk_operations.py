@@ -1,7 +1,7 @@
 """Tests for bulk operations."""
 
-import pytest
 import httpx
+import pytest
 import respx
 
 from py_strapi import (
@@ -29,7 +29,7 @@ def test_bulk_create_all_success(strapi_config: StrapiConfig) -> None:
     """Test bulk create with all successes."""
     # Mock create responses
     for i in range(1, 4):
-        respx.post(f"http://localhost:1337/api/articles").mock(
+        respx.post("http://localhost:1337/api/articles").mock(
             return_value=httpx.Response(
                 200,
                 json={

@@ -4,7 +4,8 @@ This module provides generators that automatically handle pagination,
 allowing memory-efficient iteration over large datasets.
 """
 
-from typing import TYPE_CHECKING, AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Generator
+from typing import TYPE_CHECKING
 
 from ..models import StrapiQuery
 from ..models.response.normalized import NormalizedEntity
@@ -54,8 +55,7 @@ def stream_entities(
         response = client.get_many(endpoint, query=page_query)
 
         # Yield each entity
-        for entity in response.data:
-            yield entity
+        yield from response.data
 
         # Check if more pages exist
         if response.meta and response.meta.pagination:

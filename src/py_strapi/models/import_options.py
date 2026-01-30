@@ -3,8 +3,8 @@
 Defines how imported data should be processed and validated.
 """
 
+from collections.abc import Callable
 from enum import Enum
-from typing import Callable
 
 from pydantic import BaseModel, Field
 

@@ -238,8 +238,7 @@ class Populate:
 
         # Check if all fields are simple (no config)
         all_simple = all(
-            not f.nested and not f.filters and not f.fields and not f.sort
-            for f in self._fields
+            not f.nested and not f.filters and not f.fields and not f.sort for f in self._fields
         )
 
         if all_simple:

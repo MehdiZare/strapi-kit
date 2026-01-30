@@ -198,9 +198,7 @@ class ResponseParser(Protocol):
     into normalized format.
     """
 
-    def parse_single(
-        self, response_data: dict[str, Any]
-    ) -> NormalizedSingleResponse:
+    def parse_single(self, response_data: dict[str, Any]) -> NormalizedSingleResponse:
         """Parse a single entity response.
 
         Args:
@@ -211,9 +209,7 @@ class ResponseParser(Protocol):
         """
         ...
 
-    def parse_collection(
-        self, response_data: dict[str, Any]
-    ) -> NormalizedCollectionResponse:
+    def parse_collection(self, response_data: dict[str, Any]) -> NormalizedCollectionResponse:
         """Parse a collection response.
 
         Args:

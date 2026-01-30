@@ -1,6 +1,5 @@
 """Tests for typed client methods with normalized responses."""
 
-from datetime import datetime
 
 import httpx
 import pytest
@@ -8,7 +7,7 @@ import respx
 
 from py_strapi.client.async_client import AsyncClient
 from py_strapi.client.sync_client import SyncClient
-from py_strapi.models import FilterBuilder, Populate, SortDirection, StrapiQuery
+from py_strapi.models import FilterBuilder, SortDirection, StrapiQuery
 from py_strapi.models.config import StrapiConfig
 
 
@@ -79,9 +78,7 @@ def mock_v4_collection_response() -> dict:
                 },
             },
         ],
-        "meta": {
-            "pagination": {"page": 1, "pageSize": 25, "pageCount": 1, "total": 2}
-        },
+        "meta": {"pagination": {"page": 1, "pageSize": 25, "pageCount": 1, "total": 2}},
     }
 
 
@@ -105,9 +102,7 @@ def mock_v5_collection_response() -> dict:
                 "createdAt": "2024-01-02T00:00:00.000Z",
             },
         ],
-        "meta": {
-            "pagination": {"page": 1, "pageSize": 25, "pageCount": 1, "total": 2}
-        },
+        "meta": {"pagination": {"page": 1, "pageSize": 25, "pageCount": 1, "total": 2}},
     }
 
 
@@ -115,9 +110,7 @@ class TestSyncClientTyped:
     """Tests for typed sync client methods."""
 
     @respx.mock
-    def test_get_one_v4(
-        self, strapi_config: StrapiConfig, mock_v4_single_response: dict
-    ) -> None:
+    def test_get_one_v4(self, strapi_config: StrapiConfig, mock_v4_single_response: dict) -> None:
         """Test get_one with v4 response."""
         respx.get("http://localhost:1337/api/articles/1").mock(
             return_value=httpx.Response(200, json=mock_v4_single_response)
@@ -134,9 +127,7 @@ class TestSyncClientTyped:
         assert response.data.attributes["views"] == 100
 
     @respx.mock
-    def test_get_one_v5(
-        self, strapi_config: StrapiConfig, mock_v5_single_response: dict
-    ) -> None:
+    def test_get_one_v5(self, strapi_config: StrapiConfig, mock_v5_single_response: dict) -> None:
         """Test get_one with v5 response."""
         respx.get("http://localhost:1337/api/articles/1").mock(
             return_value=httpx.Response(200, json=mock_v5_single_response)
@@ -230,9 +221,7 @@ class TestSyncClientTyped:
         assert len(response.data) == 2
 
     @respx.mock
-    def test_create(
-        self, strapi_config: StrapiConfig, mock_v5_single_response: dict
-    ) -> None:
+    def test_create(self, strapi_config: StrapiConfig, mock_v5_single_response: dict) -> None:
         """Test create entity."""
         respx.post("http://localhost:1337/api/articles").mock(
             return_value=httpx.Response(201, json=mock_v5_single_response)
@@ -247,9 +236,7 @@ class TestSyncClientTyped:
         assert response.data.attributes["title"] == "Test Article"
 
     @respx.mock
-    def test_update(
-        self, strapi_config: StrapiConfig, mock_v5_single_response: dict
-    ) -> None:
+    def test_update(self, strapi_config: StrapiConfig, mock_v5_single_response: dict) -> None:
         """Test update entity."""
         respx.put("http://localhost:1337/api/articles/1").mock(
             return_value=httpx.Response(200, json=mock_v5_single_response)
@@ -263,9 +250,7 @@ class TestSyncClientTyped:
         assert response.data.id == 1
 
     @respx.mock
-    def test_remove(
-        self, strapi_config: StrapiConfig, mock_v5_single_response: dict
-    ) -> None:
+    def test_remove(self, strapi_config: StrapiConfig, mock_v5_single_response: dict) -> None:
         """Test delete entity."""
         respx.delete("http://localhost:1337/api/articles/1").mock(
             return_value=httpx.Response(200, json=mock_v5_single_response)
@@ -349,9 +334,7 @@ class TestAsyncClientTyped:
         assert len(response.data) == 2
 
     @respx.mock
-    async def test_create(
-        self, strapi_config: StrapiConfig, mock_v5_single_response: dict
-    ) -> None:
+    async def test_create(self, strapi_config: StrapiConfig, mock_v5_single_response: dict) -> None:
         """Test async create entity."""
         respx.post("http://localhost:1337/api/articles").mock(
             return_value=httpx.Response(201, json=mock_v5_single_response)
@@ -365,9 +348,7 @@ class TestAsyncClientTyped:
         assert response.data.id == 1
 
     @respx.mock
-    async def test_update(
-        self, strapi_config: StrapiConfig, mock_v5_single_response: dict
-    ) -> None:
+    async def test_update(self, strapi_config: StrapiConfig, mock_v5_single_response: dict) -> None:
         """Test async update entity."""
         respx.put("http://localhost:1337/api/articles/1").mock(
             return_value=httpx.Response(200, json=mock_v5_single_response)
@@ -380,9 +361,7 @@ class TestAsyncClientTyped:
         assert response.data is not None
 
     @respx.mock
-    async def test_remove(
-        self, strapi_config: StrapiConfig, mock_v5_single_response: dict
-    ) -> None:
+    async def test_remove(self, strapi_config: StrapiConfig, mock_v5_single_response: dict) -> None:
         """Test async delete entity."""
         respx.delete("http://localhost:1337/api/articles/1").mock(
             return_value=httpx.Response(200, json=mock_v5_single_response)

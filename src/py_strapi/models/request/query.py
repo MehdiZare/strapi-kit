@@ -95,9 +95,7 @@ class StrapiQuery:
         self._filters = filters
         return self
 
-    def sort_by(
-        self, field: str, direction: SortDirection = SortDirection.ASC
-    ) -> StrapiQuery:
+    def sort_by(self, field: str, direction: SortDirection = SortDirection.ASC) -> StrapiQuery:
         """Add sorting to the query.
 
         Args:
@@ -115,9 +113,7 @@ class StrapiQuery:
         self._sort.by_field(field, direction)
         return self
 
-    def then_sort_by(
-        self, field: str, direction: SortDirection = SortDirection.ASC
-    ) -> StrapiQuery:
+    def then_sort_by(self, field: str, direction: SortDirection = SortDirection.ASC) -> StrapiQuery:
         """Add secondary sort field (alias for sort_by for readability).
 
         Args:

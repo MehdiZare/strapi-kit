@@ -40,9 +40,7 @@ class PagePagination(BaseModel):
 
     page: int = Field(default=1, ge=1, description="Page number (1-indexed)")
     page_size: int = Field(default=25, ge=1, le=100, description="Items per page")
-    with_count: bool = Field(
-        default=True, description="Include total count in response metadata"
-    )
+    with_count: bool = Field(default=True, description="Include total count in response metadata")
 
     @field_validator("page")
     @classmethod
@@ -111,9 +109,7 @@ class OffsetPagination(BaseModel):
 
     start: int = Field(default=0, ge=0, description="Starting offset (0-indexed)")
     limit: int = Field(default=25, ge=1, le=100, description="Maximum items to return")
-    with_count: bool = Field(
-        default=True, description="Include total count in response metadata"
-    )
+    with_count: bool = Field(default=True, description="Include total count in response metadata")
 
     @field_validator("start")
     @classmethod

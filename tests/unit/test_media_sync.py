@@ -1,6 +1,5 @@
 """Tests for SyncClient media operations."""
 
-import tempfile
 from pathlib import Path
 
 import httpx
@@ -131,9 +130,7 @@ class TestUploadFile:
                 client.upload_file("/nonexistent/file.jpg")
 
     @respx.mock
-    def test_upload_file_api_error(
-        self, strapi_config: StrapiConfig, tmp_path: Path
-    ) -> None:
+    def test_upload_file_api_error(self, strapi_config: StrapiConfig, tmp_path: Path) -> None:
         """Test handling upload API errors."""
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")
@@ -216,9 +213,7 @@ class TestDownloadFile:
             assert content == file_content
 
     @respx.mock
-    def test_download_file_and_save(
-        self, strapi_config: StrapiConfig, tmp_path: Path
-    ) -> None:
+    def test_download_file_and_save(self, strapi_config: StrapiConfig, tmp_path: Path) -> None:
         """Test downloading a file and saving to disk."""
         file_content = b"fake image data"
         respx.get("http://localhost:1337/uploads/test.jpg").mock(
@@ -263,9 +258,7 @@ class TestListMedia:
     """Tests for list_media method."""
 
     @respx.mock
-    def test_list_media_all(
-        self, strapi_config: StrapiConfig, mock_media_response: dict
-    ) -> None:
+    def test_list_media_all(self, strapi_config: StrapiConfig, mock_media_response: dict) -> None:
         """Test listing all media files."""
         response_data = {
             "data": [
@@ -318,9 +311,7 @@ class TestGetMedia:
     """Tests for get_media method."""
 
     @respx.mock
-    def test_get_media_by_id(
-        self, strapi_config: StrapiConfig, mock_media_response: dict
-    ) -> None:
+    def test_get_media_by_id(self, strapi_config: StrapiConfig, mock_media_response: dict) -> None:
         """Test getting media by ID."""
         respx.get("http://localhost:1337/api/upload/files/1").mock(
             return_value=httpx.Response(200, json=mock_media_response)

@@ -1,7 +1,7 @@
 """Tests for streaming pagination."""
 
-import pytest
 import httpx
+import pytest
 import respx
 
 from py_strapi import (
@@ -63,7 +63,10 @@ def test_stream_entities_single_page(strapi_config: StrapiConfig) -> None:
 def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
     """Test streaming with multiple pages."""
     # Page 1
-    respx.get("http://localhost:1337/api/articles", params={"pagination[page]": 1, "pagination[pageSize]": 2}).mock(
+    respx.get(
+        "http://localhost:1337/api/articles",
+        params={"pagination[page]": 1, "pagination[pageSize]": 2},
+    ).mock(
         return_value=httpx.Response(
             200,
             json={
@@ -84,7 +87,10 @@ def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
     )
 
     # Page 2
-    respx.get("http://localhost:1337/api/articles", params={"pagination[page]": 2, "pagination[pageSize]": 2}).mock(
+    respx.get(
+        "http://localhost:1337/api/articles",
+        params={"pagination[page]": 2, "pagination[pageSize]": 2},
+    ).mock(
         return_value=httpx.Response(
             200,
             json={
@@ -105,7 +111,10 @@ def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
     )
 
     # Page 3
-    respx.get("http://localhost:1337/api/articles", params={"pagination[page]": 3, "pagination[pageSize]": 2}).mock(
+    respx.get(
+        "http://localhost:1337/api/articles",
+        params={"pagination[page]": 3, "pagination[pageSize]": 2},
+    ).mock(
         return_value=httpx.Response(
             200,
             json={
@@ -301,7 +310,10 @@ async def test_async_stream_entities_single_page(strapi_config: StrapiConfig) ->
 async def test_async_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
     """Test async streaming with multiple pages."""
     # Page 1
-    respx.get("http://localhost:1337/api/articles", params={"pagination[page]": 1, "pagination[pageSize]": 2}).mock(
+    respx.get(
+        "http://localhost:1337/api/articles",
+        params={"pagination[page]": 1, "pagination[pageSize]": 2},
+    ).mock(
         return_value=httpx.Response(
             200,
             json={
@@ -322,7 +334,10 @@ async def test_async_stream_entities_multiple_pages(strapi_config: StrapiConfig)
     )
 
     # Page 2
-    respx.get("http://localhost:1337/api/articles", params={"pagination[page]": 2, "pagination[pageSize]": 2}).mock(
+    respx.get(
+        "http://localhost:1337/api/articles",
+        params={"pagination[page]": 2, "pagination[pageSize]": 2},
+    ).mock(
         return_value=httpx.Response(
             200,
             json={

@@ -1,6 +1,5 @@
 """Tests for media handler."""
 
-import pytest
 
 from py_strapi.export.media_handler import MediaHandler
 

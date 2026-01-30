@@ -12,7 +12,6 @@ from tenacity import (
     before_sleep_log,
     retry,
     retry_if_exception,
-    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
@@ -31,7 +30,6 @@ from ..exceptions import (
 from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
-from ..models.config import StrapiConfig
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
     NormalizedCollectionResponse,
@@ -93,8 +91,7 @@ class BaseClient:
         )
 
         logger.info(
-            f"Initialized Strapi client for {self.base_url} "
-            f"(version: {config.api_version})"
+            f"Initialized Strapi client for {self.base_url} (version: {config.api_version})"
         )
 
     def _get_headers(self, extra_headers: dict[str, str] | None = None) -> dict[str, str]:
@@ -212,9 +209,7 @@ class BaseClient:
         elif status_code == 404:
             raise NotFoundError(f"Resource not found: {error_message}", details=error_details)
         elif status_code == 400:
-            raise ValidationError(
-                f"Validation error: {error_message}", details=error_details
-            )
+            raise ValidationError(f"Validation error: {error_message}", details=error_details)
         elif status_code == 409:
             raise ConflictError(f"Conflict: {error_message}", details=error_details)
         elif status_code == 429:
@@ -299,9 +294,7 @@ class BaseClient:
         """
         return self._api_version
 
-    def _parse_single_response(
-        self, response_data: dict[str, Any]
-    ) -> NormalizedSingleResponse:
+    def _parse_single_response(self, response_data: dict[str, Any]) -> NormalizedSingleResponse:
         """Parse a single entity response into normalized format.
 
         Delegates to the injected parser for actual parsing logic.

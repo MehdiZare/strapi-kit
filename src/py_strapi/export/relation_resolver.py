@@ -126,8 +126,7 @@ class RelationResolver:
                     new_ids.append(type_mapping[old_id])
                 else:
                     logger.warning(
-                        f"Could not resolve {content_type} ID {old_id} "
-                        f"for field {field_name}"
+                        f"Could not resolve {content_type} ID {old_id} for field {field_name}"
                     )
 
             if new_ids:

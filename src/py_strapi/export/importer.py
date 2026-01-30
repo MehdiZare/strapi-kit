@@ -5,13 +5,14 @@ and media files into a Strapi instance.
 """
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from py_strapi.exceptions import ImportExportError, ValidationError
-from py_strapi.models.export_format import ExportData
-from py_strapi.models.import_options import ConflictResolution, ImportOptions, ImportResult
-from py_strapi.export.relation_resolver import RelationResolver
 from py_strapi.export.media_handler import MediaHandler
+from py_strapi.export.relation_resolver import RelationResolver
+from py_strapi.models.export_format import ExportData
+from py_strapi.models.import_options import ImportOptions, ImportResult
 
 if TYPE_CHECKING:
     from py_strapi.client.sync_client import SyncClient
@@ -55,12 +56,14 @@ class StrapiImporter:
         self,
         export_data: ExportData,
         options: ImportOptions | None = None,
+        media_dir: Path | str | None = None,
     ) -> ImportResult:
         """Import export data into Strapi instance.
 
         Args:
             export_data: Export data to import
             options: Import options (uses defaults if None)
+            media_dir: Directory containing media files from export
 
         Returns:
             ImportResult with statistics and any errors
@@ -73,7 +76,11 @@ class StrapiImporter:
             ...     dry_run=True,
             ...     conflict_resolution=ConflictResolution.SKIP
             ... )
-            >>> result = importer.import_data(export_data, options)
+            >>> result = importer.import_data(
+            ...     export_data,
+            ...     options,
+            ...     media_dir="export/media"
+            ... )
             >>> if result.success:
             ...     print("Import successful!")
         """
@@ -94,35 +101,32 @@ class StrapiImporter:
                 return result
 
             # Step 2: Filter content types if specified
-            content_types_to_import = self._get_content_types_to_import(
-                export_data, options
-            )
+            content_types_to_import = self._get_content_types_to_import(export_data, options)
 
             if not content_types_to_import:
                 result.add_warning("No content types to import")
                 result.success = True
                 return result
 
-            # Step 3: Import entities
+            # Step 3: Import media first (if requested)
+            media_id_mapping: dict[int, int] = {}
+            if options.import_media and export_data.media:
+                if options.progress_callback:
+                    options.progress_callback(20, 100, "Importing media files")
+
+                media_id_mapping = self._import_media(export_data, media_dir, options, result)
+
+            # Step 4: Import entities (with updated media references)
             if options.progress_callback:
-                options.progress_callback(20, 100, "Importing entities")
+                options.progress_callback(40, 100, "Importing entities")
 
             self._import_entities(
                 export_data,
                 content_types_to_import,
+                media_id_mapping,
                 options,
                 result,
             )
-
-            # Step 4: Import media (if requested)
-            media_id_mapping: dict[int, int] = {}
-            if options.import_media and export_data.media:
-                if options.progress_callback:
-                    options.progress_callback(40, 100, "Importing media files")
-
-                # TODO: Implement media upload
-                # media_id_mapping = self._import_media(export_data, options, result)
-                logger.warning("Media import not fully implemented yet")
 
             # Step 5: Import relations (if not skipped)
             if not options.skip_relations:
@@ -136,8 +140,6 @@ class StrapiImporter:
                     result,
                 )
 
-            # Step 5: TODO - Import media
-
             if options.progress_callback:
                 options.progress_callback(100, 100, "Import complete")
 
@@ -149,9 +151,7 @@ class StrapiImporter:
             result.add_error(f"Import failed: {e}")
             raise ImportExportError(f"Import failed: {e}") from e
 
-    def _validate_export_data(
-        self, export_data: ExportData, result: ImportResult
-    ) -> None:
+    def _validate_export_data(self, export_data: ExportData, result: ImportResult) -> None:
         """Validate export data format and compatibility.
 
         Args:
@@ -161,8 +161,7 @@ class StrapiImporter:
         # Check format version
         if not export_data.metadata.version.startswith("1."):
             result.add_warning(
-                f"Export format version {export_data.metadata.version} "
-                "may not be fully compatible"
+                f"Export format version {export_data.metadata.version} may not be fully compatible"
             )
 
         # Check Strapi version compatibility
@@ -203,6 +202,7 @@ class StrapiImporter:
         self,
         export_data: ExportData,
         content_types: list[str],
+        media_id_mapping: dict[int, int],
         options: ImportOptions,
         result: ImportResult,
     ) -> None:
@@ -211,6 +211,7 @@ class StrapiImporter:
         Args:
             export_data: Export data
             content_types: Content types to import
+            media_id_mapping: Mapping of old media IDs to new IDs
             options: Import options
             result: Result object to update
         """
@@ -222,13 +223,20 @@ class StrapiImporter:
 
             for entity in entities:
                 try:
+                    # Update media references if we have mappings
+                    entity_data = entity.data
+                    if media_id_mapping:
+                        entity_data = MediaHandler.update_media_references(
+                            entity.data, media_id_mapping
+                        )
+
                     if options.dry_run:
                         # Just validate, don't actually create
                         result.entities_imported += 1
                         continue
 
-                    # Create entity
-                    response = self.client.create(endpoint, {"data": entity.data})
+                    # Create entity with updated media references
+                    response = self.client.create(endpoint, {"data": entity_data})
 
                     if response.data:
                         # Track ID mapping for relation resolution
@@ -239,15 +247,11 @@ class StrapiImporter:
                         result.entities_imported += 1
 
                 except ValidationError as e:
-                    result.add_error(
-                        f"Validation error importing {content_type} #{entity.id}: {e}"
-                    )
+                    result.add_error(f"Validation error importing {content_type} #{entity.id}: {e}")
                     result.entities_failed += 1
 
                 except Exception as e:
-                    result.add_error(
-                        f"Failed to import {content_type} #{entity.id}: {e}"
-                    )
+                    result.add_error(f"Failed to import {content_type} #{entity.id}: {e}")
                     result.entities_failed += 1
 
     def _import_relations(
@@ -320,6 +324,71 @@ class StrapiImporter:
                     result.add_warning(
                         f"Failed to import relations for {content_type} #{new_id}: {e}"
                     )
+
+    def _import_media(
+        self,
+        export_data: ExportData,
+        media_dir: Path | str | None,
+        options: ImportOptions,
+        result: ImportResult,
+    ) -> dict[int, int]:
+        """Import media files from export.
+
+        Args:
+            export_data: Export data containing media metadata
+            media_dir: Directory containing downloaded media files
+            options: Import options
+            result: Result object to update
+
+        Returns:
+            Mapping of old media IDs to new media IDs
+        """
+        media_id_mapping: dict[int, int] = {}
+
+        if not export_data.media:
+            return media_id_mapping
+
+        if media_dir is None:
+            logger.warning(
+                "Media directory not specified - skipping media import. "
+                "Media references in entities will not be updated."
+            )
+            return media_id_mapping
+
+        media_path = Path(media_dir)
+        if not media_path.exists():
+            result.add_error(f"Media directory not found: {media_dir}")
+            return media_id_mapping
+
+        for exported_media in export_data.media:
+            try:
+                if options.dry_run:
+                    result.media_imported += 1
+                    continue
+
+                # Find local file
+                file_path = media_path / exported_media.local_path
+
+                if not file_path.exists():
+                    result.add_warning(
+                        f"Media file not found: {file_path.name} (ID: {exported_media.id})"
+                    )
+                    result.media_skipped += 1
+                    continue
+
+                # Upload file
+                uploaded = MediaHandler.upload_media_file(self.client, file_path, exported_media)
+
+                # Track ID mapping
+                media_id_mapping[exported_media.id] = uploaded.id
+                result.media_imported += 1
+
+            except Exception as e:
+                result.add_warning(f"Failed to import media {exported_media.name}: {e}")
+                result.media_skipped += 1
+
+        logger.info(f"Imported {result.media_imported}/{len(export_data.media)} media files")
+        return media_id_mapping
 
     @staticmethod
     def _uid_to_endpoint(uid: str) -> str:
