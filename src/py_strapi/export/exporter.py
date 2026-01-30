@@ -9,17 +9,18 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from ..exceptions import ImportExportError
-from ..models.export_format import (
+from py_strapi.exceptions import ImportExportError
+from py_strapi.models.export_format import (
     ExportData,
     ExportedEntity,
     ExportedMediaFile,
     ExportMetadata,
 )
-from ..operations.streaming import stream_entities
+from py_strapi.operations.streaming import stream_entities
+from py_strapi.export.relation_resolver import RelationResolver
 
 if TYPE_CHECKING:
-    from ..client.sync_client import SyncClient
+    from py_strapi.client.sync_client import SyncClient
 
 logger = logging.getLogger(__name__)
 
@@ -106,12 +107,18 @@ class StrapiExporter:
                 # Stream entities for memory efficiency
                 entities = []
                 for entity in stream_entities(self.client, endpoint):
+                    # Extract relations from entity data
+                    relations = RelationResolver.extract_relations(entity.attributes)
+
+                    # Strip relations from data to store separately
+                    clean_data = RelationResolver.strip_relations(entity.attributes)
+
                     exported_entity = ExportedEntity(
                         id=entity.id,
                         document_id=entity.document_id,
                         content_type=content_type,
-                        data=entity.attributes,
-                        relations={},  # TODO: Extract relations
+                        data=clean_data,
+                        relations=relations,
                     )
                     entities.append(exported_entity)
 
