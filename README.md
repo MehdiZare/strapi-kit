@@ -473,6 +473,75 @@ asyncio.run(main())
 - Update metadata without re-uploading
 - Full support for both sync and async
 
+### Export/Import with Relation Resolution
+
+py-strapi provides comprehensive export/import functionality with automatic relation resolution for migrating content between Strapi instances.
+
+```python
+from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
+
+# Export from source instance
+source_config = StrapiConfig(
+    base_url="http://localhost:1337",
+    api_token="source-token"
+)
+
+with SyncClient(source_config) as client:
+    exporter = StrapiExporter(client)
+
+    # Export content types with schemas for relation resolution
+    export_data = exporter.export_content_types([
+        "api::article.article",
+        "api::author.author",
+        "api::category.category"
+    ])
+
+    # Save to file
+    exporter.save_to_file(export_data, "migration.json")
+
+# Import to target instance
+target_config = StrapiConfig(
+    base_url="http://localhost:1338",
+    api_token="target-token"
+)
+
+with SyncClient(target_config) as client:
+    importer = StrapiImporter(client)
+
+    # Load export
+    export_data = StrapiExporter.load_from_file("migration.json")
+
+    # Import with automatic relation resolution
+    result = importer.import_data(export_data)
+
+    print(f"Imported {result.entities_imported} entities")
+    print(f"ID mapping: {result.id_mapping}")
+```
+
+**Export/Import Features:**
+
+- **Automatic Relation Resolution**: Relations are automatically mapped using content type schemas
+- **Schema Caching**: Content type metadata cached for fast relation lookups
+- **ID Mapping**: Old IDs automatically mapped to new IDs during import
+- **Media Support**: Export and import media files with content
+- **Progress Tracking**: Optional callbacks for monitoring long operations
+- **Dry Run Mode**: Test imports before executing
+- **Conflict Resolution**: Configurable strategies for handling existing entities
+
+**How Relation Resolution Works:**
+
+1. During export, content type schemas are fetched from the Content-Type Builder API
+2. Schemas include relation metadata (field types, targets)
+3. During import, relations are resolved by looking up target content types from schemas
+4. Old IDs are mapped to new IDs using the ID mapping table
+
+For example, when importing an article with `{"author": [5]}`, the system:
+- Looks up the schema to find that `author` targets `"api::author.author"`
+- Maps old author ID 5 to the new ID in the target instance
+- Updates the article with the resolved relation
+
+See the [Export/Import Guide](docs/export-import.md) for complete documentation.
+
 ## Dependency Injection
 
 py-strapi supports full dependency injection for testability and customization. All dependencies have sensible defaults but can be overridden.
@@ -676,10 +745,24 @@ This project is in active development. Currently implemented:
 - **Dependency Injection**: Full DI support with protocols for testability
 - **93% test coverage** with 196 passing tests
 
-### 🚧 Phase 3-6: Advanced Features (Planned)
-- Media upload/download handling
+### ✅ Phase 3: Media Operations (Complete)
+- **Media Upload**: Single and batch file uploads with metadata
+- **Media Download**: Streaming downloads for large files
+- **Media Management**: List, get, update, and delete media
+- **Entity Attachment**: Link media to specific content types
+- **Full async support** for all media operations
+- **100% test coverage** on media operations
+
+### ✅ Phase 4: Export/Import (Complete)
+- **Content Export**: Export content types with all entities
+- **Automatic Relation Resolution**: Schema-based relation mapping
+- **Media Export**: Download and package media files
+- **Content Import**: Import with ID mapping and relation resolution
+- **Schema Caching**: Efficient content type metadata handling
+- **89% overall test coverage** with 355 passing tests
+
+### 🚧 Phase 5-6: Advanced Features (Planned)
 - Bulk operations with streaming
-- Import/Export for migrations
 - Content type introspection
 - Advanced retry strategies
 - Rate limiting

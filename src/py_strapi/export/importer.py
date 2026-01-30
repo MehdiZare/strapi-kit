@@ -421,7 +421,8 @@ class StrapiImporter:
     ) -> dict[str, list[int]]:
         """Resolve relation IDs using schema information.
 
-        FIXES TODO at line 304: "Handle relations to entities not in export"
+        Uses content type schemas to determine relation targets, enabling
+        proper ID mapping during import.
 
         Args:
             relations: Raw relations from export (field -> [old_ids])
