@@ -9,7 +9,9 @@ from typing import Any, Literal
 
 import httpx
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -238,19 +240,53 @@ class BaseClient:
     def _create_retry_decorator(self) -> Any:
         """Create a retry decorator based on configuration.
 
+        The decorator retries on:
+        - Server errors (5xx) and connection issues
+        - Rate limit errors (429) with retry_after support
+        - Configured status codes from retry_on_status
+
         Returns:
             Configured tenacity retry decorator
         """
         retry_config = self.config.retry
 
-        return retry(
-            stop=stop_after_attempt(retry_config.max_attempts),
-            wait=wait_exponential(
+        def should_retry_exception(exception: BaseException) -> bool:
+            """Determine if exception should trigger retry."""
+            # Always retry connection issues
+            if isinstance(exception, StrapiConnectionError):
+                return True
+
+            # Retry RateLimitError with exponential backoff
+            if isinstance(exception, RateLimitError):
+                return True
+
+            # Check if exception has status_code matching retry_on_status
+            # This includes ServerError if its status code is in retry_on_status
+            if hasattr(exception, "status_code"):
+                return exception.status_code in retry_config.retry_on_status
+
+            return False
+
+        def wait_strategy(retry_state):  # type: ignore[no-untyped-def]
+            """Custom wait strategy that respects retry_after."""
+            exception = retry_state.outcome.exception()
+
+            # If RateLimitError with retry_after, use that value
+            if isinstance(exception, RateLimitError) and exception.retry_after:
+                return exception.retry_after
+
+            # Otherwise use exponential backoff
+            return wait_exponential(
                 multiplier=retry_config.exponential_base,
                 min=retry_config.initial_wait,
                 max=retry_config.max_wait,
-            ),
-            retry=retry_if_exception_type((ServerError, StrapiConnectionError)),
+            )(retry_state)
+
+        return retry(
+            stop=stop_after_attempt(retry_config.max_attempts),
+            wait=wait_strategy,
+            retry=retry_if_exception(should_retry_exception),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
         )
 

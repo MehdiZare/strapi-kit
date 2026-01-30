@@ -119,7 +119,13 @@ class AsyncClient(BaseClient):
         json: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Make an HTTP request to the Strapi API.
+        """Make an HTTP request to the Strapi API with automatic retry.
+
+        Retries are automatically applied based on the retry configuration:
+        - Server errors (5xx)
+        - Connection failures
+        - Rate limit errors (429) with retry_after support
+        - Configured status codes from retry_on_status
 
         Args:
             method: HTTP method (GET, POST, PUT, DELETE)
@@ -132,44 +138,54 @@ class AsyncClient(BaseClient):
             Response JSON data
 
         Raises:
-            StrapiError: On API errors
-            ConnectionError: On connection failures
-            TimeoutError: On request timeout
+            StrapiError: On API errors (after retries exhausted)
+            ConnectionError: On connection failures (after retries exhausted)
+            TimeoutError: On request timeout (after retries exhausted)
         """
-        url = self._build_url(endpoint)
-        request_headers = self._get_headers(headers)
+        # Create retry-wrapped version of internal request
+        retry_decorator = self._create_retry_decorator()
 
-        logger.debug(f"{method} {url} params={params}")
+        @retry_decorator  # type: ignore[untyped-decorator]
+        async def _do_request() -> dict[str, Any]:
+            """Internal async request implementation with retry support."""
+            url = self._build_url(endpoint)
+            request_headers = self._get_headers(headers)
 
-        try:
-            response = await self._client.request(
-                method=method,
-                url=url,
-                params=params,
-                json=json,
-                headers=request_headers,
-            )
+            logger.debug(f"{method} {url} params={params}")
 
-            # Handle error responses
-            if not response.is_success:
-                self._handle_error_response(response)
+            try:
+                response = await self._client.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    json=json,
+                    headers=request_headers,
+                )
 
-            # Parse and return JSON
-            data: dict[str, Any] = response.json()
+                # Handle error responses
+                if not response.is_success:
+                    self._handle_error_response(response)
 
-            # Detect API version from response
-            if data and isinstance(data, dict):
-                self._detect_api_version(data)
+                # Parse and return JSON
+                data: dict[str, Any] = response.json()
 
-            logger.debug(f"Response: {response.status_code}")
-            return data
+                # Detect API version from response
+                if data and isinstance(data, dict):
+                    self._detect_api_version(data)
 
-        except httpx.ConnectError as e:
-            raise StrapiConnectionError(f"Failed to connect to {self.base_url}: {e}") from e
-        except httpx.TimeoutException as e:
-            raise StrapiTimeoutError(
-                f"Request timed out after {self.config.timeout}s: {e}"
-            ) from e
+                logger.debug(f"Response: {response.status_code}")
+                return data
+
+            except httpx.ConnectError as e:
+                raise StrapiConnectionError(
+                    f"Failed to connect to {self.base_url}: {e}"
+                ) from e
+            except httpx.TimeoutException as e:
+                raise StrapiTimeoutError(
+                    f"Request timed out after {self.config.timeout}s: {e}"
+                ) from e
+
+        return await _do_request()  # type: ignore[no-any-return]
 
     async def get(
         self,

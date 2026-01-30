@@ -26,7 +26,7 @@ from .exceptions import (
     StrapiError,
     ValidationError,
 )
-from .models import StrapiConfig
+from .models import StrapiConfig, RetryConfig
 from .parsers import VersionDetectingParser
 from .protocols import (
     AsyncHTTPClient,
@@ -43,6 +43,7 @@ __all__ = [
     "AsyncClient",
     # Configuration
     "StrapiConfig",
+    "RetryConfig",
     # Protocols (for dependency injection)
     "AuthProvider",
     "ConfigProvider",
