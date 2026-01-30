@@ -4,6 +4,8 @@ This example demonstrates how to perform basic CRUD operations
 using the synchronous client.
 """
 
+from pydantic import SecretStr
+
 from py_strapi import StrapiConfig, SyncClient
 
 
@@ -12,7 +14,7 @@ def main() -> None:
     # Configure client
     config = StrapiConfig(
         base_url="http://localhost:1337",
-        api_token="your-api-token-here",
+        api_token=SecretStr("your-api-token-here"),
     )
 
     # Use client with context manager for automatic cleanup

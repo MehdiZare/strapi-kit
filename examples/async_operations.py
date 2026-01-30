@@ -6,6 +6,8 @@ using the asynchronous client.
 
 import asyncio
 
+from pydantic import SecretStr
+
 from py_strapi import AsyncClient, StrapiConfig
 
 
@@ -14,7 +16,7 @@ async def main() -> None:
     # Configure client
     config = StrapiConfig(
         base_url="http://localhost:1337",
-        api_token="your-api-token-here",
+        api_token=SecretStr("your-api-token-here"),
     )
 
     # Use async client with context manager

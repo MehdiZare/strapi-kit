@@ -5,6 +5,8 @@ This script demonstrates various ways to configure py-strapi using the
 new ConfigFactory system.
 """
 
+from pydantic import SecretStr
+
 from py_strapi import (
     ConfigFactory,
     create_config,
@@ -40,7 +42,7 @@ def demo_explicit_config():
 
     config = create_config(
         base_url="http://test.example.com",
-        api_token="test-token-12345",
+        api_token=SecretStr("test-token-12345"),
         timeout=5.0,
         max_connections=5,
         verify_ssl=False,
@@ -85,7 +87,7 @@ def demo_config_merging():
     # Base configuration
     base_config = create_config(
         base_url="http://localhost:1337",
-        api_token="dev-token",
+        api_token=SecretStr("dev-token"),
         timeout=30.0,
         max_connections=10,
     )
@@ -151,7 +153,7 @@ def demo_usage_with_client():
     # Create config for demo purposes
     config = create_config(
         base_url="http://localhost:1337",
-        api_token="demo-token",
+        api_token=SecretStr("demo-token"),
     )
 
     print("✅ Created config and initialized client")

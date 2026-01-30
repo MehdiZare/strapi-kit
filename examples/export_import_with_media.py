@@ -20,6 +20,8 @@ Usage:
 import sys
 from pathlib import Path
 
+from pydantic import SecretStr
+
 from py_strapi import StrapiExporter, StrapiImporter, SyncClient
 from py_strapi.models import ImportOptions, StrapiConfig
 
@@ -38,7 +40,7 @@ def export_data() -> None:
 
     # Configure source instance
     source_config = StrapiConfig(
-        base_url="http://localhost:1337", api_token="your-source-api-token-here"
+        base_url="http://localhost:1337", api_token=SecretStr("your-source-api-token-here")
     )
 
     # Create export directory
@@ -91,7 +93,7 @@ def import_data() -> None:
     # Configure target instance
     target_config = StrapiConfig(
         base_url="http://localhost:1338",  # Different port/host for target
-        api_token="your-target-api-token-here",
+        api_token=SecretStr("your-target-api-token-here"),
     )
 
     # Load export data
@@ -168,7 +170,7 @@ def dry_run_import() -> None:
     print("=" * 60)
 
     target_config = StrapiConfig(
-        base_url="http://localhost:1338", api_token="your-target-api-token-here"
+        base_url="http://localhost:1338", api_token=SecretStr("your-target-api-token-here")
     )
 
     export_file = Path("export/data.json")

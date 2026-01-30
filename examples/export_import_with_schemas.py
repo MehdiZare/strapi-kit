@@ -4,18 +4,20 @@ This example demonstrates how to export and import Strapi content
 with automatic relation resolution using cached content type schemas.
 """
 
+from pydantic import SecretStr
+
 from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
 from py_strapi.models import ImportOptions
 
 # Configure source and target Strapi instances
 source_config = StrapiConfig(
     base_url="http://localhost:1337",
-    api_token="source-token",
+    api_token=SecretStr("source-token"),
 )
 
 target_config = StrapiConfig(
     base_url="http://localhost:1338",
-    api_token="target-token",
+    api_token=SecretStr("target-token"),
 )
 
 
