@@ -556,11 +556,18 @@ pytest --cov=py_strapi --cov-report=term
 - **Async**: `httpx.AsyncClient` with same limits
 - **Context managers**: Ensure proper cleanup (`__enter__`/`__exit__` and `__aenter__`/`__aexit__`)
 
-### Retry Logic (Planned - Phase 4)
-- Decorator infrastructure ready with tenacity
-- Configured via nested `RetryConfig`
-- Not yet active - needs explicit use of `self._create_retry_decorator()`
-- `retry_on_status` is currently unused; wire it up if retry is implemented
+### Retry Logic (ACTIVE)
+- Automatic retry with exponential backoff on transient failures
+- Configured via nested `RetryConfig` in `StrapiConfig`
+- Retries automatically on:
+  - Connection errors (`StrapiConnectionError`)
+  - Rate limit errors (429) with `Retry-After` header support
+  - Server errors (5xx) - configurable via `retry_on_status`
+  - Custom status codes via `retry_on_status` set
+- Exponential backoff with configurable base, initial wait, and max wait times
+- Respects `Retry-After` headers from Strapi API
+- Applied to both sync and async clients transparently
+- Full test coverage: 18 retry tests covering all scenarios
 
 ---
 
@@ -609,9 +616,13 @@ pytest --cov=py_strapi --cov-report=term
 - ✅ Full sync/async support
 - ✅ **58 passing media tests**, **100% operations coverage**, **85% overall coverage**
 
-**In Progress (Phase 4 - Advanced Features)**:
-- Bulk operations with streaming
-- Advanced retry strategies
+**Completed (Phase 4 - Retry & Bulk Operations)**:
+- ✅ Automatic retry with exponential backoff
+- ✅ Rate limit handling with retry-after support
+- ✅ Connection error recovery
+- ✅ Bulk operations (create, update, delete)
+- ✅ Progress callbacks for long operations
+- ✅ **18 passing retry tests**, full retry coverage
 
 **Future phases**: See IMPLEMENTATION_STATUS.md for full roadmap
 
