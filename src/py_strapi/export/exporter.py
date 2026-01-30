@@ -18,6 +18,7 @@ from py_strapi.models.export_format import (
 )
 from py_strapi.operations.streaming import stream_entities
 from py_strapi.export.relation_resolver import RelationResolver
+from py_strapi.export.media_handler import MediaHandler
 
 if TYPE_CHECKING:
     from py_strapi.client.sync_client import SyncClient
@@ -127,9 +128,16 @@ class StrapiExporter:
             # Update metadata with counts
             export_data.metadata.total_entities = export_data.get_entity_count()
 
-            # TODO: Export media if requested
+            # Export media if requested
             if include_media:
-                logger.warning("Media export not yet implemented")
+                if progress_callback:
+                    progress_callback(
+                        total_content_types,
+                        total_content_types + 1,
+                        "Exporting media files",
+                    )
+
+                self._export_media(export_data, progress_callback)
 
             if progress_callback:
                 progress_callback(
@@ -188,6 +196,39 @@ class StrapiExporter:
 
         except Exception as e:
             raise ImportExportError(f"Failed to load export file: {e}") from e
+
+    def _export_media(
+        self,
+        export_data: ExportData,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+    ) -> None:
+        """Export media files referenced in entities.
+
+        Args:
+            export_data: Export data to add media to
+            progress_callback: Optional progress callback
+        """
+        # Collect all media IDs from entities
+        media_ids: set[int] = set()
+
+        for entities in export_data.entities.values():
+            for entity in entities:
+                # Check both data and relations for media references
+                data_media = MediaHandler.extract_media_references(entity.data)
+                media_ids.update(data_media)
+
+        if not media_ids:
+            logger.info("No media files to export")
+            return
+
+        logger.info(f"Found {len(media_ids)} media files to export")
+
+        # For now, just track the media IDs
+        # Actual file download would require a download directory
+        # which should be specified in export options
+        # TODO: Add download directory parameter and actually download files
+
+        export_data.metadata.total_media = len(media_ids)
 
     @staticmethod
     def _uid_to_endpoint(uid: str) -> str:

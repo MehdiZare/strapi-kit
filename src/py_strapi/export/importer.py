@@ -11,6 +11,7 @@ from py_strapi.exceptions import ImportExportError, ValidationError
 from py_strapi.models.export_format import ExportData
 from py_strapi.models.import_options import ConflictResolution, ImportOptions, ImportResult
 from py_strapi.export.relation_resolver import RelationResolver
+from py_strapi.export.media_handler import MediaHandler
 
 if TYPE_CHECKING:
     from py_strapi.client.sync_client import SyncClient
@@ -113,7 +114,17 @@ class StrapiImporter:
                 result,
             )
 
-            # Step 4: Import relations (if not skipped)
+            # Step 4: Import media (if requested)
+            media_id_mapping: dict[int, int] = {}
+            if options.import_media and export_data.media:
+                if options.progress_callback:
+                    options.progress_callback(40, 100, "Importing media files")
+
+                # TODO: Implement media upload
+                # media_id_mapping = self._import_media(export_data, options, result)
+                logger.warning("Media import not fully implemented yet")
+
+            # Step 5: Import relations (if not skipped)
             if not options.skip_relations:
                 if options.progress_callback:
                     options.progress_callback(60, 100, "Importing relations")
