@@ -1,8 +1,6 @@
 """Tests for configuration factory and dependency injection."""
 
 import os
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -10,7 +8,6 @@ from py_strapi import (
     ConfigFactory,
     ConfigurationError,
     RetryConfig,
-    StrapiConfig,
     create_config,
     load_config,
 )
@@ -177,8 +174,7 @@ class TestConfigFactory:
         env_dir.mkdir()
         env_file = env_dir / ".env"
         env_file.write_text(
-            "STRAPI_BASE_URL=http://search.example.com\n"
-            "STRAPI_API_TOKEN=search-token\n"
+            "STRAPI_BASE_URL=http://search.example.com\nSTRAPI_API_TOKEN=search-token\n"
         )
 
         # First path doesn't exist, second does
@@ -219,8 +215,7 @@ class TestConfigFactory:
         # Create .env in current directory
         env_file = tmp_path / ".env"
         env_file.write_text(
-            "STRAPI_BASE_URL=http://default.example.com\n"
-            "STRAPI_API_TOKEN=default-token\n"
+            "STRAPI_BASE_URL=http://default.example.com\nSTRAPI_API_TOKEN=default-token\n"
         )
 
         config = ConfigFactory.from_env()
@@ -286,8 +281,7 @@ class TestConvenienceFunctions:
         """Test load_config with specific file."""
         env_file = tmp_path / ".env"
         env_file.write_text(
-            "STRAPI_BASE_URL=http://convenience.example.com\n"
-            "STRAPI_API_TOKEN=convenience-token\n"
+            "STRAPI_BASE_URL=http://convenience.example.com\nSTRAPI_API_TOKEN=convenience-token\n"
         )
 
         config = load_config(env_file)
@@ -301,8 +295,7 @@ class TestConvenienceFunctions:
 
         env_file = tmp_path / ".env"
         env_file.write_text(
-            "STRAPI_BASE_URL=http://default.example.com\n"
-            "STRAPI_API_TOKEN=default-token\n"
+            "STRAPI_BASE_URL=http://default.example.com\nSTRAPI_API_TOKEN=default-token\n"
         )
 
         config = load_config()
@@ -352,9 +345,7 @@ class TestRealWorldScenarios:
         )
 
         # Load with .env.local taking precedence
-        config = ConfigFactory.from_env(
-            search_paths=[str(local_env), str(base_env)]
-        )
+        config = ConfigFactory.from_env(search_paths=[str(local_env), str(base_env)])
 
         assert config.base_url == "http://localhost:1337"
         assert config.get_api_token() == "my-local-token"  # Overridden
@@ -397,12 +388,14 @@ class TestRealWorldScenarios:
         # 4. Explicit override (must include required fields for from_dict)
         final_config = ConfigFactory.merge(
             base_config,
-            ConfigFactory.from_dict({
-                "base_url": "http://localhost:1337",
-                "api_token": "file-token",
-                "timeout": 60.0,
-                "max_connections": 50
-            }),
+            ConfigFactory.from_dict(
+                {
+                    "base_url": "http://localhost:1337",
+                    "api_token": "file-token",
+                    "timeout": 60.0,
+                    "max_connections": 50,
+                }
+            ),
         )
 
         assert final_config.base_url == "http://localhost:1337"

@@ -4,7 +4,6 @@ This module provides a flexible way to create StrapiConfig instances from
 various sources (environment variables, .env files, dictionaries, etc.).
 """
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -100,9 +99,7 @@ class ConfigFactory:
 
         if required and env_file is None:
             searched = [str(Path(p).expanduser().resolve()) for p in search_paths]
-            raise ConfigurationError(
-                f"No .env file found. Searched: {', '.join(searched)}"
-            )
+            raise ConfigurationError(f"No .env file found. Searched: {', '.join(searched)}")
 
         try:
             # Load with custom env_file path
@@ -113,9 +110,7 @@ class ConfigFactory:
                 return StrapiConfig(_env_file=None)  # type: ignore[call-arg]
 
         except ValidationError as e:
-            raise ConfigurationError(
-                f"Invalid configuration: {e.error_count()} errors\n{e}"
-            ) from e
+            raise ConfigurationError(f"Invalid configuration: {e.error_count()} errors\n{e}") from e
 
     @staticmethod
     def from_env_file(
@@ -182,9 +177,7 @@ class ConfigFactory:
             # Disable .env loading when creating from dict
             return StrapiConfig(_env_file=None, **config_dict)  # type: ignore[call-arg]
         except ValidationError as e:
-            raise ConfigurationError(
-                f"Invalid configuration: {e.error_count()} errors\n{e}"
-            ) from e
+            raise ConfigurationError(f"Invalid configuration: {e.error_count()} errors\n{e}") from e
 
     @staticmethod
     def create(
@@ -245,9 +238,7 @@ class ConfigFactory:
                 verify_ssl=verify_ssl,
             )
         except ValidationError as e:
-            raise ConfigurationError(
-                f"Invalid configuration: {e.error_count()} errors\n{e}"
-            ) from e
+            raise ConfigurationError(f"Invalid configuration: {e.error_count()} errors\n{e}") from e
 
     @staticmethod
     def from_environment_only() -> StrapiConfig:
@@ -312,6 +303,7 @@ class ConfigFactory:
 
 
 # Convenience functions for common patterns
+
 
 def load_config(
     env_file: str | Path | None = None,

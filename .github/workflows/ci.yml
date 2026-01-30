@@ -56,6 +56,9 @@ jobs:
           # Run type checking
           mypy src/py_strapi/
 
+          # Run security checks
+          bandit -c pyproject.toml -r src/
+
   # Coverage job - run all tests in one job for simplicity
   coverage:
     runs-on: ubuntu-latest

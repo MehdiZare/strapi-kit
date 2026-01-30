@@ -9,7 +9,6 @@ from py_strapi import (
     ConfigFactory,
     create_config,
     load_config,
-    SyncClient,
 )
 
 
@@ -22,7 +21,7 @@ def demo_load_from_env():
     try:
         # Automatically searches for .env, .env.local, or ~/.config/strapi/.env
         config = load_config()
-        print(f"✅ Loaded config from .env")
+        print("✅ Loaded config from .env")
         print(f"   Base URL: {config.base_url}")
         print(f"   Timeout: {config.timeout}s")
         print(f"   Max connections: {config.max_connections}")
@@ -51,7 +50,7 @@ def demo_explicit_config():
         },
     )
 
-    print(f"✅ Created explicit config")
+    print("✅ Created explicit config")
     print(f"   Base URL: {config.base_url}")
     print(f"   Timeout: {config.timeout}s")
     print(f"   Retry attempts: {config.retry.max_attempts}")
@@ -68,7 +67,7 @@ def demo_environment_only():
     try:
         # This requires STRAPI_BASE_URL and STRAPI_API_TOKEN to be set
         config = ConfigFactory.from_environment_only()
-        print(f"✅ Loaded from environment variables")
+        print("✅ Loaded from environment variables")
         print(f"   Base URL: {config.base_url}")
     except Exception as e:
         print(f"❌ Missing environment variables: {e}")
@@ -104,14 +103,14 @@ def demo_config_merging():
     # Merge (prod overrides win)
     final_config = ConfigFactory.merge(base_config, prod_overrides)
 
-    print(f"✅ Merged configurations")
-    print(f"   Base config:")
+    print("✅ Merged configurations")
+    print("   Base config:")
     print(f"     - URL: {base_config.base_url}")
     print(f"     - Timeout: {base_config.timeout}s")
-    print(f"   Production overrides:")
+    print("   Production overrides:")
     print(f"     - URL: {prod_overrides.base_url}")
     print(f"     - Timeout: {prod_overrides.timeout}s")
-    print(f"   Final merged config:")
+    print("   Final merged config:")
     print(f"     - URL: {final_config.base_url}")
     print(f"     - Timeout: {final_config.timeout}s")
     print()
@@ -133,11 +132,11 @@ def demo_custom_search_paths():
             ],
             required=False,  # Don't fail if no file found
         )
-        print(f"✅ Loaded config with custom search paths")
-        print(f"   Searched: .env.local, .env, ~/.config/strapi/.env, /etc/strapi/.env")
+        print("✅ Loaded config with custom search paths")
+        print("   Searched: .env.local, .env, ~/.config/strapi/.env, /etc/strapi/.env")
         print(f"   Base URL: {config.base_url}")
     except Exception as e:
-        print(f"❌ No .env file found in search paths")
+        print("❌ No .env file found in search paths")
         print(f"   Error: {e}")
 
     print()
@@ -155,7 +154,7 @@ def demo_usage_with_client():
         api_token="demo-token",
     )
 
-    print(f"✅ Created config and initialized client")
+    print("✅ Created config and initialized client")
     print(f"   Base URL: {config.base_url}")
     print(f"   Would connect to Strapi at {config.base_url}")
     print()

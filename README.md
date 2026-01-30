@@ -829,6 +829,42 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -e ".[dev]"
 # Or with pip
 pip install -e ".[dev]"
+
+# Install pre-commit hooks (one-time setup)
+make install-hooks
+# Or manually:
+pre-commit install
+```
+
+### Pre-commit Hooks
+
+This project uses pre-commit hooks to ensure code quality:
+
+```bash
+# Install pre-commit hooks (one-time setup)
+make install-hooks
+
+# Or manually:
+pre-commit install
+
+# Run hooks manually on all files
+make run-hooks
+
+# Update hooks to latest versions
+make update-hooks
+```
+
+**What the hooks check:**
+- ✅ Code formatting (ruff format)
+- ✅ Linting (ruff check)
+- ✅ Type checking (mypy strict mode)
+- ✅ Security issues (bandit)
+- ✅ Secrets detection (detect-secrets)
+- ✅ File consistency (trailing whitespace, EOF, etc.)
+
+**Skip hooks temporarily** (not recommended):
+```bash
+git commit --no-verify
 ```
 
 ### Testing
@@ -855,6 +891,12 @@ ruff check src/ tests/
 
 # Type checking
 mypy src/py_strapi/
+
+# Security checks
+make security
+
+# Run all quality checks
+make quality
 ```
 
 ## Project Status

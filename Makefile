@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-verbose test-watch coverage lint format type-check quality clean clean-build clean-pyc clean-test docs docs-serve docs-build release-test release-prod bump-patch bump-minor bump-major
+.PHONY: help install install-dev test test-verbose test-watch coverage lint format type-check quality security security-baseline install-hooks run-hooks update-hooks clean clean-build clean-pyc clean-test docs docs-serve docs-build release-test release-prod bump-patch bump-minor bump-major
 
 # Default target
 .DEFAULT_GOAL := help
@@ -80,9 +80,35 @@ type-check: ## Run type checking with mypy
 quality: lint type-check ## Run all quality checks (lint + type-check)
 	@echo "$(GREEN)✓ All quality checks passed$(NC)"
 
+security: ## Run security checks (bandit)
+	@echo "$(BLUE)Running security checks...$(NC)"
+	bandit -c pyproject.toml -r src/
+	@echo "$(GREEN)✓ Security checks complete$(NC)"
+
+security-baseline: ## Create baseline for detect-secrets
+	@echo "$(BLUE)Creating detect-secrets baseline...$(NC)"
+	detect-secrets scan > .secrets.baseline
+	@echo "$(GREEN)✓ Baseline created at .secrets.baseline$(NC)"
+
+# Pre-commit hooks
+install-hooks: ## Install pre-commit hooks
+	@echo "$(BLUE)Installing pre-commit hooks...$(NC)"
+	pre-commit install
+	@echo "$(GREEN)✓ Pre-commit hooks installed successfully!$(NC)"
+
+run-hooks: ## Run all pre-commit hooks manually
+	@echo "$(BLUE)Running pre-commit hooks on all files...$(NC)"
+	pre-commit run --all-files
+
+update-hooks: ## Update pre-commit hooks to latest versions
+	@echo "$(BLUE)Updating pre-commit hooks...$(NC)"
+	pre-commit autoupdate
+	@echo "$(GREEN)✓ Pre-commit hooks updated$(NC)"
+
 # Pre-commit - Full check before committing
 pre-commit: format lint-fix type-check test ## Run full pre-commit checks
 	@echo "$(GREEN)✓ Pre-commit checks complete$(NC)"
+	@echo "$(YELLOW)💡 Tip: Install git hooks with 'make install-hooks' to run checks automatically$(NC)"
 
 # Documentation
 docs: ## Build documentation

@@ -510,6 +510,49 @@ uv pip install --upgrade package-name
 
 **Fallback to pip:** If uv is not available, `pip` commands work identically.
 
+### Pre-commit Hooks
+
+The project uses pre-commit hooks to enforce quality standards:
+
+```bash
+# One-time setup
+make install-hooks
+
+# Hooks run automatically on git commit
+# They will:
+# 1. Format code (ruff format)
+# 2. Fix linting issues (ruff check --fix)
+# 3. Run type checking (mypy)
+# 4. Check for security issues (bandit)
+# 5. Prevent committing secrets (detect-secrets)
+
+# Run hooks manually on all files
+make run-hooks
+
+# Update hooks to latest versions
+make update-hooks
+```
+
+**What the hooks check:**
+- ✅ Code formatting (ruff format)
+- ✅ Linting (ruff check with auto-fix)
+- ✅ Type checking (mypy strict mode on src/ only)
+- ✅ Security issues (bandit on src/ only)
+- ✅ Secrets detection (detect-secrets)
+- ✅ File consistency (trailing whitespace, EOF, YAML/TOML syntax, etc.)
+
+**Bypass hooks** (use sparingly):
+```bash
+git commit --no-verify
+```
+
+**Important notes:**
+- Hooks only run on staged files by default (fast)
+- Type checking and bandit only scan `src/` directory (not tests or examples)
+- mkdocs.yml is excluded from YAML checks (uses custom tags)
+- Hooks are configured in `.pre-commit-config.yaml`
+- Secrets baseline is stored in `.secrets.baseline`
+
 ### Adding New Features
 1. **Update models** if new data structures needed (models/)
 2. **Implement in BaseClient** if shared logic (client/base.py)
@@ -521,6 +564,22 @@ uv pip install --upgrade package-name
 8. **Run full test suite** including coverage check
 
 ### Pre-commit Checklist
+
+**Automatic (via git hooks):**
+```bash
+# Hooks run automatically on commit
+git add .
+git commit -m "feat: your message"
+
+# Hooks will:
+# 1. Format code automatically
+# 2. Fix linting issues
+# 3. Type check src/ directory
+# 4. Check for security issues
+# 5. Prevent committing secrets
+```
+
+**Manual (for testing before commit):**
 ```bash
 # 1. Format code
 ruff format src/ tests/
@@ -531,10 +590,14 @@ ruff check src/ tests/ --fix
 # 3. Type check
 mypy src/py_strapi/
 
-# 4. Run tests with coverage
+# 4. Run security checks
+make security
+
+# 5. Run tests with coverage
 pytest --cov=py_strapi --cov-report=term
 
-# 5. Verify all checks pass
+# 6. Or run all quality checks at once
+make pre-commit
 ```
 
 ---
