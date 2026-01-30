@@ -26,7 +26,14 @@ from .exceptions import (
     StrapiError,
     ValidationError,
 )
-from .models import StrapiConfig, RetryConfig
+from .models import (
+    BulkOperationFailure,
+    BulkOperationResult,
+    RetryConfig,
+    StrapiConfig,
+)
+from .export import StrapiExporter, StrapiImporter
+from .operations.streaming import stream_entities, stream_entities_async
 from .parsers import VersionDetectingParser
 from .protocols import (
     AsyncHTTPClient,
@@ -44,6 +51,15 @@ __all__ = [
     # Configuration
     "StrapiConfig",
     "RetryConfig",
+    # Bulk Operations
+    "BulkOperationResult",
+    "BulkOperationFailure",
+    # Streaming
+    "stream_entities",
+    "stream_entities_async",
+    # Export/Import
+    "StrapiExporter",
+    "StrapiImporter",
     # Protocols (for dependency injection)
     "AuthProvider",
     "ConfigProvider",

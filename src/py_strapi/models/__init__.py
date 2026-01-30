@@ -3,7 +3,10 @@
 Includes configuration models and request/response models for Strapi API interactions.
 """
 
+from .bulk import BulkOperationFailure, BulkOperationResult
 from .config import RetryConfig, StrapiConfig
+from .export_format import ExportData, ExportedEntity, ExportedMediaFile, ExportMetadata
+from .import_options import ConflictResolution, ImportOptions, ImportResult
 from .enums import FilterOperator, PublicationState, SortDirection
 from .request.fields import FieldSelection
 from .request.filters import FilterBuilder, FilterCondition, FilterGroup
@@ -32,6 +35,17 @@ __all__ = [
     # Configuration
     "StrapiConfig",
     "RetryConfig",
+    # Bulk Operations
+    "BulkOperationResult",
+    "BulkOperationFailure",
+    # Export/Import
+    "ExportData",
+    "ExportMetadata",
+    "ExportedEntity",
+    "ExportedMediaFile",
+    "ImportOptions",
+    "ImportResult",
+    "ConflictResolution",
     # Enums
     "FilterOperator",
     "SortDirection",

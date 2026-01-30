@@ -6,7 +6,7 @@ and applications that don't require concurrency.
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -15,8 +15,10 @@ from ..exceptions import (
 )
 from ..exceptions import (
     MediaError,
+    StrapiError,
     TimeoutError as StrapiTimeoutError,
 )
+from ..models.bulk import BulkOperationFailure, BulkOperationResult
 from ..models.config import StrapiConfig
 from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
@@ -722,3 +724,195 @@ class SyncClient(BaseClient):
 
         except Exception as e:
             raise MediaError(f"Media update failed: {e}") from e
+
+    # Bulk Operations
+
+    def bulk_create(
+        self,
+        endpoint: str,
+        items: list[dict[str, Any]],
+        *,
+        batch_size: int = 10,
+        query: StrapiQuery | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Create multiple entities in batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            items: List of entity data dicts
+            batch_size: Number of items to create per batch (default: 10)
+            query: Optional query for populate, locale, etc.
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult with successes, failures, and metadata
+
+        Example:
+            >>> items = [
+            ...     {"title": "Article 1", "content": "..."},
+            ...     {"title": "Article 2", "content": "..."},
+            ... ]
+            >>> result = client.bulk_create("articles", items, batch_size=5)
+            >>> print(f"Created {len(result.successes)}/{len(items)}")
+            >>> if result.failures:
+            ...     for failure in result.failures:
+            ...         print(f"Failed item {failure.index}: {failure.error}")
+        """
+        successes = []
+        failures = []
+
+        for i in range(0, len(items), batch_size):
+            batch = items[i : i + batch_size]
+
+            for idx, item in enumerate(batch):
+                global_idx = i + idx
+
+                try:
+                    response = self.create(endpoint, item, query=query)
+                    if response.data:
+                        successes.append(response.data)
+
+                    if progress_callback:
+                        progress_callback(global_idx + 1, len(items))
+
+                except StrapiError as e:
+                    failures.append(
+                        BulkOperationFailure(
+                            index=global_idx,
+                            item=item,
+                            error=str(e),
+                            exception=e,
+                        )
+                    )
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(items),
+            succeeded=len(successes),
+            failed=len(failures),
+        )
+
+    def bulk_update(
+        self,
+        endpoint: str,
+        updates: list[tuple[str | int, dict[str, Any]]],
+        *,
+        batch_size: int = 10,
+        query: StrapiQuery | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Update multiple entities in batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            updates: List of (id, data) tuples
+            batch_size: Items per batch (default: 10)
+            query: Optional query
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult
+
+        Example:
+            >>> updates = [
+            ...     (1, {"title": "Updated Title 1"}),
+            ...     (2, {"title": "Updated Title 2"}),
+            ... ]
+            >>> result = client.bulk_update("articles", updates)
+            >>> print(f"Updated {result.succeeded}/{result.total}")
+        """
+        successes = []
+        failures = []
+
+        for i in range(0, len(updates), batch_size):
+            batch = updates[i : i + batch_size]
+
+            for idx, (entity_id, data) in enumerate(batch):
+                global_idx = i + idx
+
+                try:
+                    response = self.update(f"{endpoint}/{entity_id}", data, query=query)
+                    if response.data:
+                        successes.append(response.data)
+
+                    if progress_callback:
+                        progress_callback(global_idx + 1, len(updates))
+
+                except StrapiError as e:
+                    failures.append(
+                        BulkOperationFailure(
+                            index=global_idx,
+                            item={"id": entity_id, "data": data},
+                            error=str(e),
+                            exception=e,
+                        )
+                    )
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(updates),
+            succeeded=len(successes),
+            failed=len(failures),
+        )
+
+    def bulk_delete(
+        self,
+        endpoint: str,
+        ids: list[str | int],
+        *,
+        batch_size: int = 10,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Delete multiple entities in batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            ids: List of entity IDs (numeric or documentId)
+            batch_size: Items per batch (default: 10)
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult
+
+        Example:
+            >>> ids = [1, 2, 3, 4, 5]
+            >>> result = client.bulk_delete("articles", ids)
+            >>> print(f"Deleted {result.succeeded} articles")
+        """
+        successes = []
+        failures = []
+
+        for i in range(0, len(ids), batch_size):
+            batch = ids[i : i + batch_size]
+
+            for idx, entity_id in enumerate(batch):
+                global_idx = i + idx
+
+                try:
+                    response = self.remove(f"{endpoint}/{entity_id}")
+                    if response.data:
+                        successes.append(response.data)
+
+                    if progress_callback:
+                        progress_callback(global_idx + 1, len(ids))
+
+                except StrapiError as e:
+                    failures.append(
+                        BulkOperationFailure(
+                            index=global_idx,
+                            item={"id": entity_id},
+                            error=str(e),
+                            exception=e,
+                        )
+                    )
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(ids),
+            succeeded=len(successes),
+            failed=len(failures),
+        )

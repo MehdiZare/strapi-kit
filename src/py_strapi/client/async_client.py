@@ -4,9 +4,10 @@ This module provides non-blocking I/O operations for high-concurrency
 applications and batch operations.
 """
 
+import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -15,8 +16,10 @@ from ..exceptions import (
 )
 from ..exceptions import (
     MediaError,
+    StrapiError,
     TimeoutError as StrapiTimeoutError,
 )
+from ..models.bulk import BulkOperationFailure, BulkOperationResult
 from ..models.config import StrapiConfig
 from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
@@ -729,3 +732,219 @@ class AsyncClient(BaseClient):
 
         except Exception as e:
             raise MediaError(f"Media update failed: {e}") from e
+
+    # Bulk Operations
+
+    async def bulk_create(
+        self,
+        endpoint: str,
+        items: list[dict[str, Any]],
+        *,
+        batch_size: int = 10,
+        max_concurrency: int = 5,
+        query: StrapiQuery | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Create multiple entities in concurrent batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            items: List of entity data dicts
+            batch_size: Items per batch (default: 10, currently unused - for API compatibility)
+            max_concurrency: Max concurrent requests (default: 5)
+            query: Optional query
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult with successes and failures
+
+        Example:
+            >>> items = [
+            ...     {"title": "Article 1", "content": "..."},
+            ...     {"title": "Article 2", "content": "..."},
+            ... ]
+            >>> result = await client.bulk_create("articles", items, max_concurrency=10)
+            >>> print(f"Created {result.succeeded}/{result.total}")
+        """
+        successes = []
+        failures = []
+        semaphore = asyncio.Semaphore(max_concurrency)
+        completed = 0
+
+        async def create_one(idx: int, item: dict[str, Any]) -> None:
+            nonlocal completed
+
+            async with semaphore:
+                try:
+                    response = await self.create(endpoint, item, query=query)
+                    if response.data:
+                        successes.append(response.data)
+
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(completed, len(items))
+
+                except StrapiError as e:
+                    failures.append(
+                        BulkOperationFailure(
+                            index=idx,
+                            item=item,
+                            error=str(e),
+                            exception=e,
+                        )
+                    )
+
+        # Create all tasks
+        tasks = [create_one(i, item) for i, item in enumerate(items)]
+
+        # Execute with gather (doesn't stop on first error)
+        await asyncio.gather(*tasks, return_exceptions=False)
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(items),
+            succeeded=len(successes),
+            failed=len(failures),
+        )
+
+    async def bulk_update(
+        self,
+        endpoint: str,
+        updates: list[tuple[str | int, dict[str, Any]]],
+        *,
+        batch_size: int = 10,
+        max_concurrency: int = 5,
+        query: StrapiQuery | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Update multiple entities in concurrent batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            updates: List of (id, data) tuples
+            batch_size: Items per batch (default: 10, currently unused - for API compatibility)
+            max_concurrency: Max concurrent requests (default: 5)
+            query: Optional query
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult
+
+        Example:
+            >>> updates = [
+            ...     (1, {"title": "Updated Title 1"}),
+            ...     (2, {"title": "Updated Title 2"}),
+            ... ]
+            >>> result = await client.bulk_update("articles", updates)
+            >>> print(f"Updated {result.succeeded}/{result.total}")
+        """
+        successes = []
+        failures = []
+        semaphore = asyncio.Semaphore(max_concurrency)
+        completed = 0
+
+        async def update_one(idx: int, entity_id: str | int, data: dict[str, Any]) -> None:
+            nonlocal completed
+
+            async with semaphore:
+                try:
+                    response = await self.update(f"{endpoint}/{entity_id}", data, query=query)
+                    if response.data:
+                        successes.append(response.data)
+
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(completed, len(updates))
+
+                except StrapiError as e:
+                    failures.append(
+                        BulkOperationFailure(
+                            index=idx,
+                            item={"id": entity_id, "data": data},
+                            error=str(e),
+                            exception=e,
+                        )
+                    )
+
+        # Create all tasks
+        tasks = [update_one(i, entity_id, data) for i, (entity_id, data) in enumerate(updates)]
+
+        # Execute with gather
+        await asyncio.gather(*tasks, return_exceptions=False)
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(updates),
+            succeeded=len(successes),
+            failed=len(failures),
+        )
+
+    async def bulk_delete(
+        self,
+        endpoint: str,
+        ids: list[str | int],
+        *,
+        batch_size: int = 10,
+        max_concurrency: int = 5,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Delete multiple entities in concurrent batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            ids: List of entity IDs (numeric or documentId)
+            batch_size: Items per batch (default: 10, currently unused - for API compatibility)
+            max_concurrency: Max concurrent requests (default: 5)
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult
+
+        Example:
+            >>> ids = [1, 2, 3, 4, 5]
+            >>> result = await client.bulk_delete("articles", ids)
+            >>> print(f"Deleted {result.succeeded} articles")
+        """
+        successes = []
+        failures = []
+        semaphore = asyncio.Semaphore(max_concurrency)
+        completed = 0
+
+        async def delete_one(idx: int, entity_id: str | int) -> None:
+            nonlocal completed
+
+            async with semaphore:
+                try:
+                    response = await self.remove(f"{endpoint}/{entity_id}")
+                    if response.data:
+                        successes.append(response.data)
+
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(completed, len(ids))
+
+                except StrapiError as e:
+                    failures.append(
+                        BulkOperationFailure(
+                            index=idx,
+                            item={"id": entity_id},
+                            error=str(e),
+                            exception=e,
+                        )
+                    )
+
+        # Create all tasks
+        tasks = [delete_one(i, entity_id) for i, entity_id in enumerate(ids)]
+
+        # Execute with gather
+        await asyncio.gather(*tasks, return_exceptions=False)
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(ids),
+            succeeded=len(successes),
+            failed=len(failures),
+        )
