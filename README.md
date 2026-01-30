@@ -115,28 +115,159 @@ asyncio.run(main())
 
 ## Configuration
 
-Configuration can be provided via environment variables with the `STRAPI_` prefix:
+py-strapi provides flexible configuration options through dependency injection:
+
+### 1. Using .env Files (Recommended for Development)
+
+Create a `.env` file in your project root:
 
 ```bash
-export STRAPI_BASE_URL="http://localhost:1337"
-export STRAPI_API_TOKEN="your-token"
-export STRAPI_API_VERSION="auto"  # or "v4" or "v5"
-export STRAPI_TIMEOUT=30
+# .env
+STRAPI_BASE_URL=http://localhost:1337
+STRAPI_API_TOKEN=your-api-token-here
+STRAPI_TIMEOUT=30.0
+STRAPI_MAX_CONNECTIONS=10
+STRAPI_RETRY_MAX_ATTEMPTS=3
 ```
 
-Or via code:
+Then load it automatically:
 
 ```python
-from py_strapi import StrapiConfig
+from py_strapi import load_config, SyncClient
+
+# Automatically searches for .env, .env.local, or ~/.config/strapi/.env
+config = load_config()
+
+with SyncClient(config) as client:
+    response = client.get("articles")
+```
+
+### 2. Using Environment Variables (Recommended for Production)
+
+Perfect for containerized deployments (Docker, Kubernetes):
+
+```bash
+export STRAPI_BASE_URL=https://api.production.com
+export STRAPI_API_TOKEN=production-secret-token
+export STRAPI_TIMEOUT=120.0
+export STRAPI_MAX_CONNECTIONS=100
+```
+
+```python
+from py_strapi import ConfigFactory, SyncClient
+
+# Load from environment variables only (no .env files)
+config = ConfigFactory.from_environment_only()
+
+with SyncClient(config) as client:
+    response = client.get("articles")
+```
+
+### 3. Explicit Configuration (Recommended for Testing)
+
+Create configuration programmatically:
+
+```python
+from py_strapi import create_config, SyncClient
+
+config = create_config(
+    base_url="http://localhost:1337",
+    api_token="your-token",
+    timeout=60.0,
+    max_connections=50,
+    verify_ssl=True
+)
+
+with SyncClient(config) as client:
+    response = client.get("articles")
+```
+
+### 4. Advanced Configuration Patterns
+
+#### Custom .env File Location
+
+```python
+from py_strapi import ConfigFactory
+
+# Load from specific file
+config = ConfigFactory.from_env_file("/path/to/custom.env")
+
+# Search multiple locations
+config = ConfigFactory.from_env(
+    search_paths=[
+        ".env.local",      # Local overrides (highest priority)
+        ".env",            # Base config
+        "~/.strapi/.env"   # User config (lowest priority)
+    ]
+)
+```
+
+#### Layered Configuration (Development → Production)
+
+```python
+from py_strapi import ConfigFactory
+
+# Base configuration from .env file
+base_config = ConfigFactory.from_env_file(".env")
+
+# Override specific values for production
+production_overrides = ConfigFactory.from_dict({
+    "base_url": "https://api.production.com",
+    "api_token": "production-token",
+    "timeout": 120.0,
+    "max_connections": 100
+})
+
+# Merge configs (later configs override earlier ones)
+final_config = ConfigFactory.merge(base_config, production_overrides)
+```
+
+#### Retry Configuration
+
+Configure automatic retry behavior:
+
+```python
+from py_strapi import StrapiConfig, RetryConfig
 
 config = StrapiConfig(
     base_url="http://localhost:1337",
     api_token="your-token",
-    api_version="auto",  # Automatic detection
-    timeout=30.0,
-    max_connections=10,
+    retry=RetryConfig(
+        max_attempts=5,           # Retry up to 5 times
+        initial_wait=2.0,         # Wait 2 seconds before first retry
+        max_wait=120.0,          # Maximum 2 minutes between retries
+        exponential_base=3.0,    # Faster backoff growth
+        retry_on_status={500, 502, 503, 504, 408}  # Retry on these status codes
+    )
 )
 ```
+
+Or via environment variables:
+
+```bash
+STRAPI_RETRY_MAX_ATTEMPTS=5
+STRAPI_RETRY_INITIAL_WAIT=2.0
+STRAPI_RETRY_MAX_WAIT=120.0
+STRAPI_RETRY_EXPONENTIAL_BASE=3.0
+```
+
+### Configuration Reference
+
+All available options:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `base_url` | `str` | **Required** | Strapi instance URL |
+| `api_token` | `str` | **Required** | API authentication token |
+| `api_version` | `"v4" \| "v5" \| "auto"` | `"auto"` | API version (auto-detect or explicit) |
+| `timeout` | `float` | `30.0` | Request timeout in seconds |
+| `max_connections` | `int` | `10` | Maximum concurrent connections |
+| `verify_ssl` | `bool` | `True` | Verify SSL certificates |
+| `rate_limit_per_second` | `float \| None` | `None` | Rate limiting (None = unlimited) |
+| `retry.max_attempts` | `int` | `3` | Maximum retry attempts (1-10) |
+| `retry.initial_wait` | `float` | `1.0` | Initial retry wait time (seconds) |
+| `retry.max_wait` | `float` | `60.0` | Maximum retry wait time (seconds) |
+| `retry.exponential_base` | `float` | `2.0` | Exponential backoff multiplier |
 
 ## Usage Examples
 
