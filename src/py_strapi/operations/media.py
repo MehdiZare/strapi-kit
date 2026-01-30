@@ -6,10 +6,72 @@ and response normalization across sync and async clients.
 
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import IO, Any, Literal
 from urllib.parse import urljoin, urlparse
 
 from py_strapi.models.response.media import MediaFile
+
+
+class UploadPayload:
+    """Container for upload payload with proper file handle management.
+
+    This class ensures file handles are properly closed after upload operations,
+    preventing resource leaks in batch operations or error scenarios.
+
+    Usage:
+        Use as a context manager to ensure proper cleanup:
+
+        >>> with build_upload_payload("image.jpg") as payload:
+        ...     files = {"files": payload.files_tuple}
+        ...     data = payload.data
+        ...     # Make HTTP request
+    """
+
+    def __init__(
+        self,
+        file_path: Path,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize upload payload.
+
+        Args:
+            file_path: Path to the file to upload
+            data: Optional metadata dictionary
+        """
+        self._file_path = file_path
+        self._data = data
+        self._file_handle: IO[bytes] | None = None
+
+    @property
+    def files_tuple(self) -> tuple[str, IO[bytes], None]:
+        """Get the files tuple for httpx multipart upload.
+
+        Returns:
+            Tuple of (filename, file_handle, content_type)
+            Content type is None to let httpx auto-detect MIME type.
+
+        Raises:
+            RuntimeError: If accessed outside of context manager
+        """
+        if self._file_handle is None:
+            raise RuntimeError("UploadPayload must be used as a context manager")
+        return ("file", self._file_handle, None)
+
+    @property
+    def data(self) -> dict[str, Any] | None:
+        """Get the metadata dictionary."""
+        return self._data
+
+    def __enter__(self) -> "UploadPayload":
+        """Open file handle on context entry."""
+        self._file_handle = open(self._file_path, "rb")
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Close file handle on context exit."""
+        if self._file_handle is not None:
+            self._file_handle.close()
+            self._file_handle = None
 
 
 def build_upload_payload(
@@ -20,8 +82,11 @@ def build_upload_payload(
     folder: str | None = None,
     alternative_text: str | None = None,
     caption: str | None = None,
-) -> dict[str, Any]:
+) -> UploadPayload:
     """Build multipart form data payload for file upload.
+
+    Returns an UploadPayload context manager that properly handles file
+    lifecycle to prevent resource leaks.
 
     Args:
         file_path: Path to file to upload
@@ -33,19 +98,20 @@ def build_upload_payload(
         caption: Caption text
 
     Returns:
-        Dictionary with 'files' key and optional 'data' key for metadata
+        UploadPayload context manager with file handle management
 
     Raises:
         FileNotFoundError: If file doesn't exist
 
     Example:
-        >>> payload = build_upload_payload(
+        >>> with build_upload_payload(
         ...     "image.jpg",
         ...     ref="api::article.article",
         ...     ref_id="123",
         ...     alternative_text="Hero image"
-        ... )
-        >>> # Returns: {"files": <file>, "data": {...}}
+        ... ) as payload:
+        ...     # Use payload.files_tuple and payload.data for upload
+        ...     pass
     """
     path = Path(file_path)
     if not path.exists():
@@ -58,12 +124,7 @@ def build_upload_payload(
     if caption is not None:
         file_info["caption"] = caption
 
-    # Build form data
-    payload: dict[str, Any] = {
-        "files": ("file", open(path, "rb"), None),  # Let httpx detect MIME type
-    }
-
-    # Add optional reference fields
+    # Build form data metadata
     data: dict[str, Any] = {}
     if ref is not None:
         data["ref"] = ref
@@ -77,10 +138,7 @@ def build_upload_payload(
         # httpx multipart requires JSON string for nested objects
         data["fileInfo"] = json.dumps(file_info)
 
-    if data:
-        payload["data"] = data
-
-    return payload
+    return UploadPayload(path, data if data else None)
 
 
 def normalize_media_response(

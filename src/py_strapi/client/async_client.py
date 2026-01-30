@@ -467,8 +467,8 @@ class AsyncClient(BaseClient):
             ... )
         """
         try:
-            # Build multipart payload
-            payload = build_upload_payload(
+            # Build multipart payload with context manager to ensure file handle cleanup
+            with build_upload_payload(
                 file_path,
                 ref=ref,
                 ref_id=ref_id,
@@ -476,31 +476,30 @@ class AsyncClient(BaseClient):
                 folder=folder,
                 alternative_text=alternative_text,
                 caption=caption,
-            )
+            ) as payload:
+                # Build URL and headers
+                url = self._build_url("upload")
+                headers = self._build_upload_headers()
 
-            # Build URL and headers
-            url = self._build_url("upload")
-            headers = self._build_upload_headers()
+                # Make async request with multipart data
+                response = await self._client.post(
+                    url,
+                    files={"files": payload.files_tuple},
+                    data=payload.data,
+                    headers=headers,
+                )
 
-            # Make async request with multipart data
-            response = await self._client.post(
-                url,
-                files={"files": payload["files"]},
-                data=payload.get("data"),
-                headers=headers,
-            )
+                # Handle errors
+                if not response.is_success:
+                    self._handle_error_response(response)
 
-            # Handle errors
-            if not response.is_success:
-                self._handle_error_response(response)
-
-            # Parse response (upload returns single file object, not wrapped in data)
-            response_json = response.json()
-            # Upload endpoint returns array with single file
-            if isinstance(response_json, list) and response_json:
-                return self._parse_media_response(response_json[0])
-            else:
-                return self._parse_media_response(response_json)
+                # Parse response (upload returns single file object, not wrapped in data)
+                response_json = response.json()
+                # Upload endpoint returns array with single file
+                if isinstance(response_json, list) and response_json:
+                    return self._parse_media_response(response_json[0])
+                else:
+                    return self._parse_media_response(response_json)
 
         except FileNotFoundError:
             raise

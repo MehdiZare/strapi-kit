@@ -21,13 +21,12 @@ class TestBuildUploadPayload:
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")
 
-        payload = build_upload_payload(test_file)
-
-        assert "files" in payload
-        assert isinstance(payload["files"], tuple)
-        assert payload["files"][0] == "file"
-        # File handle should be readable
-        assert hasattr(payload["files"][1], "read")
+        with build_upload_payload(test_file) as payload:
+            files_tuple = payload.files_tuple
+            assert isinstance(files_tuple, tuple)
+            assert files_tuple[0] == "file"
+            # File handle should be readable
+            assert hasattr(files_tuple[1], "read")
 
     def test_build_payload_with_metadata(self, tmp_path: Path) -> None:
         """Test building payload with all metadata fields."""
@@ -36,7 +35,7 @@ class TestBuildUploadPayload:
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")
 
-        payload = build_upload_payload(
+        with build_upload_payload(
             test_file,
             ref="api::article.article",
             ref_id=123,
@@ -44,34 +43,31 @@ class TestBuildUploadPayload:
             folder="uploads",
             alternative_text="Hero image",
             caption="Article hero image",
-        )
-
-        assert "files" in payload
-        assert "data" in payload
-
-        data = payload["data"]
-        assert data["ref"] == "api::article.article"
-        assert data["refId"] == "123"  # Converted to string
-        assert data["field"] == "cover"
-        assert data["folder"] == "uploads"
-        assert "fileInfo" in data
-        # fileInfo is JSON-encoded string for httpx multipart
-        file_info = json.loads(data["fileInfo"])
-        assert file_info["alternativeText"] == "Hero image"
-        assert file_info["caption"] == "Article hero image"
+        ) as payload:
+            data = payload.data
+            assert data is not None
+            assert data["ref"] == "api::article.article"
+            assert data["refId"] == "123"  # Converted to string
+            assert data["field"] == "cover"
+            assert data["folder"] == "uploads"
+            assert "fileInfo" in data
+            # fileInfo is JSON-encoded string for httpx multipart
+            file_info = json.loads(data["fileInfo"])
+            assert file_info["alternativeText"] == "Hero image"
+            assert file_info["caption"] == "Article hero image"
 
     def test_build_payload_string_ref_id(self, tmp_path: Path) -> None:
         """Test that ref_id accepts string documentId."""
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")
 
-        payload = build_upload_payload(
+        with build_upload_payload(
             test_file,
             ref="api::article.article",
             ref_id="abc123",  # String documentId
-        )
-
-        assert payload["data"]["refId"] == "abc123"
+        ) as payload:
+            assert payload.data is not None
+            assert payload.data["refId"] == "abc123"
 
     def test_build_payload_partial_metadata(self, tmp_path: Path) -> None:
         """Test building payload with only some metadata fields."""
@@ -80,18 +76,18 @@ class TestBuildUploadPayload:
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")
 
-        payload = build_upload_payload(
+        with build_upload_payload(
             test_file,
             alternative_text="Alt text only",
-        )
-
-        assert "data" in payload
-        assert "fileInfo" in payload["data"]
-        # fileInfo is JSON-encoded string
-        file_info = json.loads(payload["data"]["fileInfo"])
-        assert file_info["alternativeText"] == "Alt text only"
-        assert "caption" not in file_info
-        assert "ref" not in payload["data"]
+        ) as payload:
+            data = payload.data
+            assert data is not None
+            assert "fileInfo" in data
+            # fileInfo is JSON-encoded string
+            file_info = json.loads(data["fileInfo"])
+            assert file_info["alternativeText"] == "Alt text only"
+            assert "caption" not in file_info
+            assert "ref" not in data
 
     def test_build_payload_file_not_found(self) -> None:
         """Test that FileNotFoundError is raised for non-existent file."""
@@ -103,19 +99,83 @@ class TestBuildUploadPayload:
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")
 
-        payload = build_upload_payload(test_file)  # Path object
-
-        assert "files" in payload
+        with build_upload_payload(test_file) as payload:  # Path object
+            assert payload.files_tuple is not None
 
     def test_build_payload_no_data_when_no_metadata(self, tmp_path: Path) -> None:
-        """Test that 'data' key is omitted when no metadata provided."""
+        """Test that 'data' is None when no metadata provided."""
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")
 
-        payload = build_upload_payload(test_file)
+        with build_upload_payload(test_file) as payload:
+            assert payload.data is None
+            assert payload.files_tuple is not None
 
-        assert "data" not in payload
-        assert "files" in payload
+
+class TestUploadPayloadContextManager:
+    """Tests for UploadPayload context manager file handle cleanup."""
+
+    def test_file_handle_closed_after_context(self, tmp_path: Path) -> None:
+        """Test that file handle is properly closed after context manager exits."""
+        test_file = tmp_path / "test.jpg"
+        test_file.write_bytes(b"fake image data")
+
+        upload_payload = build_upload_payload(test_file)
+
+        # Get reference to file handle inside context
+        file_handle = None
+        with upload_payload as payload:
+            file_handle = payload.files_tuple[1]
+            assert not file_handle.closed
+
+        # After context exit, file should be closed
+        assert file_handle is not None
+        assert file_handle.closed
+
+    def test_file_handle_closed_on_exception(self, tmp_path: Path) -> None:
+        """Test that file handle is closed even when exception occurs."""
+        test_file = tmp_path / "test.jpg"
+        test_file.write_bytes(b"fake image data")
+
+        upload_payload = build_upload_payload(test_file)
+
+        file_handle = None
+        with pytest.raises(RuntimeError, match="Test exception"):
+            with upload_payload as payload:
+                file_handle = payload.files_tuple[1]
+                assert not file_handle.closed
+                raise RuntimeError("Test exception")
+
+        # After context exit with exception, file should still be closed
+        assert file_handle is not None
+        assert file_handle.closed
+
+    def test_accessing_files_tuple_outside_context_raises(self, tmp_path: Path) -> None:
+        """Test that accessing files_tuple outside context manager raises error."""
+        test_file = tmp_path / "test.jpg"
+        test_file.write_bytes(b"fake image data")
+
+        upload_payload = build_upload_payload(test_file)
+
+        with pytest.raises(RuntimeError, match="must be used as a context manager"):
+            _ = upload_payload.files_tuple
+
+    def test_multiple_context_entries(self, tmp_path: Path) -> None:
+        """Test that UploadPayload can be used multiple times."""
+        test_file = tmp_path / "test.jpg"
+        test_file.write_bytes(b"fake image data")
+
+        upload_payload = build_upload_payload(test_file)
+
+        # First use
+        with upload_payload as payload:
+            content1 = payload.files_tuple[1].read()
+            assert content1 == b"fake image data"
+
+        # Second use (should work with fresh file handle)
+        with upload_payload as payload:
+            content2 = payload.files_tuple[1].read()
+            assert content2 == b"fake image data"
 
 
 class TestNormalizeMediaResponse:
