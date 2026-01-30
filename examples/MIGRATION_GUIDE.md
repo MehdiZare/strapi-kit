@@ -202,8 +202,7 @@ Total export size: 45.32 MB
 Entities imported: 1,847
 Entities updated: 0
 Entities skipped: 0
-Media files uploaded: 234
-Relations resolved: 3,421
+Media files imported: 234
 
 📋 ID Mapping (sample):
    api::article.article:

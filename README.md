@@ -746,8 +746,7 @@ Total export size: 45.3 MB
 
 ✅ IMPORT COMPLETE
 Entities imported: 1,847
-Media files uploaded: 234
-Relations resolved: 3,421
+Media files imported: 234
 ```
 
 Both examples include:

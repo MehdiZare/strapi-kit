@@ -131,8 +131,8 @@ def export_all_content() -> None:
         exporter.save_to_file(export_data, str(EXPORT_FILE))
 
         # Print summary
-        total_entities = sum(len(ct.get("entities", [])) for ct in export_data["content_types"])
-        total_media = len(export_data.get("media", []))
+        total_entities = export_data.get_entity_count()
+        total_media = len(export_data.media)
 
         print("\n" + "=" * 80)
         print("✅ EXPORT COMPLETE")
@@ -161,9 +161,9 @@ def import_all_content() -> None:
     print(f"\n📂 Loading export data from {EXPORT_FILE}...")
     export_data = StrapiExporter.load_from_file(str(EXPORT_FILE))
 
-    total_entities = sum(len(ct.get("entities", [])) for ct in export_data["content_types"])
-    total_media = len(export_data.get("media", []))
-    print(f"   Content types: {len(export_data['content_types'])}")
+    total_entities = export_data.get_entity_count()
+    total_media = len(export_data.media)
+    print(f"   Content types: {len(export_data.entities)}")
     print(f"   Total entities: {total_entities}")
     print(f"   Media files: {total_media}")
 
