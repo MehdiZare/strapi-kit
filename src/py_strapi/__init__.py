@@ -41,6 +41,7 @@ from .protocols import (
     ConfigProvider,
     HTTPClient,
     ResponseParser,
+    SchemaProvider,
 )
 
 __all__ = [
@@ -66,6 +67,7 @@ __all__ = [
     "HTTPClient",
     "AsyncHTTPClient",
     "ResponseParser",
+    "SchemaProvider",
     # Parsers
     "VersionDetectingParser",
     # Exceptions

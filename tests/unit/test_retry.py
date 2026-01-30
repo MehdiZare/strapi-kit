@@ -1,6 +1,5 @@
 """Tests for retry functionality."""
 
-
 import httpx
 import pytest
 import respx

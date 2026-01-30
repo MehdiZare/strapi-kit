@@ -364,3 +364,160 @@ def test_import_result_helpers() -> None:
 
     assert len(result.errors) == 1
     assert len(result.warnings) == 1
+
+
+# Schema Export/Import Tests
+
+
+@respx.mock
+def test_export_includes_schemas(strapi_config: StrapiConfig) -> None:
+    """Test that export always includes schemas for relation resolution."""
+    # Mock entity response
+    respx.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [{"id": 1, "documentId": "doc1", "title": "Article 1"}],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}},
+            },
+        )
+    )
+
+    # Mock schema response
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "kind": "collectionType",
+                    "info": {"displayName": "Article"},
+                    "attributes": {
+                        "title": {"type": "string", "required": True},
+                        "author": {
+                            "type": "relation",
+                            "relation": "manyToOne",
+                            "target": "api::author.author",
+                        },
+                    },
+                }
+            },
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        exporter = StrapiExporter(client)
+        export_data = exporter.export_content_types(["api::article.article"], include_media=False)
+
+        # Verify schemas are always included
+        assert "api::article.article" in export_data.metadata.schemas
+        schema = export_data.metadata.schemas["api::article.article"]
+        assert schema.uid == "api::article.article"
+        assert schema.display_name == "Article"
+        assert "title" in schema.fields
+        assert "author" in schema.fields
+
+
+@respx.mock
+def test_import_resolves_relations_with_schema(strapi_config: StrapiConfig) -> None:
+    """Test that import resolves relations correctly using schemas."""
+    from py_strapi.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
+
+    # Create export data with schemas
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        fields={
+            "name": FieldSchema(type=FieldType.STRING),
+        },
+    )
+
+    metadata = ExportMetadata(
+        strapi_version="v5",
+        source_url="http://localhost:1337",
+        content_types=["api::author.author", "api::article.article"],
+        total_entities=2,
+        schemas={
+            "api::article.article": article_schema,
+            "api::author.author": author_schema,
+        },
+    )
+
+    entities = {
+        "api::author.author": [
+            ExportedEntity(
+                id=5,
+                document_id="author-doc1",
+                content_type="api::author.author",
+                data={"name": "John Doe"},
+                relations={},
+            )
+        ],
+        "api::article.article": [
+            ExportedEntity(
+                id=1,
+                document_id="article-doc1",
+                content_type="api::article.article",
+                data={"title": "Article 1"},
+                relations={"author": [5]},  # Relation to author ID 5
+            )
+        ],
+    }
+
+    export_data = ExportData(metadata=metadata, entities=entities)
+
+    # Mock author creation
+    respx.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {"id": 100, "documentId": "new-author-doc1", "name": "John Doe"}},
+        )
+    )
+
+    # Mock article creation
+    respx.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {"id": 200, "documentId": "new-article-doc1", "title": "Article 1"}},
+        )
+    )
+
+    # Mock relation update
+    respx.put("http://localhost:1337/api/articles/200").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {"id": 200, "documentId": "new-article-doc1", "title": "Article 1"}},
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        importer = StrapiImporter(client)
+        options = ImportOptions(skip_relations=False)
+        result = importer.import_data(export_data, options)
+
+        # Verify import succeeded
+        assert result.success is True
+        assert result.entities_imported == 2
+
+        # Verify ID mapping was created
+        assert "api::author.author" in result.id_mapping
+        assert 5 in result.id_mapping["api::author.author"]
+        assert result.id_mapping["api::author.author"][5] == 100
+
+        assert "api::article.article" in result.id_mapping
+        assert 1 in result.id_mapping["api::article.article"]
+        assert result.id_mapping["api::article.article"][1] == 200

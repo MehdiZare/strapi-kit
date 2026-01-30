@@ -9,6 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .schema import ContentTypeSchema
+
 
 class ExportMetadata(BaseModel):
     """Metadata about the export.
@@ -50,6 +52,10 @@ class ExportMetadata(BaseModel):
     total_media: int = Field(
         default=0,
         description="Total number of media files exported",
+    )
+    schemas: dict[str, ContentTypeSchema] = Field(
+        default_factory=dict,
+        description="Content type schemas (for relation resolution)",
     )
 
 

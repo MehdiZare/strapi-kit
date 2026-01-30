@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from py_strapi.cache.schema_cache import InMemorySchemaCache
 from py_strapi.exceptions import ImportExportError
 from py_strapi.export.media_handler import MediaHandler
 from py_strapi.export.relation_resolver import RelationResolver
@@ -54,6 +55,7 @@ class StrapiExporter:
             client: Synchronous Strapi client
         """
         self.client = client
+        self._schema_cache = InMemorySchemaCache(client)
 
     def export_content_types(
         self,
@@ -93,6 +95,9 @@ class StrapiExporter:
             )
 
             export_data = ExportData(metadata=metadata)
+
+            # Fetch schemas upfront (required for relation resolution)
+            self._fetch_schemas(content_types, export_data, progress_callback)
 
             total_content_types = len(content_types)
 
@@ -262,6 +267,35 @@ class StrapiExporter:
 
         export_data.metadata.total_media = downloaded
         logger.info(f"Successfully downloaded {downloaded}/{len(media_ids)} media files")
+
+    def _fetch_schemas(
+        self,
+        content_types: list[str],
+        export_data: ExportData,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+    ) -> None:
+        """Fetch and cache schemas for content types.
+
+        Args:
+            content_types: List of content type UIDs
+            export_data: Export data to add schemas to
+            progress_callback: Optional progress callback
+        """
+        logger.info(f"Fetching schemas for {len(content_types)} content types")
+
+        for idx, content_type in enumerate(content_types):
+            try:
+                schema = self._schema_cache.get_schema(content_type)
+                export_data.metadata.schemas[content_type] = schema
+
+                if progress_callback:
+                    progress_callback(
+                        idx + 1, len(content_types), f"Fetched schema: {content_type}"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to fetch schema for {content_type}: {e}")
+
+        logger.info(f"Cached {self._schema_cache.cache_size} schemas")
 
     @staticmethod
     def _uid_to_endpoint(uid: str) -> str:

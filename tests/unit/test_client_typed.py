@@ -1,6 +1,5 @@
 """Tests for typed client methods with normalized responses."""
 
-
 import httpx
 import pytest
 import respx

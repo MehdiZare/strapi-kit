@@ -1,6 +1,5 @@
 """Tests for filter builder functionality."""
 
-
 from py_strapi.models.enums import FilterOperator
 from py_strapi.models.request.filters import FilterBuilder, FilterCondition, FilterGroup
 

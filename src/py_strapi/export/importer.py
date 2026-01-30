@@ -8,11 +8,13 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from py_strapi.cache.schema_cache import InMemorySchemaCache
 from py_strapi.exceptions import ImportExportError, ValidationError
 from py_strapi.export.media_handler import MediaHandler
 from py_strapi.export.relation_resolver import RelationResolver
 from py_strapi.models.export_format import ExportData
 from py_strapi.models.import_options import ImportOptions, ImportResult
+from py_strapi.models.schema import ContentTypeSchema
 
 if TYPE_CHECKING:
     from py_strapi.client.sync_client import SyncClient
@@ -51,6 +53,7 @@ class StrapiImporter:
             client: Synchronous Strapi client
         """
         self.client = client
+        self._schema_cache = InMemorySchemaCache(client)
 
     def import_data(
         self,
@@ -99,6 +102,9 @@ class StrapiImporter:
             if result.errors and not options.dry_run:
                 result.success = False
                 return result
+
+            # Step 1.5: Load schemas from export metadata
+            self._load_schemas_from_export(export_data, result)
 
             # Step 2: Filter content types if specified
             content_types_to_import = self._get_content_types_to_import(export_data, options)
@@ -295,23 +301,27 @@ class StrapiImporter:
 
                 new_id = result.id_mapping[content_type][old_id]
 
+                # Get schema for this content type
+                try:
+                    schema = self._schema_cache.get_schema(content_type)
+                except Exception as e:
+                    logger.warning(f"Could not load schema for {content_type}: {e}")
+                    continue
+
                 try:
                     if options.dry_run:
                         continue
 
-                    # Resolve relations using ID mapping
-                    # Note: This assumes all relations are to entities in the same export
-                    # TODO: Handle relations to entities not in export
-                    resolved_relations = {}
-                    for field_name, old_ids in entity.relations.items():
-                        # For simplicity, we'll just track that relations exist
-                        # Full resolution would need to know the target content type
-                        resolved_relations[field_name] = old_ids
+                    # FIXED: Resolve relations using schema
+                    resolved_relations = self._resolve_relations_with_schema(
+                        entity.relations, schema, result.id_mapping
+                    )
+
+                    if not resolved_relations:
+                        continue
 
                     # Build relation payload
-                    relation_payload = RelationResolver.build_relation_payload(
-                        resolved_relations  # type: ignore[arg-type]
-                    )
+                    relation_payload = RelationResolver.build_relation_payload(resolved_relations)
 
                     if relation_payload:
                         # Update entity with relations
@@ -389,6 +399,73 @@ class StrapiImporter:
 
         logger.info(f"Imported {result.media_imported}/{len(export_data.media)} media files")
         return media_id_mapping
+
+    def _load_schemas_from_export(self, export_data: ExportData, result: ImportResult) -> None:
+        """Load schemas from export metadata into cache.
+
+        Args:
+            export_data: Export data containing schemas
+            result: Result object to update
+        """
+        # Load all schemas into cache
+        for content_type, schema in export_data.metadata.schemas.items():
+            self._schema_cache.cache_schema(content_type, schema)
+
+        logger.info(f"Loaded {self._schema_cache.cache_size} schemas from export")
+
+    def _resolve_relations_with_schema(
+        self,
+        relations: dict[str, list[int | str]],
+        schema: ContentTypeSchema,
+        id_mapping: dict[str, dict[int, int]],
+    ) -> dict[str, list[int]]:
+        """Resolve relation IDs using schema information.
+
+        FIXES TODO at line 304: "Handle relations to entities not in export"
+
+        Args:
+            relations: Raw relations from export (field -> [old_ids])
+            schema: Schema for the content type
+            id_mapping: Full ID mapping (content_type -> {old_id: new_id})
+
+        Returns:
+            Resolved relations with new IDs
+        """
+        resolved: dict[str, list[int]] = {}
+
+        for field_name, old_ids in relations.items():
+            # Get target content type from schema
+            target_content_type = schema.get_field_target(field_name)
+
+            if not target_content_type:
+                logger.warning(f"Field {field_name} is not a relation. Skipping.")
+                continue
+
+            # Get ID mapping for target content type
+            if target_content_type not in id_mapping:
+                logger.warning(
+                    f"No ID mapping for {target_content_type}. "
+                    f"Relations in {field_name} cannot be resolved."
+                )
+                continue
+
+            target_mapping = id_mapping[target_content_type]
+
+            # Resolve old IDs to new IDs
+            new_ids = []
+            for old_id in old_ids:
+                if isinstance(old_id, int) and old_id in target_mapping:
+                    new_ids.append(target_mapping[old_id])
+                else:
+                    logger.warning(
+                        f"Could not resolve {target_content_type} ID {old_id} "
+                        f"for field {field_name}"
+                    )
+
+            if new_ids:
+                resolved[field_name] = new_ids
+
+        return resolved
 
     @staticmethod
     def _uid_to_endpoint(uid: str) -> str:

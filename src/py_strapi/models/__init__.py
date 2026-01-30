@@ -30,6 +30,7 @@ from .response.normalized import (
 from .response.relation import RelationData
 from .response.v4 import V4Attributes, V4CollectionResponse, V4Entity, V4SingleResponse
 from .response.v5 import V5CollectionResponse, V5Entity, V5SingleResponse
+from .schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
 
 __all__ = [
     # Configuration
@@ -95,4 +96,9 @@ __all__ = [
     "RelationData",
     "Component",
     "DynamicZoneBlock",
+    # Schema models
+    "ContentTypeSchema",
+    "FieldSchema",
+    "FieldType",
+    "RelationType",
 ]

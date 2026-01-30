@@ -7,7 +7,7 @@ This module defines interfaces for core components, enabling:
 - Custom implementations
 """
 
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import httpx
 
@@ -15,6 +15,9 @@ from .models.response.normalized import (
     NormalizedCollectionResponse,
     NormalizedSingleResponse,
 )
+
+if TYPE_CHECKING:
+    from .models.schema import ContentTypeSchema
 
 
 @runtime_checkable
@@ -288,5 +291,49 @@ class ConfigProvider(Protocol):
 
         Returns:
             Retry config object
+        """
+        ...
+
+
+@runtime_checkable
+class SchemaProvider(Protocol):
+    """Protocol for content type schema providers.
+
+    Defines the interface for accessing and caching content type schemas.
+    Enables proper relation resolution during export/import operations.
+    """
+
+    def get_schema(self, content_type: str) -> "ContentTypeSchema":
+        """Get schema for a content type.
+
+        Args:
+            content_type: Content type UID (e.g., "api::article.article")
+
+        Returns:
+            Content type schema
+        """
+        ...
+
+    def cache_schema(self, content_type: str, schema: "ContentTypeSchema") -> None:
+        """Cache schema for a content type.
+
+        Args:
+            content_type: Content type UID
+            schema: Schema to cache
+        """
+        ...
+
+    def clear_cache(self) -> None:
+        """Clear all cached schemas."""
+        ...
+
+    def has_schema(self, content_type: str) -> bool:
+        """Check if schema is cached.
+
+        Args:
+            content_type: Content type UID
+
+        Returns:
+            True if schema is cached, False otherwise
         """
         ...

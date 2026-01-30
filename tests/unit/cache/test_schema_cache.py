@@ -1,0 +1,295 @@
+"""Tests for InMemorySchemaCache."""
+
+import pytest
+import respx
+from httpx import Response
+
+from py_strapi import StrapiConfig, SyncClient
+from py_strapi.cache.schema_cache import InMemorySchemaCache
+from py_strapi.exceptions import StrapiError
+from py_strapi.models.schema import ContentTypeSchema, FieldType, RelationType
+
+
+@pytest.fixture
+def strapi_config():
+    """Fixture for test Strapi configuration."""
+    return StrapiConfig(
+        base_url="http://localhost:1337",
+        api_token="test-token",
+    )
+
+
+@pytest.fixture
+def mock_schema_response():
+    """Mock schema response from Strapi API."""
+    return {
+        "data": {
+            "kind": "collectionType",
+            "info": {
+                "displayName": "Article",
+                "singularName": "article",
+                "pluralName": "articles",
+            },
+            "attributes": {
+                "title": {
+                    "type": "string",
+                    "required": True,
+                },
+                "content": {
+                    "type": "text",
+                },
+                "author": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::author.author",
+                    "inversedBy": "articles",
+                },
+                "categories": {
+                    "type": "relation",
+                    "relation": "manyToMany",
+                    "target": "api::category.category",
+                    "mappedBy": "articles",
+                },
+            },
+        }
+    }
+
+
+@respx.mock
+def test_cache_initialization(strapi_config):
+    """Test cache initialization."""
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        assert cache.cache_size == 0
+        assert cache.fetch_count == 0
+
+
+@respx.mock
+def test_get_schema_fetches_on_miss(strapi_config, mock_schema_response):
+    """Test that get_schema fetches from API on cache miss."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        schema = cache.get_schema("api::article.article")
+
+        assert schema.uid == "api::article.article"
+        assert schema.display_name == "Article"
+        assert schema.kind == "collectionType"
+        assert cache.cache_size == 1
+        assert cache.fetch_count == 1
+
+
+@respx.mock
+def test_get_schema_returns_cached_on_hit(strapi_config, mock_schema_response):
+    """Test that get_schema returns cached schema on hit."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        # First call - cache miss
+        schema1 = cache.get_schema("api::article.article")
+
+        # Second call - cache hit
+        schema2 = cache.get_schema("api::article.article")
+
+        assert schema1 is schema2
+        assert cache.fetch_count == 1  # Only fetched once
+
+
+@respx.mock
+def test_has_schema(strapi_config, mock_schema_response):
+    """Test has_schema method."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        assert not cache.has_schema("api::article.article")
+
+        cache.get_schema("api::article.article")
+
+        assert cache.has_schema("api::article.article")
+
+
+@respx.mock
+def test_cache_schema(strapi_config):
+    """Test manually caching a schema."""
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        schema = ContentTypeSchema(
+            uid="api::article.article",
+            display_name="Article",
+            fields={},
+        )
+
+        cache.cache_schema("api::article.article", schema)
+
+        assert cache.has_schema("api::article.article")
+        assert cache.cache_size == 1
+        assert cache.fetch_count == 0  # No API fetch
+
+
+@respx.mock
+def test_clear_cache(strapi_config, mock_schema_response):
+    """Test clearing the cache."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        cache.get_schema("api::article.article")
+        assert cache.cache_size == 1
+
+        cache.clear_cache()
+
+        assert cache.cache_size == 0
+        assert cache.fetch_count == 0
+
+
+@respx.mock
+def test_parse_schema_response(strapi_config, mock_schema_response):
+    """Test parsing schema response."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+        schema = cache.get_schema("api::article.article")
+
+        # Check fields
+        assert "title" in schema.fields
+        assert "content" in schema.fields
+        assert "author" in schema.fields
+        assert "categories" in schema.fields
+
+        # Check title field
+        title_field = schema.fields["title"]
+        assert title_field.type == FieldType.STRING
+        assert title_field.required is True
+
+        # Check content field
+        content_field = schema.fields["content"]
+        assert content_field.type == FieldType.TEXT
+
+
+@respx.mock
+def test_parse_field_schema_relation(strapi_config, mock_schema_response):
+    """Test parsing relation field schema."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+        schema = cache.get_schema("api::article.article")
+
+        # Check author relation
+        author_field = schema.fields["author"]
+        assert author_field.type == FieldType.RELATION
+        assert author_field.relation == RelationType.MANY_TO_ONE
+        assert author_field.target == "api::author.author"
+        assert author_field.inversed_by == "articles"
+
+        # Check categories relation
+        categories_field = schema.fields["categories"]
+        assert categories_field.type == FieldType.RELATION
+        assert categories_field.relation == RelationType.MANY_TO_MANY
+        assert categories_field.target == "api::category.category"
+        assert categories_field.mapped_by == "articles"
+
+
+@respx.mock
+def test_get_field_target(strapi_config, mock_schema_response):
+    """Test getting field target for relation."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+        schema = cache.get_schema("api::article.article")
+
+        # Relation field
+        assert schema.get_field_target("author") == "api::author.author"
+        assert schema.get_field_target("categories") == "api::category.category"
+
+        # Non-relation field
+        assert schema.get_field_target("title") is None
+
+        # Non-existent field
+        assert schema.get_field_target("nonexistent") is None
+
+
+@respx.mock
+def test_is_relation_field(strapi_config, mock_schema_response):
+    """Test checking if field is a relation."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+        schema = cache.get_schema("api::article.article")
+
+        assert schema.is_relation_field("author") is True
+        assert schema.is_relation_field("categories") is True
+        assert schema.is_relation_field("title") is False
+        assert schema.is_relation_field("nonexistent") is False
+
+
+@respx.mock
+def test_fetch_schema_error_handling(strapi_config):
+    """Test error handling when fetching schema."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(404, json={"error": "Not found"}))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        with pytest.raises(StrapiError) as exc_info:
+            cache.get_schema("api::article.article")
+
+        assert "Failed to fetch schema" in str(exc_info.value)
+
+
+@respx.mock
+def test_parse_unknown_field_type(strapi_config):
+    """Test parsing schema with unknown field type."""
+    mock_response = {
+        "data": {
+            "kind": "collectionType",
+            "info": {"displayName": "Test"},
+            "attributes": {
+                "custom_field": {
+                    "type": "unknown-custom-type",
+                    "required": False,
+                }
+            },
+        }
+    }
+
+    respx.get("http://localhost:1337/api/content-type-builder/content-types/api::test.test").mock(
+        return_value=Response(200, json=mock_response)
+    )
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+        schema = cache.get_schema("api::test.test")
+
+        # Unknown types should fallback to STRING
+        assert schema.fields["custom_field"].type == FieldType.STRING

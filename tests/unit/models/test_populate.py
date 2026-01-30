@@ -1,6 +1,5 @@
 """Tests for populate functionality."""
 
-
 from py_strapi.models.enums import SortDirection
 from py_strapi.models.request.filters import FilterBuilder
 from py_strapi.models.request.populate import Populate, PopulateField

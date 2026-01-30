@@ -20,8 +20,8 @@ Usage:
 import sys
 from pathlib import Path
 
-from py_strapi import SyncClient, StrapiExporter, StrapiImporter
-from py_strapi.models import StrapiConfig, ImportOptions
+from py_strapi import StrapiExporter, StrapiImporter, SyncClient
+from py_strapi.models import ImportOptions, StrapiConfig
 
 
 def progress_callback(current: int, total: int, message: str) -> None:
@@ -38,8 +38,7 @@ def export_data() -> None:
 
     # Configure source instance
     source_config = StrapiConfig(
-        base_url="http://localhost:1337",
-        api_token="your-source-api-token-here"
+        base_url="http://localhost:1337", api_token="your-source-api-token-here"
     )
 
     # Create export directory
@@ -92,7 +91,7 @@ def import_data() -> None:
     # Configure target instance
     target_config = StrapiConfig(
         base_url="http://localhost:1338",  # Different port/host for target
-        api_token="your-target-api-token-here"
+        api_token="your-target-api-token-here",
     )
 
     # Load export data
@@ -169,8 +168,7 @@ def dry_run_import() -> None:
     print("=" * 60)
 
     target_config = StrapiConfig(
-        base_url="http://localhost:1338",
-        api_token="your-target-api-token-here"
+        base_url="http://localhost:1338", api_token="your-target-api-token-here"
     )
 
     export_file = Path("export/data.json")
