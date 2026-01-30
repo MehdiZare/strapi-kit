@@ -673,6 +673,91 @@ For example, when importing an article with `{"author": [5]}`, the system:
 
 See the [Export/Import Guide](docs/export-import.md) for complete documentation.
 
+### Complete Migration Examples
+
+We provide two complete migration examples for different use cases:
+
+#### Simple Migration (Quick Start)
+
+Perfect for straightforward migrations with known content types:
+
+```bash
+# 1. Edit examples/simple_migration.py with your configuration
+# 2. Run the migration
+python examples/simple_migration.py
+```
+
+Features:
+- ✅ Single-file, easy to understand
+- ✅ Migrates specific content types
+- ✅ Includes media files
+- ✅ Automatic relation resolution
+- ✅ Saves backup to JSON
+
+#### Full Migration (Production-Ready)
+
+Comprehensive migration tool with auto-discovery and verification:
+
+```bash
+# Export all content from source
+python examples/full_migration_v5.py export
+
+# Import to target
+python examples/full_migration_v5.py import
+
+# Or do both in one command
+python examples/full_migration_v5.py migrate
+
+# Verify migration success
+python examples/full_migration_v5.py verify
+```
+
+Features:
+- ✅ **Auto-discovers all content types** (no manual configuration needed)
+- ✅ Progress bars for long operations
+- ✅ Detailed migration reports
+- ✅ Entity count verification
+- ✅ Error reporting and recovery
+- ✅ Batch processing for large datasets
+- ✅ ID mapping with detailed logs
+- ✅ Media file handling with progress tracking
+
+**Full Migration Example Output:**
+
+```
+🔍 Discovering content types...
+   Found 12 content types:
+   - api::article.article
+   - api::author.author
+   - api::category.category
+   ...
+
+📥 Exporting 12 content types...
+[████████████████████████████████████████] 100% | Processing articles
+
+✅ EXPORT COMPLETE
+Content types exported: 12
+Total entities exported: 1,847
+Media files downloaded: 234
+Total export size: 45.3 MB
+
+📤 Importing 1,847 entities...
+[████████████████████████████████████████] 100% | Importing articles
+
+✅ IMPORT COMPLETE
+Entities imported: 1,847
+Media files uploaded: 234
+Relations resolved: 3,421
+```
+
+Both examples include:
+- SecretStr for secure token handling
+- Proper error handling and reporting
+- Progress tracking
+- Automatic relation resolution using schemas
+- Media file download/upload
+- ID mapping for relations
+
 ## Dependency Injection
 
 py-strapi supports full dependency injection for testability and customization. All dependencies have sensible defaults but can be overridden.
