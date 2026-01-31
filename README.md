@@ -902,8 +902,8 @@ client = SyncClient(db_config)
 
 ```bash
 # Clone the repository
-git clone https://github.com/mehdizare/py-strapi.git
-cd py-strapi
+git clone https://github.com/mehdizare/strapi-kit.git
+cd strapi-kit
 
 # Create virtual environment
 python -m venv .venv

@@ -50,10 +50,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mehdizare/py-strapi"
+Homepage = "https://github.com/mehdizare/strapi-kit"
 Documentation = "https://mehdizare.github.io/strapi-kit/"
-Repository = "https://github.com/mehdizare/py-strapi"
-Issues = "https://github.com/mehdizare/py-strapi/issues"
+Repository = "https://github.com/mehdizare/strapi-kit"
+Issues = "https://github.com/mehdizare/strapi-kit/issues"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]

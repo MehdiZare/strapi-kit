@@ -409,7 +409,7 @@ python examples/full_migration_v5.py migrate
 - **Main Documentation**: [README.md](../README.md)
 - **API Reference**: [Documentation](https://mehdizare.github.io/strapi-kit/)
 - **Export/Import Guide**: [docs/export-import.md](../docs/export-import.md)
-- **GitHub Issues**: [Report bugs](https://github.com/mehdizare/py-strapi/issues)
+- **GitHub Issues**: [Report bugs](https://github.com/mehdizare/strapi-kit/issues)
 
 ---
 
@@ -417,7 +417,7 @@ python examples/full_migration_v5.py migrate
 
 1. Check this guide's [Troubleshooting](#troubleshooting) section
 2. Read the [main README](../README.md)
-3. Open an issue on [GitHub](https://github.com/mehdizare/py-strapi/issues)
+3. Open an issue on [GitHub](https://github.com/mehdizare/strapi-kit/issues)
 
 ---
 
