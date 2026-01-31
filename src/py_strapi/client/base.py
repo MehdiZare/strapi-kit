@@ -214,7 +214,15 @@ class BaseClient:
             raise ConflictError(f"Conflict: {error_message}", details=error_details)
         elif status_code == 429:
             retry_after = response.headers.get("Retry-After")
-            retry_seconds = int(retry_after) if retry_after else None
+            # RFC 7231: Retry-After can be numeric seconds or HTTP-date string
+            retry_seconds: int | None = None
+            if retry_after:
+                try:
+                    retry_seconds = int(retry_after)
+                except ValueError:
+                    # HTTP-date format (e.g., "Wed, 21 Oct 2015 07:28:00 GMT")
+                    # Fall back to default retry behavior
+                    retry_seconds = None
             raise RateLimitError(
                 f"Rate limit exceeded: {error_message}",
                 retry_after=retry_seconds,
