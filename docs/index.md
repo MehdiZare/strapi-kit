@@ -64,8 +64,8 @@ pip install strapi-kit[dev]
 - [Installation Guide](installation.md)
 - [Quick Start](quickstart.md)
 - [Configuration](configuration.md)
-- [API Reference](api/client.md)
-- [Examples](examples/basic.md)
+- [Type-Safe Queries](models.md)
+- [Media Operations](media.md)
 
 ## Project Status
 

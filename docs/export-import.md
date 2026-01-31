@@ -343,6 +343,5 @@ with SyncClient(target_config) as client:
 
 ## Related Documentation
 
-- [API Reference](api-reference.md)
 - [Media Handling](media.md)
 - [Type-Safe Queries](models.md)
