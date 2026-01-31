@@ -104,7 +104,7 @@ class StrapiImporter:
                 return result
 
             # Step 1.5: Load schemas from export metadata
-            self._load_schemas_from_export(export_data, result)
+            self._load_schemas_from_export(export_data)
 
             # Step 2: Filter content types if specified
             content_types_to_import = self._get_content_types_to_import(export_data, options)
@@ -242,7 +242,8 @@ class StrapiImporter:
                         continue
 
                     # Create entity with updated media references
-                    response = self.client.create(endpoint, {"data": entity_data})
+                    # Note: create() already wraps data in {"data": ...}
+                    response = self.client.create(endpoint, entity_data)
 
                     if response.data:
                         # Track ID mapping for relation resolution
@@ -325,9 +326,10 @@ class StrapiImporter:
 
                     if relation_payload:
                         # Update entity with relations
+                        # Note: update() already wraps data in {"data": ...}
                         self.client.update(
                             f"{endpoint}/{new_id}",
-                            {"data": relation_payload},
+                            relation_payload,
                         )
 
                 except Exception as e:
@@ -376,8 +378,17 @@ class StrapiImporter:
                     result.media_imported += 1
                     continue
 
-                # Find local file
-                file_path = media_path / exported_media.local_path
+                # Find local file with path traversal protection
+                file_path = (media_path / exported_media.local_path).resolve()
+
+                # Security: Ensure resolved path stays within media_path
+                if not file_path.is_relative_to(media_path.resolve()):
+                    result.add_error(
+                        f"Security: Invalid media path {exported_media.local_path} - "
+                        "path traversal detected"
+                    )
+                    result.media_skipped += 1
+                    continue
 
                 if not file_path.exists():
                     result.add_warning(
@@ -400,12 +411,11 @@ class StrapiImporter:
         logger.info(f"Imported {result.media_imported}/{len(export_data.media)} media files")
         return media_id_mapping
 
-    def _load_schemas_from_export(self, export_data: ExportData, result: ImportResult) -> None:
+    def _load_schemas_from_export(self, export_data: ExportData) -> None:
         """Load schemas from export metadata into cache.
 
         Args:
             export_data: Export data containing schemas
-            result: Result object to update
         """
         # Load all schemas into cache
         for content_type, schema in export_data.metadata.schemas.items():

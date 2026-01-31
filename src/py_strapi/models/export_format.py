@@ -7,7 +7,7 @@ and version compatibility.
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .schema import ContentTypeSchema
 
@@ -100,6 +100,27 @@ class ExportedMediaFile(BaseModel):
     size: int = Field(..., description="File size in bytes")
     hash: str = Field(..., description="File hash")
     local_path: str = Field(..., description="Path in export archive (relative)")
+
+    @field_validator("local_path")
+    @classmethod
+    def validate_local_path(cls, v: str) -> str:
+        """Validate local_path doesn't contain path traversal sequences.
+
+        Prevents malicious exports from reading arbitrary files via
+        path traversal attacks (e.g., "../../../etc/passwd").
+
+        Args:
+            v: The local_path value to validate
+
+        Returns:
+            The validated path
+
+        Raises:
+            ValueError: If path contains traversal sequences or is absolute
+        """
+        if ".." in v or v.startswith("/") or v.startswith("\\"):
+            raise ValueError("local_path must be relative without path traversal")
+        return v
 
 
 class ExportData(BaseModel):

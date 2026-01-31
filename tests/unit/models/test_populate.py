@@ -1,5 +1,7 @@
 """Tests for populate functionality."""
 
+import pytest
+
 from py_strapi.models.enums import SortDirection
 from py_strapi.models.request.filters import FilterBuilder
 from py_strapi.models.request.populate import Populate, PopulateField
@@ -185,3 +187,32 @@ class TestPopulate:
         assert "filters" in comments_config
         assert "sort" in comments_config
         assert "populate" in comments_config
+
+    def test_recursion_depth_limit(self) -> None:
+        """Test that excessive nesting raises RecursionError."""
+        # Build deeply nested populate structure that exceeds max depth
+        # With max_depth=10, depth can be 0-10 (11 levels), so 12 levels should fail
+        nested = Populate().add_field("level12")
+        for i in range(11, 0, -1):
+            nested = Populate().add_field(f"level{i}", nested=nested)
+
+        # Default max depth is 10, so 12 levels should fail
+        with pytest.raises(RecursionError) as exc_info:
+            nested.to_query_dict()
+
+        assert "maximum depth" in str(exc_info.value).lower()
+
+    def test_custom_max_depth(self) -> None:
+        """Test custom max depth parameter."""
+        # Build 5 levels of nesting
+        nested = Populate().add_field("level5")
+        for i in range(4, 0, -1):
+            nested = Populate().add_field(f"level{i}", nested=nested)
+
+        # With max_depth=3, 5 levels should fail (depth goes 0,1,2,3,4)
+        with pytest.raises(RecursionError):
+            nested.to_query_dict(_max_depth=3)
+
+        # With max_depth=5, should succeed (depth goes 0,1,2,3,4 which is <= 5)
+        result = nested.to_query_dict(_max_depth=5)
+        assert "populate" in result

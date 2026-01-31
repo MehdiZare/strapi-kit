@@ -6,12 +6,14 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
+from pydantic import ValidationError as PydanticValidationError
 
 from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter
 from py_strapi.client.sync_client import SyncClient
 from py_strapi.models import (
     ExportData,
     ExportedEntity,
+    ExportedMediaFile,
     ExportMetadata,
     ImportOptions,
 )
@@ -346,6 +348,75 @@ def test_exported_entity_model() -> None:
     assert entity.id == 1
     assert entity.data["title"] == "Test"
     assert entity.relations["author"] == [5]
+
+
+def test_exported_media_file_path_traversal_rejected() -> None:
+    """Test that path traversal attempts are rejected in media file paths."""
+    # Path with parent directory traversal
+    with pytest.raises(PydanticValidationError) as exc_info:
+        ExportedMediaFile(
+            id=1,
+            url="/uploads/image.jpg",
+            name="image.jpg",
+            mime="image/jpeg",
+            size=1024,
+            hash="abc123",
+            local_path="../../../etc/passwd",
+        )
+    assert "path traversal" in str(exc_info.value).lower()
+
+    # Absolute path starting with /
+    with pytest.raises(PydanticValidationError) as exc_info:
+        ExportedMediaFile(
+            id=2,
+            url="/uploads/image.jpg",
+            name="image.jpg",
+            mime="image/jpeg",
+            size=1024,
+            hash="def456",
+            local_path="/etc/passwd",
+        )
+    assert "path traversal" in str(exc_info.value).lower()
+
+    # Windows-style absolute path
+    with pytest.raises(PydanticValidationError) as exc_info:
+        ExportedMediaFile(
+            id=3,
+            url="/uploads/image.jpg",
+            name="image.jpg",
+            mime="image/jpeg",
+            size=1024,
+            hash="ghi789",
+            local_path="\\windows\\system32\\config",
+        )
+    assert "path traversal" in str(exc_info.value).lower()
+
+
+def test_exported_media_file_valid_paths() -> None:
+    """Test that valid relative paths are accepted."""
+    # Simple filename
+    media1 = ExportedMediaFile(
+        id=1,
+        url="/uploads/image.jpg",
+        name="image.jpg",
+        mime="image/jpeg",
+        size=1024,
+        hash="abc123",
+        local_path="image.jpg",
+    )
+    assert media1.local_path == "image.jpg"
+
+    # Nested relative path
+    media2 = ExportedMediaFile(
+        id=2,
+        url="/uploads/photos/image.jpg",
+        name="image.jpg",
+        mime="image/jpeg",
+        size=1024,
+        hash="def456",
+        local_path="photos/image.jpg",
+    )
+    assert media2.local_path == "photos/image.jpg"
 
 
 def test_import_result_helpers() -> None:

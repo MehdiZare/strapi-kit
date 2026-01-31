@@ -490,6 +490,9 @@ class FilterBuilder:
     def and_group(self, *builders: FilterBuilder) -> FilterBuilder:
         """Create an AND group of filters.
 
+        Each builder is wrapped as a sub-group to preserve logical structure.
+        For example, (a AND b) AND (c AND d) is preserved correctly.
+
         Args:
             *builders: FilterBuilder instances to combine with AND
 
@@ -502,9 +505,17 @@ class FilterBuilder:
             ...     FilterBuilder().gt("views", 100)
             ... )
         """
-        conditions = []
+        # Wrap each builder as a sub-group to preserve grouping
+        conditions: list[FilterCondition | FilterGroup] = []
         for builder in builders:
-            conditions.extend(builder._conditions)
+            if len(builder._conditions) == 1:
+                # Single condition - add directly
+                conditions.append(builder._conditions[0])
+            else:
+                # Multiple conditions - wrap as implicit AND group
+                conditions.append(
+                    FilterGroup(conditions=builder._conditions, logical_operator=None)
+                )
 
         group = FilterGroup(conditions=conditions, logical_operator=FilterOperator.AND)
         self._conditions.append(group)
@@ -512,6 +523,9 @@ class FilterBuilder:
 
     def or_group(self, *builders: FilterBuilder) -> FilterBuilder:
         """Create an OR group of filters.
+
+        Each builder is wrapped as a sub-group to preserve logical structure.
+        For example, (a AND b) OR c preserves the grouping correctly.
 
         Args:
             *builders: FilterBuilder instances to combine with OR
@@ -525,9 +539,17 @@ class FilterBuilder:
             ...     FilterBuilder().eq("category", "science")
             ... )
         """
-        conditions = []
+        # Wrap each builder as a sub-group to preserve grouping
+        conditions: list[FilterCondition | FilterGroup] = []
         for builder in builders:
-            conditions.extend(builder._conditions)
+            if len(builder._conditions) == 1:
+                # Single condition - add directly
+                conditions.append(builder._conditions[0])
+            else:
+                # Multiple conditions - wrap as implicit AND group
+                conditions.append(
+                    FilterGroup(conditions=builder._conditions, logical_operator=None)
+                )
 
         group = FilterGroup(conditions=conditions, logical_operator=FilterOperator.OR)
         self._conditions.append(group)
@@ -535,6 +557,8 @@ class FilterBuilder:
 
     def not_group(self, builder: FilterBuilder) -> FilterBuilder:
         """Create a NOT group (negation).
+
+        The builder's conditions are wrapped as a group to preserve logical structure.
 
         Args:
             builder: FilterBuilder instance to negate
@@ -547,7 +571,15 @@ class FilterBuilder:
             ...     FilterBuilder().eq("status", "draft")
             ... )
         """
-        group = FilterGroup(conditions=builder._conditions, logical_operator=FilterOperator.NOT)
+        # Wrap builder conditions appropriately
+        if len(builder._conditions) == 1:
+            # Single condition - wrap directly
+            conditions: list[FilterCondition | FilterGroup] = list(builder._conditions)
+        else:
+            # Multiple conditions - wrap as implicit AND group first
+            conditions = [FilterGroup(conditions=builder._conditions, logical_operator=None)]
+
+        group = FilterGroup(conditions=conditions, logical_operator=FilterOperator.NOT)
         self._conditions.append(group)
         return self
 

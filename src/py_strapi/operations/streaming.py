@@ -57,10 +57,15 @@ def stream_entities(
         # Yield each entity
         yield from response.data
 
+        # Safety check: if no data returned, stop to prevent infinite loop
+        if not response.data:
+            break
+
         # Check if more pages exist
         if response.meta and response.meta.pagination:
             total_pages = response.meta.pagination.page_count
-            if total_pages and current_page >= total_pages:
+            # Handle None or 0 page_count - stop to prevent infinite loop
+            if total_pages is None or total_pages == 0 or current_page >= total_pages:
                 break
         else:
             # No pagination metadata, assume single page
@@ -112,10 +117,15 @@ async def stream_entities_async(
         for entity in response.data:
             yield entity
 
+        # Safety check: if no data returned, stop to prevent infinite loop
+        if not response.data:
+            break
+
         # Check if more pages exist
         if response.meta and response.meta.pagination:
             total_pages = response.meta.pagination.page_count
-            if total_pages and current_page >= total_pages:
+            # Handle None or 0 page_count - stop to prevent infinite loop
+            if total_pages is None or total_pages == 0 or current_page >= total_pages:
                 break
         else:
             # No pagination metadata, assume single page

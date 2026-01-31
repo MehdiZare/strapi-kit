@@ -52,11 +52,18 @@ class PopulateField(BaseModel):
     fields: list[str] | None = Field(None, description="Fields to select")
     sort: Sort | None = Field(None, description="Sort configuration")
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, _depth: int = 0, _max_depth: int = 10) -> dict[str, Any]:
         """Convert to dictionary format for query parameters.
+
+        Args:
+            _depth: Current recursion depth (internal use)
+            _max_depth: Maximum allowed recursion depth (default: 10)
 
         Returns:
             Dictionary with field name as key and configuration as value
+
+        Raises:
+            RecursionError: If nesting exceeds max_depth
 
         Examples:
             >>> # Simple populate
@@ -69,6 +76,12 @@ class PopulateField(BaseModel):
             >>> pf.to_dict()
             {'author': {'fields': ['name', 'email'], 'populate': '*'}}
         """
+        if _depth > _max_depth:
+            raise RecursionError(
+                f"Populate nesting exceeded maximum depth of {_max_depth}. "
+                "This may indicate circular references in your populate configuration."
+            )
+
         config: dict[str, Any] = {}
 
         # Add field selection
@@ -89,7 +102,7 @@ class PopulateField(BaseModel):
 
         # Add nested population
         if self.nested:
-            nested_dict = self.nested.to_query_dict()
+            nested_dict = self.nested.to_query_dict(_depth=_depth + 1, _max_depth=_max_depth)
             if "populate" in nested_dict:
                 config["populate"] = nested_dict["populate"]
         else:
@@ -210,11 +223,18 @@ class Populate:
         )
         return self
 
-    def to_query_dict(self) -> dict[str, Any]:
+    def to_query_dict(self, _depth: int = 0, _max_depth: int = 10) -> dict[str, Any]:
         """Convert to dictionary format for query parameters.
+
+        Args:
+            _depth: Current recursion depth (internal use)
+            _max_depth: Maximum allowed recursion depth (default: 10)
 
         Returns:
             Dictionary with 'populate' key
+
+        Raises:
+            RecursionError: If nesting exceeds max_depth
 
         Examples:
             >>> # Populate all
@@ -229,6 +249,13 @@ class Populate:
             >>> populate = Populate().add_field("author", fields=["name"])
             >>> # Returns nested structure
         """
+        # Check depth limit at Populate level
+        if _depth > _max_depth:
+            raise RecursionError(
+                f"Populate nesting exceeded maximum depth of {_max_depth}. "
+                "This may indicate circular references in your populate configuration."
+            )
+
         if not self._populate_all and not self._fields:
             return {}
 
@@ -248,7 +275,7 @@ class Populate:
         # Complex object format
         result: dict[str, Any] = {}
         for field_config in self._fields:
-            field_dict = field_config.to_dict()
+            field_dict = field_config.to_dict(_depth=_depth, _max_depth=_max_depth)
             result.update(field_dict)
 
         return {"populate": result}

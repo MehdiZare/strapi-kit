@@ -9,13 +9,23 @@ from typing import Any
 
 from pydantic import SecretStr, ValidationError
 
+from .exceptions import StrapiError
 from .models.config import RetryConfig, StrapiConfig
 
 
-class ConfigurationError(Exception):
-    """Raised when configuration cannot be loaded or is invalid."""
+class ConfigurationError(StrapiError):
+    """Raised when configuration cannot be loaded or is invalid.
 
-    pass
+    Inherits from StrapiError for consistent exception handling.
+    """
+
+    def __init__(self, message: str) -> None:
+        """Initialize ConfigurationError.
+
+        Args:
+            message: Human-readable error message
+        """
+        super().__init__(message, details=None)
 
 
 class ConfigFactory:

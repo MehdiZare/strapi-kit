@@ -65,7 +65,7 @@ def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
     # Page 1
     respx.get(
         "http://localhost:1337/api/articles",
-        params={"pagination[page]": 1, "pagination[pageSize]": 2},
+        params={"pagination[page]": 1, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
         return_value=httpx.Response(
             200,
@@ -89,7 +89,7 @@ def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
     # Page 2
     respx.get(
         "http://localhost:1337/api/articles",
-        params={"pagination[page]": 2, "pagination[pageSize]": 2},
+        params={"pagination[page]": 2, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
         return_value=httpx.Response(
             200,
@@ -113,7 +113,7 @@ def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
     # Page 3
     respx.get(
         "http://localhost:1337/api/articles",
-        params={"pagination[page]": 3, "pagination[pageSize]": 2},
+        params={"pagination[page]": 3, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
         return_value=httpx.Response(
             200,
@@ -312,7 +312,7 @@ async def test_async_stream_entities_multiple_pages(strapi_config: StrapiConfig)
     # Page 1
     respx.get(
         "http://localhost:1337/api/articles",
-        params={"pagination[page]": 1, "pagination[pageSize]": 2},
+        params={"pagination[page]": 1, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
         return_value=httpx.Response(
             200,
@@ -336,7 +336,7 @@ async def test_async_stream_entities_multiple_pages(strapi_config: StrapiConfig)
     # Page 2
     respx.get(
         "http://localhost:1337/api/articles",
-        params={"pagination[page]": 2, "pagination[pageSize]": 2},
+        params={"pagination[page]": 2, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
         return_value=httpx.Response(
             200,
