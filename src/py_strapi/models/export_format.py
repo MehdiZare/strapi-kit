@@ -5,6 +5,7 @@ and version compatibility.
 """
 
 from datetime import UTC, datetime
+from pathlib import PureWindowsPath
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -119,6 +120,9 @@ class ExportedMediaFile(BaseModel):
             ValueError: If path contains traversal sequences or is absolute
         """
         if ".." in v or v.startswith("/") or v.startswith("\\"):
+            raise ValueError("local_path must be relative without path traversal")
+        # Block Windows drive-letter absolute paths (e.g., C:\, D:/)
+        if PureWindowsPath(v).is_absolute():
             raise ValueError("local_path must be relative without path traversal")
         return v
 

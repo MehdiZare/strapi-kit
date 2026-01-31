@@ -150,14 +150,22 @@ class RelationResolver:
             >>> relations = {"author": [10], "categories": [11, 12]}
             >>> RelationResolver.build_relation_payload(relations)
             {'author': 10, 'categories': [11, 12]}
+
+            >>> # Empty list clears the relation
+            >>> relations = {"author": []}
+            >>> RelationResolver.build_relation_payload(relations)
+            {'author': []}
         """
         payload: dict[str, Any] = {}
 
         for field_name, ids in relations.items():
-            if len(ids) == 1:
+            if len(ids) == 0:
+                # Empty list - explicit clear of relation
+                payload[field_name] = []
+            elif len(ids) == 1:
                 # Single relation - use single ID
                 payload[field_name] = ids[0]
-            elif len(ids) > 1:
+            else:
                 # Multiple relations - use array
                 payload[field_name] = ids
 

@@ -87,7 +87,7 @@ def test_export_content_types(strapi_config: StrapiConfig) -> None:
 
     with SyncClient(strapi_config) as client:
         exporter = StrapiExporter(client)
-        export_data = exporter.export_content_types(["api::article.article"])
+        export_data = exporter.export_content_types(["api::article.article"], include_media=False)
 
         assert isinstance(export_data, ExportData)
         assert len(export_data.entities) == 1
@@ -118,6 +118,7 @@ def test_export_with_progress_callback(strapi_config: StrapiConfig) -> None:
         exporter = StrapiExporter(client)
         export_data = exporter.export_content_types(
             ["api::article.article"],
+            include_media=False,
             progress_callback=progress_callback,
         )
 
@@ -150,7 +151,9 @@ def test_export_multiple_content_types(strapi_config: StrapiConfig) -> None:
 
     with SyncClient(strapi_config) as client:
         exporter = StrapiExporter(client)
-        export_data = exporter.export_content_types(["api::article.article", "api::author.author"])
+        export_data = exporter.export_content_types(
+            ["api::article.article", "api::author.author"], include_media=False
+        )
 
         assert len(export_data.entities) == 2
         assert "api::article.article" in export_data.entities
@@ -388,6 +391,35 @@ def test_exported_media_file_path_traversal_rejected() -> None:
             size=1024,
             hash="ghi789",
             local_path="\\windows\\system32\\config",
+        )
+    assert "path traversal" in str(exc_info.value).lower()
+
+
+def test_exported_media_file_windows_drive_path_rejected() -> None:
+    """Test that Windows drive-letter absolute paths are rejected."""
+    # Windows drive-letter path (C:\)
+    with pytest.raises(PydanticValidationError) as exc_info:
+        ExportedMediaFile(
+            id=4,
+            url="/uploads/image.jpg",
+            name="image.jpg",
+            mime="image/jpeg",
+            size=1024,
+            hash="jkl012",
+            local_path="C:\\Windows\\System32\\config.sys",
+        )
+    assert "path traversal" in str(exc_info.value).lower()
+
+    # Windows drive-letter with forward slashes
+    with pytest.raises(PydanticValidationError) as exc_info:
+        ExportedMediaFile(
+            id=5,
+            url="/uploads/image.jpg",
+            name="image.jpg",
+            mime="image/jpeg",
+            size=1024,
+            hash="mno345",
+            local_path="D:/Data/secrets.txt",
         )
     assert "path traversal" in str(exc_info.value).lower()
 

@@ -77,6 +77,7 @@ class StrapiExporter:
             ExportData containing all exported content
 
         Raises:
+            ValueError: If include_media=True but media_dir is not provided
             ImportExportError: If export fails
 
         Example:
@@ -86,6 +87,9 @@ class StrapiExporter:
             ... ], media_dir="export/media")
             >>> print(f"Exported {export_data.get_entity_count()} entities")
         """
+        if include_media and media_dir is None:
+            raise ValueError("media_dir must be provided when include_media=True")
+
         try:
             # Create metadata
             metadata = ExportMetadata(
@@ -144,6 +148,8 @@ class StrapiExporter:
                         "Exporting media files",
                     )
 
+                # media_dir is guaranteed non-None here (validated at method start)
+                assert media_dir is not None
                 self._export_media(export_data, media_dir, progress_callback)
 
             if progress_callback:
@@ -207,7 +213,7 @@ class StrapiExporter:
     def _export_media(
         self,
         export_data: ExportData,
-        media_dir: Path | str | None,
+        media_dir: Path | str,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> None:
         """Export media files referenced in entities.
@@ -235,14 +241,6 @@ class StrapiExporter:
             return
 
         logger.info(f"Found {len(media_ids)} media files to export")
-
-        # If no media directory specified, just track the count
-        if media_dir is None:
-            logger.warning(
-                "Media directory not specified - media references tracked but files not downloaded"
-            )
-            export_data.metadata.total_media = len(media_ids)
-            return
 
         # Download media files
         output_dir = Path(media_dir)

@@ -57,6 +57,11 @@ class VersionDetectingParser:
 
         Returns:
             Detected API version ("v4" or "v5")
+
+        Note:
+            Only caches version when detection is definitive (found attributes
+            or documentId). Ambiguous responses return fallback without caching,
+            allowing re-detection on subsequent meaningful responses.
         """
         # If already detected, use cached version
         if self._detected_version:
@@ -73,9 +78,9 @@ class VersionDetectingParser:
                 self._detected_version = "v5"
                 logger.info("Detected Strapi v5 API format")
             else:
-                # Default to v4 if uncertain
-                self._detected_version = "v4"
-                logger.warning("Could not detect API version, defaulting to v4")
+                # Don't cache - return fallback without locking
+                logger.warning("Could not detect API version from object data, using v4 fallback")
+                return "v4"
         elif isinstance(response_data.get("data"), list) and response_data["data"]:
             # Check first item in list
             first_item = response_data["data"][0]
@@ -86,11 +91,12 @@ class VersionDetectingParser:
                 self._detected_version = "v5"
                 logger.info("Detected Strapi v5 API format")
             else:
-                self._detected_version = "v4"
-                logger.warning("Could not detect API version, defaulting to v4")
+                # Don't cache - return fallback without locking
+                logger.warning("Could not detect API version from list data, using v4 fallback")
+                return "v4"
         else:
-            # No data field or empty - default to v4
-            self._detected_version = "v4"
+            # Empty/no data - don't cache, return fallback
+            return "v4"
 
         return self._detected_version
 

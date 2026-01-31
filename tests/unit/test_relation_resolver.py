@@ -205,8 +205,18 @@ def test_build_relation_payload_mixed() -> None:
 
 def test_build_relation_payload_empty() -> None:
     """Test building payload with no relations."""
-    relations = {}
+    relations: dict[str, list[int]] = {}
 
     payload = RelationResolver.build_relation_payload(relations)
 
     assert payload == {}
+
+
+def test_build_relation_payload_empty_list() -> None:
+    """Test building payload with empty relation list (clears relation)."""
+    relations = {"author": []}
+
+    payload = RelationResolver.build_relation_payload(relations)
+
+    # Empty list should be included to clear the relation
+    assert payload == {"author": []}

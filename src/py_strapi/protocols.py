@@ -184,7 +184,9 @@ class AsyncHTTPClient(Protocol):
             **kwargs: Additional request parameters
 
         Returns:
-            Async context manager for streaming response
+            Async context manager for streaming response.
+            Note: This returns a context manager directly, not a coroutine.
+            The returned object should be used with `async with`.
         """
         ...
 

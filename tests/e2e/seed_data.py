@@ -103,6 +103,9 @@ class DataSeeder:
 
         Returns:
             List of created category entities
+
+        Raises:
+            RuntimeError: If category creation fails
         """
         categories_data = [
             {"name": "Technology", "slug": "technology", "description": "Tech articles"},
@@ -113,8 +116,9 @@ class DataSeeder:
         seeded = []
         for data in categories_data:
             response = self.client.create("categories", data)
-            if response.data:
-                seeded.append(_entity_to_seeded(response.data, data))
+            if not response.data:
+                raise RuntimeError(f"Failed to create category: {data!r}")
+            seeded.append(_entity_to_seeded(response.data, data))
 
         return seeded
 
@@ -123,6 +127,9 @@ class DataSeeder:
 
         Returns:
             List of created author entities
+
+        Raises:
+            RuntimeError: If author creation fails
         """
         authors_data = [
             {
@@ -145,8 +152,9 @@ class DataSeeder:
         seeded = []
         for data in authors_data:
             response = self.client.create("authors", data)
-            if response.data:
-                seeded.append(_entity_to_seeded(response.data, data))
+            if not response.data:
+                raise RuntimeError(f"Failed to create author: {data!r}")
+            seeded.append(_entity_to_seeded(response.data, data))
 
         return seeded
 
@@ -163,7 +171,16 @@ class DataSeeder:
 
         Returns:
             List of created article entities
+
+        Raises:
+            ValueError: If insufficient authors or categories provided
+            RuntimeError: If article creation fails
         """
+        if len(authors) < 3:
+            raise ValueError(f"seed_articles requires at least 3 authors, got {len(authors)}")
+        if len(categories) < 3:
+            raise ValueError(f"seed_articles requires at least 3 categories, got {len(categories)}")
+
         articles_data = [
             {
                 "title": "Introduction to Python",
@@ -224,8 +241,9 @@ class DataSeeder:
         seeded = []
         for data in articles_data:
             response = self.client.create("articles", data)
-            if response.data:
-                seeded.append(_entity_to_seeded(response.data, data))
+            if not response.data:
+                raise RuntimeError(f"Failed to create article: {data!r}")
+            seeded.append(_entity_to_seeded(response.data, data))
 
         return seeded
 
@@ -274,8 +292,9 @@ class DataSeeder:
         seeded = []
         for data in comments_data:
             response = self.client.create("comments", data)
-            if response.data:
-                seeded.append(_entity_to_seeded(response.data, data))
+            if not response.data:
+                raise RuntimeError(f"Failed to create comment: {data!r}")
+            seeded.append(_entity_to_seeded(response.data, data))
 
         return seeded
 

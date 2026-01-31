@@ -393,6 +393,10 @@ class BaseClient:
         Media list responses may be in standard Strapi collection format
         or a raw array (depending on Strapi version/plugin).
 
+        For v4 responses with nested attributes, this method flattens each
+        item before passing to the collection parser to ensure consistent
+        handling with single media responses.
+
         Args:
             response_data: Raw JSON response from media list endpoint
                           (may be dict with "data" key or raw array)
@@ -422,6 +426,20 @@ class BaseClient:
         # Handle raw array response (Strapi Upload plugin may return this)
         if isinstance(response_data, list):
             response_data = {"data": response_data, "meta": {}}
+
+        # For v4, flatten nested attributes to match v5 format before parsing
+        if isinstance(response_data.get("data"), list):
+            data_items = response_data["data"]
+            if data_items and isinstance(data_items[0], dict) and "attributes" in data_items[0]:
+                # v4 format - flatten each item
+                flattened_items = []
+                for item in data_items:
+                    if "attributes" in item:
+                        flattened = {"id": item["id"], **item["attributes"]}
+                        flattened_items.append(flattened)
+                    else:
+                        flattened_items.append(item)
+                response_data = {"data": flattened_items, "meta": response_data.get("meta", {})}
 
         # Media list follows standard collection format
         return self._parse_collection_response(response_data)

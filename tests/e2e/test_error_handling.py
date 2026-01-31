@@ -62,7 +62,7 @@ class TestValidationError:
         # Try to create an article without required 'title' field
         # (if title is required in schema)
         # This test depends on the schema having required fields
-        with pytest.raises((ValidationError, Exception)):
+        with pytest.raises(ValidationError):
             # Using an invalid relation ID should cause validation error
             sync_client.create(
                 "articles",
@@ -85,7 +85,7 @@ class TestValidationError:
 
         try:
             # Try to create another with same unique email
-            with pytest.raises((ValidationError, Exception)):
+            with pytest.raises(ValidationError):
                 sync_client.create(
                     "authors",
                     {"name": "Another Author", "email": "unique-test@example.com"},
@@ -162,7 +162,7 @@ class TestErrorDetails:
 
         try:
             # Try to create another with same email
-            with pytest.raises((ValidationError, Exception)) as exc_info:
+            with pytest.raises(ValidationError) as exc_info:
                 sync_client.create(
                     "authors",
                     {"name": "Duplicate", "email": "detail-test@example.com"},
