@@ -377,5 +377,6 @@ class TestBuildMediaDownloadUrl:
             "/uploads/test.jpg",
         )
 
-        # urljoin should preserve the subdirectory
+        # urljoin replaces path when media_url starts with "/" (absolute path)
+        # This is expected behavior - Strapi media URLs are absolute paths from root
         assert url == "http://example.com/uploads/test.jpg"

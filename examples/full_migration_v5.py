@@ -26,7 +26,35 @@ from pathlib import Path
 from pydantic import SecretStr
 
 from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
+from py_strapi.exceptions import StrapiError
 from py_strapi.models import ImportOptions
+
+
+def _uid_to_endpoint(uid: str) -> str:
+    """Convert content type UID to API endpoint.
+
+    Handles common irregular pluralization patterns.
+
+    Args:
+        uid: Content type UID (e.g., "api::article.article")
+
+    Returns:
+        API endpoint (e.g., "articles")
+    """
+    # Extract the last part after "::" and make it plural
+    parts = uid.split("::")
+    if len(parts) == 2:
+        name = parts[1].split(".")[0]
+        # Handle common irregular plurals
+        if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
+            return name[:-1] + "ies"  # category -> categories
+        if name.endswith(("s", "x", "z", "ch", "sh")):
+            return name + "es"  # class -> classes
+        if not name.endswith("s"):
+            return name + "s"
+        return name
+    return uid
+
 
 # Configuration
 SOURCE_CONFIG = StrapiConfig(
@@ -87,7 +115,7 @@ def discover_content_types(client: SyncClient) -> list[str]:
 
         return api_content_types
 
-    except Exception as e:
+    except StrapiError as e:
         print(f"   ⚠️  Could not auto-discover content types: {e}")
         print("   💡 Tip: Manually specify content types if discovery fails")
         return []
@@ -255,7 +283,7 @@ def verify_migration() -> None:
         for ct in content_types:
             try:
                 # Extract collection name from UID (e.g., "api::article.article" -> "articles")
-                collection = ct.split("::")[-1].split(".")[0] + "s"
+                collection = _uid_to_endpoint(ct)
                 response = source_client.get(collection, params={"pagination[limit]": 1})
                 count = response.get("meta", {}).get("pagination", {}).get("total", 0)
                 source_counts[ct] = count
@@ -269,7 +297,7 @@ def verify_migration() -> None:
         target_counts: dict[str, int] = {}
         for ct in content_types:
             try:
-                collection = ct.split("::")[-1].split(".")[0] + "s"
+                collection = _uid_to_endpoint(ct)
                 response = target_client.get(collection, params={"pagination[limit]": 1})
                 count = response.get("meta", {}).get("pagination", {}).get("total", 0)
                 target_counts[ct] = count

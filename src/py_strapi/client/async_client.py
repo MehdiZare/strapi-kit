@@ -610,6 +610,8 @@ class AsyncClient(BaseClient):
 
                 return content
 
+        except StrapiError:
+            raise  # Preserve specific error types (NotFoundError, etc.)
         except Exception as e:
             raise MediaError(f"File download failed: {e}") from e
 
@@ -686,6 +688,8 @@ class AsyncClient(BaseClient):
         """
         try:
             await self.delete(f"upload/files/{media_id}")
+        except StrapiError:
+            raise  # Preserve specific error types (NotFoundError, etc.)
         except Exception as e:
             raise MediaError(f"Media deletion failed: {e}") from e
 
@@ -755,6 +759,8 @@ class AsyncClient(BaseClient):
             else:
                 return self._parse_media_response(response_json)
 
+        except StrapiError:
+            raise  # Preserve specific error types (NotFoundError, etc.)
         except Exception as e:
             raise MediaError(f"Media update failed: {e}") from e
 

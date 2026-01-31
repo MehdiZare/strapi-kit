@@ -33,7 +33,7 @@ def strapi_config_with_retry(retry_config: RetryConfig) -> StrapiConfig:
     """Create Strapi config with retry enabled."""
     return StrapiConfig(
         base_url="http://localhost:1337",
-        api_token="test-token",
+        api_token="test-token-for-retry-tests",  # noqa: S106
         retry=retry_config,
     )
 

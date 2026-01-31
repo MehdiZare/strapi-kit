@@ -83,8 +83,8 @@ class ConfigFactory:
             Configured StrapiConfig instance
 
         Raises:
-            ConfigurationError: If required=True and no .env file found, or validation fails
-            ValidationError: If configuration values are invalid
+            ConfigurationError: If required=True and no .env file found,
+                or if configuration values are invalid (wraps ValidationError)
 
         Example:
             >>> config = ConfigFactory.from_env(
@@ -138,8 +138,8 @@ class ConfigFactory:
             Configured StrapiConfig instance
 
         Raises:
-            ConfigurationError: If file doesn't exist (when required=True) or validation fails
-            ValidationError: If configuration values are invalid
+            ConfigurationError: If file doesn't exist (when required=True),
+                or if configuration values are invalid (wraps ValidationError)
 
         Example:
             >>> config = ConfigFactory.from_env_file("/etc/strapi/.env")
@@ -169,8 +169,7 @@ class ConfigFactory:
             Configured StrapiConfig instance
 
         Raises:
-            ConfigurationError: If validation fails
-            ValidationError: If configuration values are invalid
+            ConfigurationError: If configuration values are invalid (wraps ValidationError)
 
         Example:
             >>> config = ConfigFactory.from_dict({

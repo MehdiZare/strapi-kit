@@ -351,13 +351,13 @@ class TestDeleteMedia:
 
     @respx.mock
     def test_delete_media_not_found(self, strapi_config: StrapiConfig) -> None:
-        """Test deleting non-existent media."""
+        """Test deleting non-existent media raises NotFoundError."""
         respx.delete("http://localhost:1337/api/upload/files/999").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 
         with SyncClient(strapi_config) as client:
-            with pytest.raises(MediaError):
+            with pytest.raises(NotFoundError):
                 client.delete_media(999)
 
 
@@ -409,12 +409,12 @@ class TestUpdateMedia:
 
     @respx.mock
     def test_update_media_not_found(self, strapi_config: StrapiConfig) -> None:
-        """Test updating non-existent media."""
+        """Test updating non-existent media raises NotFoundError."""
         # Strapi v5 uses POST /api/upload?id=x for updates
         respx.post(url__regex=r".*/api/upload\?id=999$").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 
         with SyncClient(strapi_config) as client:
-            with pytest.raises(MediaError):
+            with pytest.raises(NotFoundError):
                 client.update_media(999, alternative_text="New alt")

@@ -372,16 +372,17 @@ class StrapiQuery:
         return params
 
     def to_query_dict(self) -> dict[str, Any]:
-        """Convert query to nested dictionary structure.
+        """Convert query to flattened dictionary for HTTP query parameters.
 
         This is an alias for to_query_params() for consistency with other models.
+        Returns bracket-notation flattened params ready for httpx.
 
         Returns:
-            Dictionary of query parameters
+            Dictionary of query parameters (flattened bracket notation)
 
         Examples:
             >>> query = StrapiQuery().filter(FilterBuilder().eq("status", "published"))
             >>> query.to_query_dict()
-            {'filters': {'status': {'$eq': 'published'}}}
+            {'filters[status][$eq]': 'published'}
         """
         return self.to_query_params()
