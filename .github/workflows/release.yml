@@ -21,6 +21,7 @@ jobs:
        contains(github.event.pull_request.labels.*.name, 'release:patch'))
 
     runs-on: ubuntu-latest
+    environment: pypi
     env:
       PYTHON_VERSION: "3.13"
 
