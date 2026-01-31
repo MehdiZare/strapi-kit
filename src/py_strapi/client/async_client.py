@@ -25,7 +25,11 @@ from ..exceptions import (
 from ..models.bulk import BulkOperationFailure, BulkOperationResult
 from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
-from ..models.response.normalized import NormalizedCollectionResponse, NormalizedSingleResponse
+from ..models.response.normalized import (
+    NormalizedCollectionResponse,
+    NormalizedEntity,
+    NormalizedSingleResponse,
+)
 from ..operations.media import build_media_download_url, build_upload_payload
 from ..protocols import AsyncHTTPClient, AuthProvider, ConfigProvider, ResponseParser
 from .base import BaseClient
@@ -170,6 +174,11 @@ class AsyncClient(BaseClient):
                 # Handle error responses
                 if not response.is_success:
                     self._handle_error_response(response)
+
+                # Handle 204 No Content (common for DELETE operations)
+                if response.status_code == 204 or not response.content:
+                    logger.debug(f"Response: {response.status_code} (no content)")
+                    return {}
 
                 # Parse and return JSON
                 data: dict[str, Any] = response.json()
@@ -712,6 +721,8 @@ class AsyncClient(BaseClient):
             >>> media.alternative_text
             'Updated alt text'
         """
+        import json as json_module
+
         try:
             # Build update payload
             file_info: dict[str, Any] = {}
@@ -722,12 +733,27 @@ class AsyncClient(BaseClient):
             if name is not None:
                 file_info["name"] = name
 
-            # Make async update request
-            raw_response = await self.put(
-                f"upload/files/{media_id}",
-                json={"fileInfo": file_info} if file_info else {},
+            # Strapi v5 uses POST /api/upload?id=x with form-data
+            url = f"{self._build_url('upload')}?id={media_id}"
+            headers = self._build_upload_headers()
+
+            # Send as form-data with fileInfo as JSON string
+            response = await self._client.post(
+                url,
+                data={"fileInfo": json_module.dumps(file_info)} if file_info else {},
+                headers=headers,
             )
-            return self._parse_media_response(raw_response)
+
+            # Handle errors
+            if not response.is_success:
+                self._handle_error_response(response)
+
+            # Parse response
+            response_json = response.json()
+            if isinstance(response_json, list) and response_json:
+                return self._parse_media_response(response_json[0])
+            else:
+                return self._parse_media_response(response_json)
 
         except Exception as e:
             raise MediaError(f"Media update failed: {e}") from e
@@ -906,17 +932,21 @@ class AsyncClient(BaseClient):
             >>> result = await client.bulk_delete("articles", ids)
             >>> print(f"Deleted {result.succeeded} articles")
         """
-        successes = []
-        failures = []
+        successes: list[NormalizedEntity] = []
+        failures: list[BulkOperationFailure] = []
         semaphore = asyncio.Semaphore(max_concurrency)
         completed = 0
+        success_count = 0
 
         async def delete_one(idx: int, entity_id: str | int) -> None:
-            nonlocal completed
+            nonlocal completed, success_count
 
             async with semaphore:
                 try:
                     response = await self.remove(f"{endpoint}/{entity_id}")
+                    # DELETE may return 204 No Content with no data
+                    # Count as success when no exception is raised
+                    success_count += 1
                     if response.data:
                         successes.append(response.data)
 
@@ -944,6 +974,6 @@ class AsyncClient(BaseClient):
             successes=successes,
             failures=failures,
             total=len(ids),
-            succeeded=len(successes),
+            succeeded=success_count,
             failed=len(failures),
         )

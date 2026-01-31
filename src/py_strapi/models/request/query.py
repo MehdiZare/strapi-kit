@@ -43,6 +43,47 @@ from py_strapi.models.request.populate import Populate
 from py_strapi.models.request.sort import Sort
 
 
+def _flatten_dict(d: dict[str, Any], parent_key: str = "", sep: str = "") -> dict[str, Any]:
+    """Flatten a nested dictionary into bracket notation for query parameters.
+
+    Args:
+        d: Dictionary to flatten
+        parent_key: Parent key prefix
+        sep: Separator (empty for bracket notation)
+
+    Returns:
+        Flattened dictionary with bracket notation keys
+
+    Examples:
+        >>> _flatten_dict({"status": {"$eq": "published"}}, "filters")
+        {'filters[status][$eq]': 'published'}
+
+        >>> _flatten_dict({"$or": [{"views": {"$gt": 100}}]}, "filters")
+        {'filters[$or][0][views][$gt]': 100}
+    """
+    items: list[tuple[str, Any]] = []
+    for k, v in d.items():
+        new_key = f"{parent_key}[{k}]" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(_flatten_dict(v, new_key, sep).items())
+        elif isinstance(v, list):
+            # Check if list contains dicts (nested filters like $or, $and)
+            if v and isinstance(v[0], dict):
+                # Flatten each dict in the array with index
+                for i, item in enumerate(v):
+                    if isinstance(item, dict):
+                        indexed_key = f"{new_key}[{i}]"
+                        items.extend(_flatten_dict(item, indexed_key, sep).items())
+                    else:
+                        items.append((f"{new_key}[{i}]", item))
+            else:
+                # Simple list (e.g., $in values) - keep as-is for httpx
+                items.append((new_key, v))
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
 class StrapiQuery:
     """Main query builder for Strapi API requests.
 
@@ -288,11 +329,14 @@ class StrapiQuery:
         """
         params: dict[str, Any] = {}
 
-        # Add filters
+        # Add filters (flattened to bracket notation for Strapi)
         if self._filters:
             filter_dict = self._filters.to_query_dict()
             if filter_dict:
-                params["filters"] = filter_dict
+                # Flatten nested filter dict into bracket notation
+                # e.g., {"status": {"$eq": "published"}} -> {"filters[status][$eq]": "published"}
+                flattened = _flatten_dict(filter_dict, "filters")
+                params.update(flattened)
 
         # Add sort
         if self._sort:

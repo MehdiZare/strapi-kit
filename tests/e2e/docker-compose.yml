@@ -1,0 +1,41 @@
+services:
+  strapi:
+    build:
+      context: ./strapi
+      dockerfile: Dockerfile
+    container_name: py-strapi-e2e
+    ports:
+      - "${STRAPI_PORT:-1337}:1337"
+    environment:
+      # Server configuration
+      HOST: 0.0.0.0
+      PORT: 1337
+      APP_KEYS: e2e-test-key-1,e2e-test-key-2,e2e-test-key-3,e2e-test-key-4
+      API_TOKEN_SALT: e2e-api-token-salt-for-testing
+      ADMIN_JWT_SECRET: e2e-admin-jwt-secret-for-testing  # pragma: allowlist secret
+      TRANSFER_TOKEN_SALT: e2e-transfer-token-salt-for-testing
+      JWT_SECRET: e2e-jwt-secret-for-testing  # pragma: allowlist secret
+      # Database configuration (SQLite)
+      DATABASE_CLIENT: sqlite
+      DATABASE_FILENAME: .tmp/data.db
+      # Pre-configured API token for E2E tests
+      # This token is created via bootstrap script or lifecycle hook
+      E2E_API_TOKEN: ${E2E_API_TOKEN:-e2e-test-token-py-strapi-12345}
+    volumes:
+      # Persist SQLite database between container restarts
+      - strapi_data:/opt/strapi/.tmp
+      # Persist uploads
+      - strapi_uploads:/opt/strapi/public/uploads
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:1337/_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  strapi_data:
+    driver: local
+  strapi_uploads:
+    driver: local

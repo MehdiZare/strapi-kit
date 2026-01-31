@@ -378,20 +378,22 @@ class BaseClient:
         return normalize_media_response(response_data, api_version)
 
     def _parse_media_list_response(
-        self, response_data: dict[str, Any]
+        self, response_data: dict[str, Any] | list[dict[str, Any]]
     ) -> NormalizedCollectionResponse:
         """Parse media library list response into normalized collection.
 
-        Media list responses follow the standard Strapi collection format,
-        so we can reuse the existing collection parser.
+        Media list responses may be in standard Strapi collection format
+        or a raw array (depending on Strapi version/plugin).
 
         Args:
             response_data: Raw JSON response from media list endpoint
+                          (may be dict with "data" key or raw array)
 
         Returns:
             Normalized collection response with MediaFile entities
 
         Examples:
+            >>> # Standard format
             >>> response_data = {
             ...     "data": [
             ...         {"id": 1, "name": "image1.jpg", ...},
@@ -402,6 +404,16 @@ class BaseClient:
             >>> result = client._parse_media_list_response(response_data)
             >>> len(result.data)
             2
+
+            >>> # Raw array format (Strapi Upload plugin)
+            >>> response_data = [{"id": 1, "name": "image.jpg", ...}]
+            >>> result = client._parse_media_list_response(response_data)
+            >>> len(result.data)
+            1
         """
+        # Handle raw array response (Strapi Upload plugin may return this)
+        if isinstance(response_data, list):
+            response_data = {"data": response_data, "meta": {}}
+
         # Media list follows standard collection format
         return self._parse_collection_response(response_data)

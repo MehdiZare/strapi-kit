@@ -21,8 +21,9 @@ class TestStrapiQuery:
         query = StrapiQuery().filter(FilterBuilder().eq("status", "published"))
         params = query.to_query_params()
 
-        assert "filters" in params
-        assert params["filters"] == {"status": {"$eq": "published"}}
+        # Filters are flattened to bracket notation for Strapi compatibility
+        assert "filters[status][$eq]" in params
+        assert params["filters[status][$eq]"] == "published"
 
     def test_sort_only(self) -> None:
         """Test query with only sorting."""
@@ -130,7 +131,7 @@ class TestStrapiQuery:
         params = query.to_query_params()
 
         # Verify all parameters are present
-        assert "filters" in params
+        assert "filters[status][$eq]" in params
         assert "sort" in params
         assert "pagination[page]" in params
         assert "pagination[pageSize]" in params
@@ -138,7 +139,7 @@ class TestStrapiQuery:
         assert "fields" in params
 
         # Verify values
-        assert params["filters"]["status"]["$eq"] == "published"
+        assert params["filters[status][$eq]"] == "published"
         assert params["sort"] == ["publishedAt:desc"]
         assert params["pagination[page]"] == 1
         assert params["pagination[pageSize]"] == 25
@@ -175,11 +176,12 @@ class TestStrapiQuery:
         )
         params = query.to_query_params()
 
-        # Verify filters
-        assert "filters" in params
-        assert "status" in params["filters"]
-        assert "views" in params["filters"]
-        assert "$or" in params["filters"]
+        # Verify filters are flattened to bracket notation
+        assert "filters[status][$eq]" in params
+        assert "filters[views][$gt]" in params
+        # OR group creates nested structure
+        has_or = any("$or" in key for key in params.keys())
+        assert has_or
 
         # Verify sort
         assert params["sort"] == ["views:desc", "publishedAt:desc"]
@@ -253,8 +255,8 @@ class TestStrapiQuery:
         )
         params = query.to_query_params()
 
-        # Verify structure
-        assert "filters" in params
+        # Verify structure (filters are flattened to bracket notation)
+        assert "filters[status][$eq]" in params
         assert "sort" in params
         assert "pagination[page]" in params
         assert "populate" in params
@@ -286,10 +288,10 @@ class TestStrapiQuery:
         )
         params = query.to_query_params()
 
-        # Verify filters
-        assert params["filters"]["inStock"]["$eq"] is True
-        assert params["filters"]["price"]["$between"] == [10, 100]
-        assert params["filters"]["category"]["$in"] == ["electronics", "accessories"]
+        # Verify filters are flattened to bracket notation
+        assert params["filters[inStock][$eq]"] is True
+        assert params["filters[price][$between]"] == [10, 100]
+        assert params["filters[category][$in]"] == ["electronics", "accessories"]
 
         # Verify sort
         assert params["sort"] == ["price:asc", "rating:desc"]

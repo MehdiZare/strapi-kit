@@ -370,7 +370,8 @@ class TestUpdateMedia:
     ) -> None:
         """Test updating media alt text."""
         updated_response = {**mock_media_response, "alternativeText": "Updated alt text"}
-        respx.put("http://localhost:1337/api/upload/files/1").mock(
+        # Strapi v5 uses POST /api/upload?id=x for updates
+        respx.post(url__regex=r".*/api/upload\?id=1$").mock(
             return_value=httpx.Response(200, json=updated_response)
         )
 
@@ -390,7 +391,8 @@ class TestUpdateMedia:
             "caption": "New caption",
             "name": "new-name.jpg",
         }
-        respx.put("http://localhost:1337/api/upload/files/1").mock(
+        # Strapi v5 uses POST /api/upload?id=x for updates
+        respx.post(url__regex=r".*/api/upload\?id=1$").mock(
             return_value=httpx.Response(200, json=updated_response)
         )
 
@@ -408,7 +410,8 @@ class TestUpdateMedia:
     @respx.mock
     def test_update_media_not_found(self, strapi_config: StrapiConfig) -> None:
         """Test updating non-existent media."""
-        respx.put("http://localhost:1337/api/upload/files/999").mock(
+        # Strapi v5 uses POST /api/upload?id=x for updates
+        respx.post(url__regex=r".*/api/upload\?id=999$").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 
