@@ -1,0 +1,60 @@
+# Codecov configuration for py-strapi
+# https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  # Coverage targets
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 2%
+        # Only fail if coverage drops significantly
+        if_ci_failed: error
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+        # New code should maintain reasonable coverage
+
+  # Precision for coverage percentages
+  precision: 2
+  round: down
+  range: "70...100"
+
+# Parser settings
+parsers:
+  gcov:
+    branch_detection:
+      conditional: yes
+      loop: yes
+      method: no
+      macro: no
+
+# Ignore patterns - exclude test files and non-source files
+ignore:
+  - "tests/**/*"
+  - "docs/**/*"
+  - "examples/**/*"
+  - "**/__pycache__/**"
+  - "**/*.pyc"
+  - "**/conftest.py"
+
+# Comment configuration for PR comments
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: true
+  require_base: false
+  require_head: true
+
+# Component/flag configuration
+flags:
+  unit:
+    paths:
+      - src/py_strapi/
+    carryforward: true
+    after_n_builds: 1
+
+# GitHub integration settings
+github_checks:
+  annotations: true
