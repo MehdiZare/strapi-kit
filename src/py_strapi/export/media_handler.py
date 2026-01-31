@@ -116,12 +116,14 @@ class MediaHandler:
         Returns:
             ExportedMediaFile with metadata
         """
+        # MediaFile.size is in KB, ExportedMediaFile.size expects bytes
+        size_in_bytes = int(media.size * 1024) if media.size else 0
         return ExportedMediaFile(
             id=media.id,
             url=media.url,
             name=media.name,
             mime=media.mime,
-            size=int(media.size) if media.size else 0,
+            size=size_in_bytes,
             hash=media.hash or "",
             local_path=str(local_path.name),
         )

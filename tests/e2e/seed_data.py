@@ -7,13 +7,18 @@ package works correctly.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from py_strapi.exceptions import StrapiError
+
 if TYPE_CHECKING:
     from py_strapi import SyncClient
     from py_strapi.models.response.normalized import NormalizedEntity
+
+logger = logging.getLogger(__name__)
 
 # Test fixtures directory
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
@@ -255,7 +260,14 @@ class DataSeeder:
 
         Returns:
             List of created comment entities
+
+        Raises:
+            ValueError: If insufficient articles provided
+            RuntimeError: If comment creation fails
         """
+        if len(articles) < 3:
+            raise ValueError(f"seed_comments requires at least 3 articles, got {len(articles)}")
+
         comments_data = [
             {
                 "content": "Great introduction! Very helpful for beginners.",
@@ -378,35 +390,35 @@ class DataSeeder:
             try:
                 comment_id = comment.document_id or str(comment.id)
                 self.client.remove(f"comments/{comment_id}")
-            except Exception:
-                pass  # Ignore errors during cleanup
+            except StrapiError as exc:
+                logger.warning("Failed to delete comment %s: %s", comment_id, exc)
 
         for article in reversed(seeded.articles):
             try:
                 article_id = article.document_id or str(article.id)
                 self.client.remove(f"articles/{article_id}")
-            except Exception:
-                pass
+            except StrapiError as exc:
+                logger.warning("Failed to delete article %s: %s", article_id, exc)
 
         for author in reversed(seeded.authors):
             try:
                 author_id = author.document_id or str(author.id)
                 self.client.remove(f"authors/{author_id}")
-            except Exception:
-                pass
+            except StrapiError as exc:
+                logger.warning("Failed to delete author %s: %s", author_id, exc)
 
         for category in reversed(seeded.categories):
             try:
                 category_id = category.document_id or str(category.id)
                 self.client.remove(f"categories/{category_id}")
-            except Exception:
-                pass
+            except StrapiError as exc:
+                logger.warning("Failed to delete category %s: %s", category_id, exc)
 
         for media in reversed(seeded.media):
             try:
                 self.client.delete_media(media.id)
-            except Exception:
-                pass
+            except StrapiError as exc:
+                logger.warning("Failed to delete media %s: %s", media.id, exc)
 
 
 # Convenience function for simple usage

@@ -224,8 +224,8 @@ class StrapiImporter:
         for content_type in content_types:
             entities = export_data.entities.get(content_type, [])
 
-            # Extract endpoint from UID
-            endpoint = self._uid_to_endpoint(content_type)
+            # Get endpoint from schema (prefers plural_name) or fallback to UID
+            endpoint = self._get_endpoint(content_type)
 
             for entity in entities:
                 try:
@@ -281,7 +281,7 @@ class StrapiImporter:
         """
         for content_type in content_types:
             entities = export_data.entities.get(content_type, [])
-            endpoint = self._uid_to_endpoint(content_type)
+            endpoint = self._get_endpoint(content_type)
 
             for entity in entities:
                 # Skip if no relations
@@ -478,11 +478,34 @@ class StrapiImporter:
 
         return resolved
 
-    @staticmethod
-    def _uid_to_endpoint(uid: str) -> str:
-        """Convert content type UID to API endpoint.
+    def _get_endpoint(self, uid: str) -> str:
+        """Get API endpoint for a content type.
 
-        Handles common irregular pluralization patterns.
+        Prefers schema.plural_name when available to handle custom plural
+        names correctly (e.g., "person" -> "people"). Falls back to
+        hardcoded pluralization rules for basic cases.
+
+        Args:
+            uid: Content type UID (e.g., "api::article.article")
+
+        Returns:
+            API endpoint (e.g., "articles")
+        """
+        # Try to get plural_name from cached schema
+        if self._schema_cache.has_schema(uid):
+            schema = self._schema_cache.get_schema(uid)
+            if schema.plural_name:
+                return schema.plural_name
+
+        # Fallback to hardcoded pluralization
+        return self._uid_to_endpoint_fallback(uid)
+
+    @staticmethod
+    def _uid_to_endpoint_fallback(uid: str) -> str:
+        """Fallback pluralization for content type UID.
+
+        Handles common English pluralization patterns. Used when schema
+        metadata is not available.
 
         Args:
             uid: Content type UID (e.g., "api::article.article")
@@ -503,3 +526,18 @@ class StrapiImporter:
                 return name + "s"
             return name
         return uid
+
+    # Keep for backward compatibility
+    @staticmethod
+    def _uid_to_endpoint(uid: str) -> str:
+        """Convert content type UID to API endpoint.
+
+        Deprecated: Use _get_endpoint() instead which uses schema metadata.
+
+        Args:
+            uid: Content type UID (e.g., "api::article.article")
+
+        Returns:
+            API endpoint (e.g., "articles")
+        """
+        return StrapiImporter._uid_to_endpoint_fallback(uid)

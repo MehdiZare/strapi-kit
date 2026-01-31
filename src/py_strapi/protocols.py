@@ -185,8 +185,8 @@ class AsyncHTTPClient(Protocol):
 
         Returns:
             Async context manager for streaming response.
-            Note: This returns a context manager directly, not a coroutine.
-            The returned object should be used with `async with`.
+            Note: httpx.AsyncClient.stream() is NOT an async method itself -
+            it returns an async context manager directly. Use with `async with`.
         """
         ...
 

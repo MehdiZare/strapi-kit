@@ -60,6 +60,10 @@ class ContentTypeSchema(BaseModel):
     uid: str
     display_name: str
     kind: str = "collectionType"
+    singular_name: str | None = Field(None, description="Singular name from Strapi schema")
+    plural_name: str | None = Field(
+        None, description="Plural name from Strapi schema (API endpoint)"
+    )
     fields: dict[str, FieldSchema] = Field(default_factory=dict)
 
     def get_field_target(self, field_name: str) -> str | None:

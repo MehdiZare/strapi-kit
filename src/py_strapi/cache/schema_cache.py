@@ -148,6 +148,8 @@ class InMemorySchemaCache:
             uid=uid,
             display_name=info.get("displayName", uid),
             kind=schema_data.get("kind", "collectionType"),
+            singular_name=info.get("singularName"),
+            plural_name=info.get("pluralName"),
             fields=fields,
         )
 
