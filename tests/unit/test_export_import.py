@@ -175,12 +175,12 @@ def test_save_and_load_export_file(sample_export_data: ExportData, tmp_path: Pat
 
 
 def test_uid_to_endpoint() -> None:
-    """Test UID to endpoint conversion."""
+    """Test UID to endpoint conversion with proper pluralization."""
     assert StrapiExporter._uid_to_endpoint("api::article.article") == "articles"
     assert StrapiExporter._uid_to_endpoint("api::author.author") == "authors"
-    assert (
-        StrapiExporter._uid_to_endpoint("api::category.category") == "categorys"
-    )  # Simple pluralization
+    # Handles irregular plurals correctly
+    assert StrapiExporter._uid_to_endpoint("api::category.category") == "categories"
+    assert StrapiExporter._uid_to_endpoint("api::class.class") == "classes"
 
 
 # Import Tests

@@ -305,6 +305,8 @@ class StrapiExporter:
     def _uid_to_endpoint(uid: str) -> str:
         """Convert content type UID to API endpoint.
 
+        Handles common irregular pluralization patterns.
+
         Args:
             uid: Content type UID (e.g., "api::article.article")
 
@@ -314,13 +316,18 @@ class StrapiExporter:
         Example:
             >>> StrapiExporter._uid_to_endpoint("api::article.article")
             'articles'
+            >>> StrapiExporter._uid_to_endpoint("api::category.category")
+            'categories'
         """
         # Extract the last part after "::" and make it plural
-        # This is a simplified approach - may need refinement
         parts = uid.split("::")
         if len(parts) == 2:
             name = parts[1].split(".")[0]
-            # Simple pluralization - add 's' if not already plural
+            # Handle common irregular plurals
+            if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
+                return name[:-1] + "ies"  # category -> categories
+            if name.endswith(("s", "x", "z", "ch", "sh")):
+                return name + "es"  # class -> classes
             if not name.endswith("s"):
                 return name + "s"
             return name
