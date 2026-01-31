@@ -277,13 +277,12 @@ Update documentation when:
 
 - `README.md`: Overview, quick start, basic examples
 - `docs/`: Detailed documentation (MkDocs)
-- `CLAUDE.md`: Technical architecture for AI assistants
 - Docstrings: API reference (auto-generated)
 
 ## Getting Help
 
 - Check existing issues and discussions
-- Read [CLAUDE.md](../../CLAUDE.md) for architecture details
+- Read the [Architecture Guide](architecture.md) for design details
 - Ask questions in PR comments
 - Join community discussions
 

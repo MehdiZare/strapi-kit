@@ -64,9 +64,8 @@ pip install strapi-kit[dev]
 - [Installation Guide](installation.md)
 - [Quick Start](quickstart.md)
 - [Configuration](configuration.md)
-- [Export/Import Guide](export-import.md)
-- [Media Operations](media.md)
-- [Type-Safe Models](models.md)
+- [API Reference](api/client.md)
+- [Examples](examples/basic.md)
 
 ## Project Status
 
@@ -78,10 +77,8 @@ Currently implemented:
 - ✅ Authentication (API tokens)
 - ✅ Exception hierarchy
 - ✅ API version detection (v4/v5)
-- ✅ Type-safe query builder
-- ✅ Media upload/download
-- ✅ Export/Import with relation resolution
-- 🚧 Advanced features (in progress)
+- 🚧 CRUD operations (in progress)
+- 🚧 Import/Export (planned)
 
 ## Contributing
 
