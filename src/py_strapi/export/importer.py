@@ -473,7 +473,9 @@ class StrapiImporter:
                         f"for field {field_name}"
                     )
 
-            if new_ids:
+            # Preserve empty lists to allow clearing relations
+            # (only skip if new_ids is None, not if it's an empty list)
+            if new_ids is not None:
                 resolved[field_name] = new_ids
 
         return resolved
