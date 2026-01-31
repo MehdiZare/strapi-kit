@@ -1,10 +1,10 @@
 site_name: strapi-kit
 site_description: A modern Python client for Strapi CMS with comprehensive import/export capabilities
 site_author: Mehdi Zare
-site_url: https://mehdizare.github.io/strapi-kit/
+site_url: https://mehdizare.github.io/py-strapi/
 
-repo_name: mehdizare/strapi-kit
-repo_url: https://github.com/mehdizare/strapi-kit
+repo_name: mehdizare/py-strapi
+repo_url: https://github.com/mehdizare/py-strapi
 edit_uri: edit/main/docs/
 
 theme:
@@ -47,23 +47,14 @@ nav:
       - Quick Start: quickstart.md
       - Configuration: configuration.md
   - User Guide:
-      - Clients: guide/clients.md
-      - Authentication: guide/authentication.md
-      - Error Handling: guide/errors.md
-      - Import/Export: guide/import-export.md
-  - API Reference:
-      - Client: api/client.md
-      - Configuration: api/config.md
-      - Exceptions: api/exceptions.md
-      - Models: api/models.md
-  - Examples:
-      - Basic Usage: examples/basic.md
-      - Advanced: examples/advanced.md
-      - Async Operations: examples/async.md
+      - Models: models.md
+      - Media Operations: media.md
+      - Export/Import: export-import.md
   - Development:
       - Contributing: development/contributing.md
       - Architecture: development/architecture.md
       - Testing: development/testing.md
+      - Release Process: development/release-process.md
   - Changelog: changelog.md
 
 plugins:
@@ -111,7 +102,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/mehdizare/strapi-kit
+      link: https://github.com/mehdizare/py-strapi
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/strapi-kit/
   version:

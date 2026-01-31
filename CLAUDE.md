@@ -122,6 +122,162 @@ BaseClient (client/base.py)
 
 **Implementation detail**: `_detect_api_version()` inspects response JSON for presence of `attributes` (v4) or `documentId` (v5).
 
+### Typed Models & Query Builder
+
+**Type-safe API** (`client/sync_client.py`, `client/async_client.py`):
+- New methods: `get_one()`, `get_many()`, `create()`, `update()`, `remove()`
+- Accept `StrapiQuery` parameter for type-safe filtering, sorting, pagination
+- Return normalized responses (`NormalizedSingleResponse` | `NormalizedCollectionResponse`)
+- Automatic v4/v5 detection and normalization via `BaseClient._parse_*_response()`
+
+**Query Building** (`models/request/query.py`):
+```python
+from py_strapi.models import StrapiQuery, FilterBuilder, SortDirection
+
+query = (StrapiQuery()
+    .filter(FilterBuilder()
+        .eq("status", "published")
+        .gt("views", 100))
+    .sort_by("publishedAt", SortDirection.DESC)
+    .paginate(page=1, page_size=25)
+    .populate_fields(["author", "category"]))
+
+response = client.get_many("articles", query=query)
+```
+
+**Response Normalization** (`models/response/normalized.py`):
+- `NormalizedEntity` provides version-agnostic interface
+- Factory methods: `.from_v4()` and `.from_v5()`
+- Flattens v4 nested attributes, preserves v5 structure
+- System fields (timestamps, locale) promoted to top level
+- Custom fields grouped in `attributes` dict
+
+**Key principle**: Old raw methods (`get`, `post`, etc.) still work for backward compatibility. New typed methods provide better DX.
+
+### Media Operations Architecture
+
+**Design**: Media methods extend existing clients (`client/sync_client.py`, `client/async_client.py`):
+- 7 media methods in each client: `upload_file()`, `upload_files()`, `download_file()`, `list_media()`, `get_media()`, `delete_media()`, `update_media()`
+- Shared utilities in `operations/media.py` for payload building, response normalization, URL construction
+- Full v4/v5 support with automatic detection
+- Streaming downloads for large files
+- Multipart uploads with metadata (alt text, captions, entity attachments)
+
+**Media Methods** (`client/sync_client.py`, `client/async_client.py`):
+```python
+# Upload single file
+media = client.upload_file(
+    "image.jpg",
+    alternative_text="Alt text",
+    caption="Caption",
+    ref="api::article.article",  # Optional entity attachment
+    ref_id="abc123",
+    field="cover"
+)
+
+# Batch upload
+media_list = client.upload_files(["img1.jpg", "img2.jpg", "img3.jpg"])
+
+# Download with streaming
+content = client.download_file("/uploads/image.jpg", save_path="local.jpg")
+
+# List with queries
+response = client.list_media(query)  # Returns NormalizedCollectionResponse
+
+# Get single media
+media = client.get_media(42)  # Returns MediaFile
+
+# Update metadata
+updated = client.update_media(42, alternative_text="New alt text")
+
+# Delete
+client.delete_media(42)
+```
+
+**Shared Utilities** (`operations/media.py`):
+- `build_upload_payload()`: Constructs multipart form data with JSON-encoded fileInfo
+- `normalize_media_response()`: Handles v4/v5 MediaFile normalization
+- `build_media_download_url()`: Constructs absolute URLs for downloads
+
+**BaseClient Extensions** (`client/base.py`):
+- `_build_upload_headers()`: Headers without Content-Type for multipart (httpx auto-sets boundary)
+- `_parse_media_response()`: Single media file parsing with version detection
+- `_parse_media_list_response()`: Media collection parsing (reuses `_parse_collection_response()`)
+
+**Key implementation details**:
+1. **Multipart uploads**: `fileInfo` JSON-encoded as string for httpx compatibility
+2. **Streaming downloads**: Use `response.iter_bytes()` (sync) or `aiter_bytes()` (async)
+3. **Error handling**: `MediaError` wraps upload/download failures, includes context
+4. **Batch uploads**: Sequential (no rollback on failure), reports which file failed
+5. **URL handling**: Supports both relative (`/uploads/...`) and absolute (`https://cdn...`) URLs
+
+### Dependency Injection Architecture
+
+**Protocol-based DI** (`protocols.py`):
+- Defines interfaces for core dependencies using Python `Protocol`
+- `AuthProvider`: Authentication interface
+- `HTTPClient` / `AsyncHTTPClient`: HTTP client interfaces
+- `ResponseParser`: Response parsing interface
+- All implementations are runtime-checkable with `isinstance()`
+
+**Dependency Injection Points** (`client/base.py`, `client/sync_client.py`, `client/async_client.py`):
+
+```python
+# BaseClient accepts auth and parser
+BaseClient(
+    config: StrapiConfig,
+    auth: AuthProvider | None = None,        # Defaults to APITokenAuth
+    parser: ResponseParser | None = None     # Defaults to VersionDetectingParser
+)
+
+# SyncClient/AsyncClient accept HTTP client
+SyncClient(
+    config: StrapiConfig,
+    http_client: HTTPClient | None = None,   # Defaults to httpx.Client
+    auth: AuthProvider | None = None,
+    parser: ResponseParser | None = None
+)
+```
+
+**Design Principles**:
+1. **Sensible defaults**: All dependencies have defaults for simple usage
+2. **Ownership tracking**: `_owns_client` flag tracks whether to close injected resources
+3. **Factory methods**: `_create_default_http_client()` creates configured defaults
+4. **Backward compatible**: Simple API unchanged, DI is optional for advanced users
+
+**When to use DI**:
+- **Testing**: Inject mocks to avoid real HTTP calls
+- **Customization**: Provide custom parsers for non-standard formats
+- **Resource sharing**: Share HTTP clients across multiple Strapi instances
+- **Custom auth**: Implement alternative authentication schemes
+
+**Example - Testing with mocks**:
+```python
+class MockHTTPClient:
+    def __init__(self):
+        self.requests = []
+
+    def request(self, method, url, **kwargs):
+        self.requests.append((method, url))
+        return mock_response
+
+    def close(self):
+        pass
+
+# Inject mock for unit testing (no HTTP calls)
+mock_http = MockHTTPClient()
+client = SyncClient(config, http_client=mock_http)
+client.get("articles")  # No actual HTTP
+
+assert len(mock_http.requests) == 1
+```
+
+**Implementation modules**:
+- `src/py_strapi/protocols.py`: Protocol definitions
+- `src/py_strapi/parsers/version_detecting.py`: Default parser implementation
+- `src/py_strapi/auth/api_token.py`: Default auth implementation (satisfies AuthProvider)
+- `tests/unit/test_dependency_injection.py`: DI tests and usage examples
+
 ### Exception Hierarchy
 
 **Semantic exception design** (exceptions/errors.py):
@@ -256,6 +412,36 @@ def test_something(respx_mock):
 - Use `async with AsyncClient(...) as client` in tests
 - No need for `@pytest.mark.asyncio` (auto mode enabled)
 
+### Testing Typed Models
+When testing typed client methods, mock responses should match v4 or v5 format:
+
+```python
+@respx.mock
+def test_get_many_typed(strapi_config):
+    # Mock v5 response
+    mock_response = {
+        "data": [
+            {"id": 1, "documentId": "abc", "title": "Article 1"},
+            {"id": 2, "documentId": "def", "title": "Article 2"}
+        ],
+        "meta": {"pagination": {"page": 1, "pageSize": 25, "total": 2}}
+    }
+
+    respx.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(200, json=mock_response)
+    )
+
+    with SyncClient(strapi_config) as client:
+        response = client.get_many("articles")
+
+        # Response is normalized automatically
+        assert isinstance(response, NormalizedCollectionResponse)
+        assert len(response.data) == 2
+        assert response.data[0].document_id == "abc"
+```
+
+**Pattern**: The client automatically detects v4/v5 from response and normalizes. Tests can use either format.
+
 ---
 
 ## Code Quality Standards
@@ -324,6 +510,49 @@ uv pip install --upgrade package-name
 
 **Fallback to pip:** If uv is not available, `pip` commands work identically.
 
+### Pre-commit Hooks
+
+The project uses pre-commit hooks to enforce quality standards:
+
+```bash
+# One-time setup
+make install-hooks
+
+# Hooks run automatically on git commit
+# They will:
+# 1. Format code (ruff format)
+# 2. Fix linting issues (ruff check --fix)
+# 3. Run type checking (mypy)
+# 4. Check for security issues (bandit)
+# 5. Prevent committing secrets (detect-secrets)
+
+# Run hooks manually on all files
+make run-hooks
+
+# Update hooks to latest versions
+make update-hooks
+```
+
+**What the hooks check:**
+- ✅ Code formatting (ruff format)
+- ✅ Linting (ruff check with auto-fix)
+- ✅ Type checking (mypy strict mode on src/ only)
+- ✅ Security issues (bandit on src/ only)
+- ✅ Secrets detection (detect-secrets)
+- ✅ File consistency (trailing whitespace, EOF, YAML/TOML syntax, etc.)
+
+**Bypass hooks** (use sparingly):
+```bash
+git commit --no-verify
+```
+
+**Important notes:**
+- Hooks only run on staged files by default (fast)
+- Type checking and bandit only scan `src/` directory (not tests or examples)
+- mkdocs.yml is excluded from YAML checks (uses custom tags)
+- Hooks are configured in `.pre-commit-config.yaml`
+- Secrets baseline is stored in `.secrets.baseline`
+
 ### Adding New Features
 1. **Update models** if new data structures needed (models/)
 2. **Implement in BaseClient** if shared logic (client/base.py)
@@ -335,6 +564,22 @@ uv pip install --upgrade package-name
 8. **Run full test suite** including coverage check
 
 ### Pre-commit Checklist
+
+**Automatic (via git hooks):**
+```bash
+# Hooks run automatically on commit
+git add .
+git commit -m "feat: your message"
+
+# Hooks will:
+# 1. Format code automatically
+# 2. Fix linting issues
+# 3. Type check src/ directory
+# 4. Check for security issues
+# 5. Prevent committing secrets
+```
+
+**Manual (for testing before commit):**
 ```bash
 # 1. Format code
 ruff format src/ tests/
@@ -345,10 +590,14 @@ ruff check src/ tests/ --fix
 # 3. Type check
 mypy src/py_strapi/
 
-# 4. Run tests with coverage
+# 4. Run security checks
+make security
+
+# 5. Run tests with coverage
 pytest --cov=py_strapi --cov-report=term
 
-# 5. Verify all checks pass
+# 6. Or run all quality checks at once
+make pre-commit
 ```
 
 ---
@@ -370,11 +619,18 @@ pytest --cov=py_strapi --cov-report=term
 - **Async**: `httpx.AsyncClient` with same limits
 - **Context managers**: Ensure proper cleanup (`__enter__`/`__exit__` and `__aenter__`/`__aexit__`)
 
-### Retry Logic (Planned - Phase 4)
-- Decorator infrastructure ready with tenacity
-- Configured via nested `RetryConfig`
-- Not yet active - needs explicit use of `self._create_retry_decorator()`
-- `retry_on_status` is currently unused; wire it up if retry is implemented
+### Retry Logic (ACTIVE)
+- Automatic retry with exponential backoff on transient failures
+- Configured via nested `RetryConfig` in `StrapiConfig`
+- Retries automatically on:
+  - Connection errors (`StrapiConnectionError`)
+  - Rate limit errors (429) with `Retry-After` header support
+  - Server errors (5xx) - configurable via `retry_on_status`
+  - Custom status codes via `retry_on_status` set
+- Exponential backoff with configurable base, initial wait, and max wait times
+- Respects `Retry-After` headers from Strapi API
+- Applied to both sync and async clients transparently
+- Full test coverage: 18 retry tests covering all scenarios
 
 ---
 
@@ -398,19 +654,38 @@ pytest --cov=py_strapi --cov-report=term
 
 ## Current Phase Status
 
-**Completed (Phase 1)**:
+**Completed (Phase 1 - Core Infrastructure)**:
 - ✅ HTTP clients (sync/async)
 - ✅ Configuration with environment support
 - ✅ Authentication (API tokens)
 - ✅ Exception hierarchy (all types defined)
 - ✅ Version detection (v4/v5)
-- ✅ Testing infrastructure (82% coverage)
+- ✅ Testing infrastructure
 
-**Next (Phase 2 - Models & Response Handling)**:
-- Response models with v4/v5 normalization
-- Request models (filters, sorting, pagination)
-- Content type introspection models
-- Type-safe query builders
+**Completed (Phase 2 - Type-Safe Query Builder)**:
+- ✅ Request models: Filters (24 operators), sorting, pagination, population, field selection
+- ✅ Response models: V4/V5 parsing with automatic normalization
+- ✅ Query builder: `StrapiQuery` fluent API with full type safety
+- ✅ Typed client methods: `get_one()`, `get_many()`, `create()`, `update()`, `remove()`
+- ✅ **179 passing tests**, **96% coverage**, **mypy strict compliance**
+
+**Completed (Phase 3 - Media Upload/Download)**:
+- ✅ Media upload with metadata (alt text, captions, entity attachments)
+- ✅ Batch file uploads with error handling
+- ✅ File downloads with streaming support
+- ✅ Media library queries with filters
+- ✅ Media metadata updates
+- ✅ Media file deletion
+- ✅ Full sync/async support
+- ✅ **58 passing media tests**, **100% operations coverage**, **85% overall coverage**
+
+**Completed (Phase 4 - Retry & Bulk Operations)**:
+- ✅ Automatic retry with exponential backoff
+- ✅ Rate limit handling with retry-after support
+- ✅ Connection error recovery
+- ✅ Bulk operations (create, update, delete)
+- ✅ Progress callbacks for long operations
+- ✅ **18 passing retry tests**, full retry coverage
 
 **Future phases**: See IMPLEMENTATION_STATUS.md for full roadmap
 
@@ -429,6 +704,131 @@ pytest --cov=py_strapi --cov-report=term
 5. **Import naming conflict**: `ConnectionError` and `TimeoutError` conflict with builtins - always import explicitly from `py_strapi.exceptions` to avoid confusion.
 
 6. **API prefix**: Don't include `/api/` in endpoint strings - it's added automatically.
+
+7. **Typed vs Raw methods**:
+   - Raw methods (`get`, `post`, etc.) return `dict[str, Any]`
+   - Typed methods (`get_one`, `get_many`, etc.) return `NormalizedSingleResponse` | `NormalizedCollectionResponse`
+   - Use typed methods for new code, raw methods for backward compatibility
+
+8. **Pagination strategies**: Cannot mix page-based (`page`, `page_size`) with offset-based (`start`, `limit`) in the same query.
+
+9. **FilterBuilder chaining**: All filter methods implicitly AND together. Use `.or_group()` for OR logic.
+
+10. **Populate configuration**: Simple field lists use array format `["author", "category"]`. Advanced config (filters, nested) uses object format.
+
+---
+
+## Working with Typed Models
+
+### Building Queries
+
+**Import all model types from single location**:
+```python
+from py_strapi.models import (
+    StrapiQuery,
+    FilterBuilder,
+    SortDirection,
+    Populate,
+    PublicationState,
+)
+```
+
+**Pattern 1: Simple queries**
+```python
+query = (StrapiQuery()
+    .filter(FilterBuilder().eq("status", "published"))
+    .sort_by("publishedAt", SortDirection.DESC)
+    .paginate(page=1, page_size=25))
+```
+
+**Pattern 2: Complex nested queries**
+```python
+query = (StrapiQuery()
+    .filter(FilterBuilder()
+        .eq("status", "published")
+        .or_group(
+            FilterBuilder().gt("views", 1000),
+            FilterBuilder().gt("likes", 500)))
+    .populate(Populate()
+        .add_field("author", fields=["name", "email"])
+        .add_field("comments",
+            filters=FilterBuilder().eq("approved", True),
+            nested=Populate().add_field("author"))))
+```
+
+**Pattern 3: Deep relation filtering**
+```python
+# Filter on nested relations using dot notation
+query = StrapiQuery().filter(
+    FilterBuilder()
+        .eq("author.profile.verified", True)
+        .gt("author.followers_count", 1000))
+```
+
+### Working with Responses
+
+**Pattern 1: Accessing normalized data**
+```python
+response = client.get_one("articles/1")
+
+if response.data:
+    article = response.data
+    print(article.id)                    # int
+    print(article.document_id)           # str | None (v5 only)
+    print(article.attributes["title"])   # Any custom field
+    print(article.published_at)          # datetime | None
+```
+
+**Pattern 2: Iterating collections**
+```python
+response = client.get_many("articles", query)
+
+for article in response.data:
+    # All articles are NormalizedEntity instances
+    print(f"{article.id}: {article.attributes['title']}")
+```
+
+**Pattern 3: Pagination metadata**
+```python
+response = client.get_many("articles", query)
+
+if response.meta and response.meta.pagination:
+    total = response.meta.pagination.total
+    pages = response.meta.pagination.page_count
+    print(f"Showing page 1 of {pages} ({total} total)")
+```
+
+### Adding Features with Models
+
+**When adding new query capabilities**:
+1. Add to appropriate request model (filters.py, sort.py, etc.)
+2. Add fluent method to `StrapiQuery` (query.py)
+3. Add tests to `tests/unit/models/`
+4. Verify mypy passes with strict mode
+
+**When adding new response types**:
+1. Add Pydantic model to `models/response/`
+2. Update `NormalizedEntity` if needed for v4/v5 compatibility
+3. Add tests comparing v4 and v5 normalization
+4. Verify 100% coverage of new code
+
+**Example: Adding a new filter operator**
+```python
+# 1. Add to FilterOperator enum (if not already present)
+class FilterOperator(str, Enum):
+    # ... existing operators
+    REGEX = "$regex"  # New operator
+
+# 2. Add method to FilterBuilder
+def regex(self, field: str, pattern: str) -> "FilterBuilder":
+    """Match field against regex pattern."""
+    return self._add_condition(field, FilterOperator.REGEX, pattern)
+
+# 3. Add test
+def test_regex_operator():
+    builder = FilterBuilder().regex("email", r".*@example\.com")
+    assert builder.to_query_dict() == {"email": {"$regex": r".*@example\.com"}}
+```
 
 ---
 

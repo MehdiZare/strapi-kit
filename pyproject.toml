@@ -6,11 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
-    {name = "Mehdi Zare", email = "mehdizare@example.com"}
+    {name = "Mehdi Zare"}
 ]
 keywords = ["strapi", "cms", "api", "client", "import", "export"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -36,9 +36,12 @@ dev = [
     "pytest-cov>=6.0.0",
     "pytest-mock>=3.15.0",
     "respx>=0.22.0",
-    "mypy>=1.19.0",
-    "ruff>=0.14.0",
+    "mypy>=1.19.1",
+    "ruff>=0.14.14",
     "pre-commit>=4.5.0",
+    "bandit[toml]>=1.9.3",
+    "detect-secrets>=1.5.0",
+    "safety>=2.3.0,<3.0.0",  # <3.0.0 to avoid API auth requirements in CI
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -58,6 +61,17 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/py_strapi"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "tests/",
+    "htmlcov/",
+    "site/",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".ruff_cache/",
+    ".coverage",
+]
 
 [tool.hatch.version]
 source = "vcs"
@@ -82,6 +96,7 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
+    "UP046", # Generic type parameter syntax (Python 3.12+, not using PEP 695 yet)
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -98,6 +113,9 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--showlocals",
+]
+markers = [
+    "e2e: marks test as e2e (requires Strapi via Docker)",
 ]
 
 [tool.mypy]
@@ -132,3 +150,7 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@abstractmethod",
 ]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "build", "dist"]
+skips = ["B101"]  # Skip assert_used (we use asserts in tests)

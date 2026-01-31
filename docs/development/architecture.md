@@ -16,6 +16,8 @@ py_strapi/
 
 ## Core Components
 
+## Client Architecture
+
 ### Dual Client Design
 
 The project uses a **shared base with specialized implementations** pattern:
@@ -323,4 +325,3 @@ articles = operations.find_articles(title="Hello")
 
 - [Contributing Guide](contributing.md)
 - [Testing Guide](testing.md)
-- [CLAUDE.md](../../CLAUDE.md) - Technical details for AI assistants

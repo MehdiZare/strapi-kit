@@ -11,6 +11,12 @@ Strapi v4 and v5 APIs, including:
 
 from .__version__ import __version__
 from .client import AsyncClient, SyncClient
+from .config_provider import (
+    ConfigFactory,
+    ConfigurationError,
+    create_config,
+    load_config,
+)
 from .exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -26,7 +32,23 @@ from .exceptions import (
     StrapiError,
     ValidationError,
 )
-from .models import StrapiConfig
+from .export import StrapiExporter, StrapiImporter
+from .models import (
+    BulkOperationFailure,
+    BulkOperationResult,
+    RetryConfig,
+    StrapiConfig,
+)
+from .operations.streaming import stream_entities, stream_entities_async
+from .parsers import VersionDetectingParser
+from .protocols import (
+    AsyncHTTPClient,
+    AuthProvider,
+    ConfigProvider,
+    HTTPClient,
+    ResponseParser,
+    SchemaProvider,
+)
 
 __all__ = [
     "__version__",
@@ -35,6 +57,29 @@ __all__ = [
     "AsyncClient",
     # Configuration
     "StrapiConfig",
+    "RetryConfig",
+    "ConfigFactory",
+    "load_config",
+    "create_config",
+    "ConfigurationError",
+    # Bulk Operations
+    "BulkOperationResult",
+    "BulkOperationFailure",
+    # Streaming
+    "stream_entities",
+    "stream_entities_async",
+    # Export/Import
+    "StrapiExporter",
+    "StrapiImporter",
+    # Protocols (for dependency injection)
+    "AuthProvider",
+    "ConfigProvider",
+    "HTTPClient",
+    "AsyncHTTPClient",
+    "ResponseParser",
+    "SchemaProvider",
+    # Parsers
+    "VersionDetectingParser",
     # Exceptions
     "StrapiError",
     "AuthenticationError",

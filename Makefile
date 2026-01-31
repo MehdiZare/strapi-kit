@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-verbose test-watch coverage lint format type-check quality clean clean-build clean-pyc clean-test docs docs-serve docs-build release-test release-prod bump-patch bump-minor bump-major
+.PHONY: help install install-dev test test-verbose test-watch coverage lint format type-check quality security security-baseline install-hooks run-hooks update-hooks clean clean-build clean-pyc clean-test docs docs-serve docs-build release-test release-prod bump-patch bump-minor bump-major e2e e2e-setup e2e-teardown e2e-logs e2e-keep e2e-only
 
 # Default target
 .DEFAULT_GOAL := help
@@ -13,7 +13,7 @@ NC := \033[0m # No Color
 help: ## Show this help message
 	@echo "$(BLUE)strapi-kit Development Commands$(NC)"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 
 # Installation
@@ -80,9 +80,35 @@ type-check: ## Run type checking with mypy
 quality: lint type-check ## Run all quality checks (lint + type-check)
 	@echo "$(GREEN)✓ All quality checks passed$(NC)"
 
+security: ## Run security checks (bandit)
+	@echo "$(BLUE)Running security checks...$(NC)"
+	bandit -c pyproject.toml -r src/
+	@echo "$(GREEN)✓ Security checks complete$(NC)"
+
+security-baseline: ## Create baseline for detect-secrets
+	@echo "$(BLUE)Creating detect-secrets baseline...$(NC)"
+	detect-secrets scan > .secrets.baseline
+	@echo "$(GREEN)✓ Baseline created at .secrets.baseline$(NC)"
+
+# Pre-commit hooks
+install-hooks: ## Install pre-commit hooks
+	@echo "$(BLUE)Installing pre-commit hooks...$(NC)"
+	pre-commit install
+	@echo "$(GREEN)✓ Pre-commit hooks installed successfully!$(NC)"
+
+run-hooks: ## Run all pre-commit hooks manually
+	@echo "$(BLUE)Running pre-commit hooks on all files...$(NC)"
+	pre-commit run --all-files
+
+update-hooks: ## Update pre-commit hooks to latest versions
+	@echo "$(BLUE)Updating pre-commit hooks...$(NC)"
+	pre-commit autoupdate
+	@echo "$(GREEN)✓ Pre-commit hooks updated$(NC)"
+
 # Pre-commit - Full check before committing
 pre-commit: format lint-fix type-check test ## Run full pre-commit checks
 	@echo "$(GREEN)✓ Pre-commit checks complete$(NC)"
+	@echo "$(YELLOW)💡 Tip: Install git hooks with 'make install-hooks' to run checks automatically$(NC)"
 
 # Documentation
 docs: ## Build documentation
@@ -177,9 +203,54 @@ git-status: ## Show git status and branch info
 	@echo "$(BLUE)Recent commits:$(NC)"
 	@git log --oneline -5
 
-# Strapi test instance (TODO - not yet implemented)
-# Integration tests with Docker-based Strapi instance are planned for future phases
-	@echo "$(GREEN)✓ Strapi stopped$(NC)"
+# E2E Testing with Strapi
+E2E_DIR := tests/e2e
+DOCKER_COMPOSE := docker compose -f $(E2E_DIR)/docker-compose.yml
+
+e2e-setup: ## Start Strapi via Docker Compose for E2E tests
+	@echo "$(BLUE)Starting Strapi for E2E tests...$(NC)"
+	$(DOCKER_COMPOSE) up -d --build
+	@echo "$(YELLOW)Waiting for Strapi to be ready (this may take a few minutes on first run)...$(NC)"
+	@timeout=180; \
+	while [ $$timeout -gt 0 ]; do \
+		if curl -s http://localhost:1337/_health > /dev/null 2>&1; then \
+			echo "$(GREEN)✓ Strapi is ready!$(NC)"; \
+			exit 0; \
+		fi; \
+		sleep 2; \
+		timeout=$$((timeout - 2)); \
+		if [ $$((timeout % 20)) -eq 0 ]; then \
+			echo "   Still waiting... ($$timeout seconds remaining)"; \
+		fi; \
+	done; \
+	echo "$(RED)✗ Strapi failed to start within timeout$(NC)"; \
+	$(DOCKER_COMPOSE) logs --tail=50; \
+	exit 1
+
+e2e-teardown: ## Stop Strapi and clean up Docker resources
+	@echo "$(BLUE)Stopping Strapi...$(NC)"
+	$(DOCKER_COMPOSE) down -v
+	@echo "$(GREEN)✓ Strapi stopped and cleaned up$(NC)"
+
+e2e-logs: ## View Strapi container logs
+	$(DOCKER_COMPOSE) logs -f strapi
+
+e2e: e2e-setup ## Full E2E cycle: setup → run tests → teardown
+	@echo "$(BLUE)Running E2E tests...$(NC)"
+	pytest tests/e2e/ --e2e -v || ($(MAKE) e2e-teardown && exit 1)
+	$(MAKE) e2e-teardown
+	@echo "$(GREEN)✓ E2E tests complete$(NC)"
+
+e2e-keep: e2e-setup ## Run E2E tests but keep Strapi running
+	@echo "$(BLUE)Running E2E tests (Strapi will remain running)...$(NC)"
+	pytest tests/e2e/ --e2e -v --keep-strapi
+	@echo "$(GREEN)✓ E2E tests complete - Strapi is still running$(NC)"
+	@echo "$(YELLOW)💡 Run 'make e2e-teardown' when done$(NC)"
+
+e2e-only: ## Run E2E tests against existing Strapi instance
+	@echo "$(BLUE)Running E2E tests against existing Strapi...$(NC)"
+	pytest tests/e2e/ --e2e -v
+	@echo "$(GREEN)✓ E2E tests complete$(NC)"
 
 # Quick shortcuts
 t: test ## Alias for 'test'

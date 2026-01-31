@@ -9,8 +9,9 @@ from typing import Any, Literal
 
 import httpx
 from tenacity import (
+    before_sleep_log,
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
@@ -29,7 +30,14 @@ from ..exceptions import (
 from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
-from ..models.config import StrapiConfig
+from ..models.response.media import MediaFile
+from ..models.response.normalized import (
+    NormalizedCollectionResponse,
+    NormalizedSingleResponse,
+)
+from ..operations.media import normalize_media_response
+from ..parsers import VersionDetectingParser
+from ..protocols import AuthProvider, ConfigProvider, ResponseParser
 
 logger = logging.getLogger(__name__)
 
@@ -48,28 +56,42 @@ class BaseClient:
     Not intended to be used directly - use SyncClient or AsyncClient instead.
     """
 
-    def __init__(self, config: StrapiConfig) -> None:
-        """Initialize the base client.
+    def __init__(
+        self,
+        config: ConfigProvider,
+        auth: AuthProvider | None = None,
+        parser: ResponseParser | None = None,
+    ) -> None:
+        """Initialize the base client with dependency injection.
 
         Args:
-            config: Strapi configuration with URL, token, and options
+            config: Configuration provider (typically StrapiConfig)
+            auth: Authentication provider (defaults to APITokenAuth)
+            parser: Response parser (defaults to VersionDetectingParser)
+
+        Raises:
+            ValueError: If authentication token is invalid
         """
-        self.config = config
+        self.config: ConfigProvider = config
         self.base_url = config.get_base_url()
-        self.auth = APITokenAuth(config.get_api_token())
+
+        # Dependency injection with sensible defaults
+        self.auth: AuthProvider = auth or APITokenAuth(config.get_api_token())
+        self.parser: ResponseParser = parser or VersionDetectingParser(
+            default_version=None if config.api_version == "auto" else config.api_version
+        )
 
         # Validate authentication
         if not self.auth.validate_token():
             raise ValueError("API token is required and cannot be empty")
 
-        # API version detection
+        # API version detection (for backward compatibility)
         self._api_version: Literal["v4", "v5"] | None = (
             None if config.api_version == "auto" else config.api_version
         )
 
         logger.info(
-            f"Initialized Strapi client for {self.base_url} "
-            f"(version: {config.api_version})"
+            f"Initialized Strapi client for {self.base_url} (version: {config.api_version})"
         )
 
     def _get_headers(self, extra_headers: dict[str, str] | None = None) -> dict[str, str]:
@@ -187,14 +209,20 @@ class BaseClient:
         elif status_code == 404:
             raise NotFoundError(f"Resource not found: {error_message}", details=error_details)
         elif status_code == 400:
-            raise ValidationError(
-                f"Validation error: {error_message}", details=error_details
-            )
+            raise ValidationError(f"Validation error: {error_message}", details=error_details)
         elif status_code == 409:
             raise ConflictError(f"Conflict: {error_message}", details=error_details)
         elif status_code == 429:
             retry_after = response.headers.get("Retry-After")
-            retry_seconds = int(retry_after) if retry_after else None
+            # RFC 7231: Retry-After can be numeric seconds or HTTP-date string
+            retry_seconds: int | None = None
+            if retry_after:
+                try:
+                    retry_seconds = int(retry_after)
+                except ValueError:
+                    # HTTP-date format (e.g., "Wed, 21 Oct 2015 07:28:00 GMT")
+                    # Fall back to default retry behavior
+                    retry_seconds = None
             raise RateLimitError(
                 f"Rate limit exceeded: {error_message}",
                 retry_after=retry_seconds,
@@ -215,19 +243,53 @@ class BaseClient:
     def _create_retry_decorator(self) -> Any:
         """Create a retry decorator based on configuration.
 
+        The decorator retries on:
+        - Server errors (5xx) and connection issues
+        - Rate limit errors (429) with retry_after support
+        - Configured status codes from retry_on_status
+
         Returns:
             Configured tenacity retry decorator
         """
         retry_config = self.config.retry
 
-        return retry(
-            stop=stop_after_attempt(retry_config.max_attempts),
-            wait=wait_exponential(
+        def should_retry_exception(exception: BaseException) -> bool:
+            """Determine if exception should trigger retry."""
+            # Always retry connection issues
+            if isinstance(exception, StrapiConnectionError):
+                return True
+
+            # Retry RateLimitError with exponential backoff
+            if isinstance(exception, RateLimitError):
+                return True
+
+            # Check if exception has status_code matching retry_on_status
+            # This includes ServerError if its status code is in retry_on_status
+            if hasattr(exception, "status_code"):
+                return exception.status_code in retry_config.retry_on_status
+
+            return False
+
+        def wait_strategy(retry_state):  # type: ignore[no-untyped-def]
+            """Custom wait strategy that respects retry_after."""
+            exception = retry_state.outcome.exception()
+
+            # If RateLimitError with retry_after, use that value
+            if isinstance(exception, RateLimitError) and exception.retry_after:
+                return exception.retry_after
+
+            # Otherwise use exponential backoff
+            return wait_exponential(
                 multiplier=retry_config.exponential_base,
                 min=retry_config.initial_wait,
                 max=retry_config.max_wait,
-            ),
-            retry=retry_if_exception_type((ServerError, StrapiConnectionError)),
+            )(retry_state)
+
+        return retry(
+            stop=stop_after_attempt(retry_config.max_attempts),
+            wait=wait_strategy,
+            retry=retry_if_exception(should_retry_exception),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
         )
 
@@ -239,3 +301,127 @@ class BaseClient:
             API version or None if not yet detected
         """
         return self._api_version
+
+    def _parse_single_response(self, response_data: dict[str, Any]) -> NormalizedSingleResponse:
+        """Parse a single entity response into normalized format.
+
+        Delegates to the injected parser for actual parsing logic.
+
+        Args:
+            response_data: Raw JSON response from Strapi
+
+        Returns:
+            Normalized single entity response
+
+        Examples:
+            >>> response_data = {"data": {"id": 1, "documentId": "abc", ...}}
+            >>> normalized = client._parse_single_response(response_data)
+            >>> normalized.data.id
+            1
+        """
+        # Delegate to injected parser
+        return self.parser.parse_single(response_data)
+
+    def _parse_collection_response(
+        self, response_data: dict[str, Any]
+    ) -> NormalizedCollectionResponse:
+        """Parse a collection response into normalized format.
+
+        Delegates to the injected parser for actual parsing logic.
+
+        Args:
+            response_data: Raw JSON response from Strapi
+
+        Returns:
+            Normalized collection response
+
+        Examples:
+            >>> response_data = {"data": [{"id": 1, ...}, {"id": 2, ...}]}
+            >>> normalized = client._parse_collection_response(response_data)
+            >>> len(normalized.data)
+            2
+        """
+        # Delegate to injected parser
+        return self.parser.parse_collection(response_data)
+
+    def _build_upload_headers(self) -> dict[str, str]:
+        """Build headers for multipart file upload.
+
+        Omits Content-Type header to let httpx set the multipart boundary automatically.
+
+        Returns:
+            Headers dictionary without Content-Type
+        """
+        headers = {
+            "Accept": "application/json",
+            **self.auth.get_headers(),
+        }
+        return headers
+
+    def _parse_media_response(self, response_data: dict[str, Any]) -> MediaFile:
+        """Parse media upload/download response into MediaFile model.
+
+        Automatically detects v4/v5 format and normalizes the response.
+
+        Args:
+            response_data: Raw JSON response from Strapi media endpoint
+
+        Returns:
+            Validated MediaFile instance
+
+        Examples:
+            >>> # v5 response
+            >>> response_data = {
+            ...     "id": 1,
+            ...     "documentId": "abc123",
+            ...     "name": "image.jpg",
+            ...     "url": "/uploads/image.jpg",
+            ...     ...
+            ... }
+            >>> media = client._parse_media_response(response_data)
+            >>> media.name
+            'image.jpg'
+        """
+        api_version = self._detect_api_version({"data": response_data})
+        return normalize_media_response(response_data, api_version)
+
+    def _parse_media_list_response(
+        self, response_data: dict[str, Any] | list[dict[str, Any]]
+    ) -> NormalizedCollectionResponse:
+        """Parse media library list response into normalized collection.
+
+        Media list responses may be in standard Strapi collection format
+        or a raw array (depending on Strapi version/plugin).
+
+        Args:
+            response_data: Raw JSON response from media list endpoint
+                          (may be dict with "data" key or raw array)
+
+        Returns:
+            Normalized collection response with MediaFile entities
+
+        Examples:
+            >>> # Standard format
+            >>> response_data = {
+            ...     "data": [
+            ...         {"id": 1, "name": "image1.jpg", ...},
+            ...         {"id": 2, "name": "image2.jpg", ...}
+            ...     ],
+            ...     "meta": {"pagination": {...}}
+            ... }
+            >>> result = client._parse_media_list_response(response_data)
+            >>> len(result.data)
+            2
+
+            >>> # Raw array format (Strapi Upload plugin)
+            >>> response_data = [{"id": 1, "name": "image.jpg", ...}]
+            >>> result = client._parse_media_list_response(response_data)
+            >>> len(result.data)
+            1
+        """
+        # Handle raw array response (Strapi Upload plugin may return this)
+        if isinstance(response_data, list):
+            response_data = {"data": response_data, "meta": {}}
+
+        # Media list follows standard collection format
+        return self._parse_collection_response(response_data)

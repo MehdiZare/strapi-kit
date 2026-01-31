@@ -4,6 +4,8 @@ This script verifies that the package is properly installed and
 can be imported without errors.
 """
 
+from pydantic import SecretStr
+
 from py_strapi import (
     AsyncClient,
     AuthenticationError,
@@ -43,7 +45,7 @@ def verify_config() -> None:
     # Create config
     config = StrapiConfig(
         base_url="http://localhost:1337",
-        api_token="test-token-12345678",
+        api_token=SecretStr("test-token-12345678"),
     )
 
     assert config.base_url == "http://localhost:1337"
@@ -58,7 +60,7 @@ def verify_client_creation() -> None:
 
     config = StrapiConfig(
         base_url="http://localhost:1337",
-        api_token="test-token-12345678",
+        api_token=SecretStr("test-token-12345678"),
     )
 
     # Sync client
