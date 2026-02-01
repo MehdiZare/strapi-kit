@@ -161,15 +161,11 @@ def api_id_to_singular(api_id: str) -> str:
         else:
             return name[:-3]  # quizzes -> quiz, whizzes -> whiz
 
-    # Handle -es for words ending in s, x, z, ch, sh (classes -> class)
+    # Handle -es for words ending in s, x, z, ch, sh (classes -> class, buses -> bus)
     if name.endswith("es"):
-        # Check if removing -es gives a word ending in s, x, z, ch, sh
         base = name[:-2]
         if base.endswith(("s", "x", "z", "ch", "sh")):
             return base
-        # Handle -ses (buses -> bus)
-        if name.endswith("ses"):
-            return name[:-2]
 
     # Handle standard -s removal (articles -> article)
     if name.endswith("s") and len(name) > 1:
