@@ -7,6 +7,7 @@ allowing memory-efficient iteration over large datasets.
 from collections.abc import AsyncGenerator, Generator
 from typing import TYPE_CHECKING
 
+from ..exceptions import ValidationError
 from ..models import StrapiQuery
 from ..models.response.normalized import NormalizedEntity
 
@@ -36,7 +37,7 @@ def stream_entities(
         NormalizedEntity objects one at a time
 
     Raises:
-        ValueError: If page_size < 1
+        ValidationError: If page_size < 1
 
     Example:
         >>> with SyncClient(config) as client:
@@ -45,7 +46,7 @@ def stream_entities(
         ...         # Process one at a time without loading all into memory
     """
     if page_size < 1:
-        raise ValueError("page_size must be >= 1")
+        raise ValidationError("page_size must be >= 1")
 
     current_page = 1
 
@@ -100,7 +101,7 @@ async def stream_entities_async(
         NormalizedEntity objects one at a time
 
     Raises:
-        ValueError: If page_size < 1
+        ValidationError: If page_size < 1
 
     Example:
         >>> async with AsyncClient(config) as client:
@@ -109,7 +110,7 @@ async def stream_entities_async(
         ...         # Process asynchronously without loading all into memory
     """
     if page_size < 1:
-        raise ValueError("page_size must be >= 1")
+        raise ValidationError("page_size must be >= 1")
 
     current_page = 1
 

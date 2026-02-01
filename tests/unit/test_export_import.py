@@ -6,10 +6,10 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
-from pydantic import ValidationError as PydanticValidationError
 
 from strapi_kit import StrapiConfig, StrapiExporter, StrapiImporter
 from strapi_kit.client.sync_client import SyncClient
+from strapi_kit.exceptions import FormatError
 from strapi_kit.models import (
     ExportData,
     ExportedEntity,
@@ -359,7 +359,7 @@ def test_exported_entity_model() -> None:
 def test_exported_media_file_path_traversal_rejected() -> None:
     """Test that path traversal attempts are rejected in media file paths."""
     # Path with parent directory traversal
-    with pytest.raises(PydanticValidationError) as exc_info:
+    with pytest.raises(FormatError) as exc_info:
         ExportedMediaFile(
             id=1,
             url="/uploads/image.jpg",
@@ -372,7 +372,7 @@ def test_exported_media_file_path_traversal_rejected() -> None:
     assert "path traversal" in str(exc_info.value).lower()
 
     # Absolute path starting with /
-    with pytest.raises(PydanticValidationError) as exc_info:
+    with pytest.raises(FormatError) as exc_info:
         ExportedMediaFile(
             id=2,
             url="/uploads/image.jpg",
@@ -385,7 +385,7 @@ def test_exported_media_file_path_traversal_rejected() -> None:
     assert "path traversal" in str(exc_info.value).lower()
 
     # Windows-style absolute path
-    with pytest.raises(PydanticValidationError) as exc_info:
+    with pytest.raises(FormatError) as exc_info:
         ExportedMediaFile(
             id=3,
             url="/uploads/image.jpg",
@@ -401,7 +401,7 @@ def test_exported_media_file_path_traversal_rejected() -> None:
 def test_exported_media_file_windows_drive_path_rejected() -> None:
     """Test that Windows drive-letter absolute paths are rejected."""
     # Windows drive-letter path (C:\)
-    with pytest.raises(PydanticValidationError) as exc_info:
+    with pytest.raises(FormatError) as exc_info:
         ExportedMediaFile(
             id=4,
             url="/uploads/image.jpg",
@@ -414,7 +414,7 @@ def test_exported_media_file_windows_drive_path_rejected() -> None:
     assert "path traversal" in str(exc_info.value).lower()
 
     # Windows drive-letter with forward slashes
-    with pytest.raises(PydanticValidationError) as exc_info:
+    with pytest.raises(FormatError) as exc_info:
         ExportedMediaFile(
             id=5,
             url="/uploads/image.jpg",

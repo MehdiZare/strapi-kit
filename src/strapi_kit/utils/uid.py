@@ -4,6 +4,29 @@ This module provides centralized functions for handling Strapi content type UIDs
 including conversion to API endpoints with proper pluralization.
 """
 
+# Irregular plurals mapping (plural -> singular)
+_IRREGULAR_PLURALS: dict[str, str] = {
+    "people": "person",
+    "children": "child",
+    "men": "man",
+    "women": "woman",
+    "feet": "foot",
+    "teeth": "tooth",
+    "geese": "goose",
+    "mice": "mouse",
+    "oxen": "ox",
+    "indices": "index",
+    "matrices": "matrix",
+    "vertices": "vertex",
+    "analyses": "analysis",
+    "crises": "crisis",
+    "theses": "thesis",
+    "phenomena": "phenomenon",
+    "criteria": "criterion",
+    "data": "datum",
+    "media": "medium",
+}
+
 
 def uid_to_endpoint(uid: str) -> str:
     """Convert content type UID to API endpoint.
@@ -86,3 +109,98 @@ def is_api_content_type(uid: str) -> bool:
         False
     """
     return uid.startswith("api::")
+
+
+def api_id_to_singular(api_id: str) -> str:
+    """Convert plural API ID to singular form.
+
+    Handles common English pluralization patterns and irregular plurals.
+    For custom pluralization, you may need to handle edge cases manually.
+
+    Args:
+        api_id: Plural API ID (e.g., "articles", "categories", "people")
+
+    Returns:
+        Singular form (e.g., "article", "category", "person")
+
+    Examples:
+        >>> api_id_to_singular("articles")
+        'article'
+        >>> api_id_to_singular("categories")
+        'category'
+        >>> api_id_to_singular("classes")
+        'class'
+        >>> api_id_to_singular("people")
+        'person'
+        >>> api_id_to_singular("children")
+        'child'
+    """
+    # Normalize to lowercase for comparison
+    name = api_id.lower()
+
+    # Check irregular plurals first
+    if name in _IRREGULAR_PLURALS:
+        return _IRREGULAR_PLURALS[name]
+
+    # Handle -ies -> -y (categories -> category)
+    if name.endswith("ies"):
+        return name[:-3] + "y"
+
+    # Handle -es for words ending in s, x, z, ch, sh (classes -> class)
+    if name.endswith("es"):
+        # Check if removing -es gives a word ending in s, x, z, ch, sh
+        base = name[:-2]
+        if base.endswith(("s", "x", "z", "ch", "sh")):
+            return base
+        # Also handle -ses, -zes (buses -> bus, quizzes -> quiz)
+        if name.endswith("ses") or name.endswith("zes"):
+            return name[:-2]
+
+    # Handle standard -s removal (articles -> article)
+    if name.endswith("s") and len(name) > 1:
+        return name[:-1]
+
+    # Already singular or unrecognized
+    return name
+
+
+def uid_to_admin_url(
+    uid: str,
+    base_url: str,
+    kind: str = "collectionType",
+) -> str:
+    """Build Strapi admin panel URL from content type UID.
+
+    Args:
+        uid: Content type UID (e.g., "api::article.article")
+        base_url: Strapi base URL (e.g., "http://localhost:1337")
+        kind: Content type kind - "collectionType" or "singleType"
+
+    Returns:
+        Admin panel URL for the content type
+
+    Examples:
+        >>> uid_to_admin_url("api::article.article", "http://localhost:1337")
+        'http://localhost:1337/admin/content-manager/collection-types/api::article.article'
+
+        >>> uid_to_admin_url(
+        ...     "api::homepage.homepage",
+        ...     "http://localhost:1337",
+        ...     kind="singleType"
+        ... )
+        'http://localhost:1337/admin/content-manager/single-types/api::homepage.homepage'
+    """
+    # Remove trailing slash from base_url
+    base_url = base_url.rstrip("/")
+
+    # Determine the path segment based on kind
+    if kind == "singleType":
+        type_segment = "single-types"
+    else:
+        type_segment = "collection-types"
+
+    return f"{base_url}/admin/content-manager/{type_segment}/{uid}"
+
+
+# Alias for clarity - uid_to_endpoint already exists, this makes the intent explicit
+uid_to_api_id = uid_to_endpoint

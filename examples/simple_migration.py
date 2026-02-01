@@ -5,24 +5,35 @@ A simplified example for migrating content between two Strapi instances.
 Perfect for getting started quickly.
 
 Usage:
-    1. Update SOURCE_URL, SOURCE_TOKEN, TARGET_URL, TARGET_TOKEN below
+    1. Set required environment variables (see below)
     2. Update CONTENT_TYPES with your content types
     3. Run: python simple_migration.py
+
+Environment Variables:
+    SOURCE_STRAPI_TOKEN: (required) API token for source Strapi instance
+    TARGET_STRAPI_TOKEN: (required) API token for target Strapi instance
+    SOURCE_STRAPI_URL: (optional) Source URL, defaults to http://localhost:1337
+    TARGET_STRAPI_URL: (optional) Target URL, defaults to http://localhost:1338
 """
+
+import os
+from datetime import datetime
 
 from pydantic import SecretStr
 
 from strapi_kit import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
+from strapi_kit.exceptions import StrapiError
+from strapi_kit.models import StrapiQuery
 
 # ============================================================================
-# CONFIGURATION - Update these values
+# CONFIGURATION - Set via environment variables (required)
 # ============================================================================
 
-SOURCE_URL = "http://localhost:1337"
-SOURCE_TOKEN = "your-source-api-token-here"
+SOURCE_URL = os.getenv("SOURCE_STRAPI_URL", "http://localhost:1337")
+SOURCE_TOKEN = os.getenv("SOURCE_STRAPI_TOKEN", "")
 
-TARGET_URL = "http://localhost:1338"
-TARGET_TOKEN = "your-target-api-token-here"
+TARGET_URL = os.getenv("TARGET_STRAPI_URL", "http://localhost:1338")
+TARGET_TOKEN = os.getenv("TARGET_STRAPI_TOKEN", "")
 
 # List your content types here
 CONTENT_TYPES = [
@@ -34,10 +45,105 @@ CONTENT_TYPES = [
 # ============================================================================
 
 
+def validate_config() -> None:
+    """Validate configuration before migration.
+
+    Raises:
+        ValueError: If required configuration is missing or invalid.
+    """
+    if not SOURCE_TOKEN:
+        raise ValueError(
+            "SOURCE_STRAPI_TOKEN environment variable is required. "
+            "Set it to your source Strapi API token."
+        )
+    if not TARGET_TOKEN:
+        raise ValueError(
+            "TARGET_STRAPI_TOKEN environment variable is required. "
+            "Set it to your target Strapi API token."
+        )
+    if not SOURCE_URL:
+        raise ValueError("SOURCE_STRAPI_URL cannot be empty.")
+    if not TARGET_URL:
+        raise ValueError("TARGET_STRAPI_URL cannot be empty.")
+
+
+def _uid_to_endpoint(uid: str) -> str:
+    """Convert content type UID to API endpoint.
+
+    Args:
+        uid: Content type UID (e.g., "api::article.article", "plugin::users-permissions.user")
+
+    Returns:
+        API endpoint (e.g., "articles", "users")
+    """
+    parts = uid.split("::")
+    if len(parts) == 2:
+        # Extract content name from after the dot (e.g., "article.article" -> "article")
+        # For plugin UIDs like "users-permissions.user", this correctly gets "user"
+        name_parts = parts[1].split(".")
+        name = name_parts[1] if len(name_parts) > 1 else name_parts[0]
+        # Handle common irregular plurals
+        if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
+            return name[:-1] + "ies"  # category -> categories
+        if name.endswith(("s", "x", "z", "ch", "sh")):
+            return name + "es"  # class -> classes
+        if not name.endswith("s"):
+            return name + "s"
+        return name
+    return uid
+
+
+def verify_connection(
+    client: SyncClient, name: str, content_types: list[str] | None = None
+) -> bool:
+    """Verify connection to a Strapi instance.
+
+    Args:
+        client: The Strapi client to test.
+        name: Display name for the instance (e.g., "source", "target").
+        content_types: List of content type UIDs to derive test endpoint from.
+            If empty or None, skips verification and returns True.
+
+    Returns:
+        True if connection is successful, False otherwise.
+    """
+    # Skip verification if no content types configured
+    if not content_types:
+        print(f"  Skipping connection verification for {name} (no content types configured)")
+        return True
+
+    # Derive endpoint from first content type
+    endpoint = _uid_to_endpoint(content_types[0])
+
+    try:
+        # Try to fetch a single item to verify connection
+        client.get_many(endpoint, query=StrapiQuery().paginate(1, 1))
+        print(f"  Connection to {name} verified")
+        return True
+    except StrapiError as e:
+        print(f"  Failed to connect to {name}: {e}")
+        return False
+    except Exception as e:
+        print(f"  Unexpected error connecting to {name}: {e}")
+        return False
+
+
 def main() -> None:
     """Perform a simple migration from source to target."""
-    print("🚀 Starting Strapi Migration")
+    print("Starting Strapi Migration")
     print("=" * 60)
+
+    # Validate configuration
+    try:
+        validate_config()
+    except ValueError as e:
+        print(f"Configuration error: {e}")
+        return
+
+    # Generate unique run ID for file paths
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    media_dir = f"./migration_media_{run_id}"
+    backup_file = f"migration_backup_{run_id}.json"
 
     # Configure source and target
     source_config = StrapiConfig(
@@ -51,38 +157,65 @@ def main() -> None:
     )
 
     # Step 1: Export from source
-    print(f"\n📥 Exporting from {SOURCE_URL}...")
-    with SyncClient(source_config) as source_client:
-        exporter = StrapiExporter(source_client)
+    print(f"\nExporting from {SOURCE_URL}...")
+    try:
+        with SyncClient(source_config) as source_client:
+            # Verify connection first
+            if not verify_connection(source_client, "source", CONTENT_TYPES):
+                print("Aborting migration due to connection failure.")
+                return
 
-        # Export content (schemas included automatically for relation resolution)
-        export_data = exporter.export_content_types(
-            CONTENT_TYPES,
-            include_media=True,  # Include media files
-            media_dir="./migration_media",  # Where to save media
-        )
+            exporter = StrapiExporter(source_client)
 
-        print(f"✓ Exported {len(CONTENT_TYPES)} content types")
+            # Export content (schemas included automatically for relation resolution)
+            export_data = exporter.export_content_types(
+                CONTENT_TYPES,
+                include_media=True,  # Include media files
+                media_dir=media_dir,  # Where to save media
+            )
 
-        # Optionally save to file
-        exporter.save_to_file(export_data, "migration_backup.json")
-        print("✓ Saved backup to migration_backup.json")
+            print(f"  Exported {len(CONTENT_TYPES)} content types")
+
+            # Optionally save to file
+            exporter.save_to_file(export_data, backup_file)
+            print(f"  Saved backup to {backup_file}")
+    except StrapiError as e:
+        print(f"Export failed: {e}")
+        return
+    except Exception as e:
+        print(f"Unexpected error during export: {e}")
+        return
 
     # Step 2: Import to target
-    print(f"\n📤 Importing to {TARGET_URL}...")
-    with SyncClient(target_config) as target_client:
-        importer = StrapiImporter(target_client)
+    print(f"\nImporting to {TARGET_URL}...")
+    try:
+        with SyncClient(target_config) as target_client:
+            # Verify connection first
+            if not verify_connection(target_client, "target", CONTENT_TYPES):
+                print("Aborting migration due to connection failure.")
+                print(f"Export data saved to {backup_file} - you can retry import later.")
+                return
 
-        # Import with automatic relation resolution
-        result = importer.import_data(
-            export_data,
-            media_dir="./migration_media",  # Upload media from here
-        )
+            importer = StrapiImporter(target_client)
 
-        print(f"✓ Imported {result.entities_imported} entities")
-        print(f"✓ Uploaded {result.media_imported} media files")
+            # Import with automatic relation resolution
+            result = importer.import_data(
+                export_data,
+                media_dir=media_dir,  # Upload media from here
+            )
 
-    print("\n✅ Migration complete!")
+            print(f"  Imported {result.entities_imported} entities")
+            print(f"  Uploaded {result.media_imported} media files")
+    except StrapiError as e:
+        print(f"Import failed: {e}")
+        print(f"Export data saved to {backup_file} - you can retry import later.")
+        return
+    except Exception as e:
+        print(f"Unexpected error during import: {e}")
+        print(f"Export data saved to {backup_file} - you can retry import later.")
+        return
+
+    print("\nMigration complete!")
     print("=" * 60)
 
 

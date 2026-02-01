@@ -284,10 +284,11 @@ assert len(mock_http.requests) == 1
 
 ```
 StrapiError (base)
+├─ ConfigurationError (invalid config, missing token, bad URL)
 ├─ AuthenticationError (401)
 ├─ AuthorizationError (403)
 ├─ NotFoundError (404)
-├─ ValidationError (400)
+├─ ValidationError (400, input validation)
 ├─ ConflictError (409)
 ├─ ServerError (5xx)
 ├─ NetworkError (connection issues)
@@ -301,6 +302,12 @@ StrapiError (base)
 ```
 
 **Usage pattern**: Always catch specific exceptions before generic ones. All exceptions carry optional `details: dict[str, Any]` for context.
+
+**Non-HTTP exceptions**:
+- `ConfigurationError`: Invalid API token, missing config, bad base URL
+- `ValidationError`: Invalid query parameters (pagination, filters), invalid function arguments
+- `FormatError`: Invalid export data format, path traversal prevention
+- `MediaError`: File not found, upload/download failures, context manager misuse
 
 **HTTP mapping** (client/base.py:_handle_error_response):
 - 401 → AuthenticationError

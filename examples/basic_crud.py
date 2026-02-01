@@ -32,6 +32,7 @@ def main() -> None:
 
         # POST request - Create article
         print("\n2. Creating new article...")
+        article_id = None  # Initialize before try block
         try:
             new_article = {
                 "data": {
@@ -43,7 +44,9 @@ def main() -> None:
             article_id = response.get("data", {}).get("id")
             print(f"Created article with ID: {article_id}")
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error creating article: {e}")
+            print("Skipping update/get/delete operations")
+            return  # Exit early if create fails
 
         # PUT request - Update article
         print("\n3. Updating article...")
