@@ -67,19 +67,54 @@ def validate_config() -> None:
         raise ValueError("TARGET_URL cannot be empty.")
 
 
-def verify_connection(client: SyncClient, name: str) -> bool:
+def _uid_to_endpoint(uid: str) -> str:
+    """Convert content type UID to API endpoint.
+
+    Args:
+        uid: Content type UID (e.g., "api::article.article")
+
+    Returns:
+        API endpoint (e.g., "articles")
+    """
+    parts = uid.split("::")
+    if len(parts) == 2:
+        name = parts[1].split(".")[0]
+        # Handle common irregular plurals
+        if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
+            return name[:-1] + "ies"  # category -> categories
+        if name.endswith(("s", "x", "z", "ch", "sh")):
+            return name + "es"  # class -> classes
+        if not name.endswith("s"):
+            return name + "s"
+        return name
+    return uid
+
+
+def verify_connection(
+    client: SyncClient, name: str, content_types: list[str] | None = None
+) -> bool:
     """Verify connection to a Strapi instance.
 
     Args:
         client: The Strapi client to test.
         name: Display name for the instance (e.g., "source", "target").
+        content_types: List of content type UIDs to derive test endpoint from.
+            If empty or None, skips verification and returns True.
 
     Returns:
         True if connection is successful, False otherwise.
     """
+    # Skip verification if no content types configured
+    if not content_types:
+        print(f"  Skipping connection verification for {name} (no content types configured)")
+        return True
+
+    # Derive endpoint from first content type
+    endpoint = _uid_to_endpoint(content_types[0])
+
     try:
         # Try to fetch a single item to verify connection
-        client.get_many("articles", query=StrapiQuery().paginate(1, 1))
+        client.get_many(endpoint, query=StrapiQuery().paginate(1, 1))
         print(f"  Connection to {name} verified")
         return True
     except StrapiError as e:
@@ -123,7 +158,7 @@ def main() -> None:
     try:
         with SyncClient(source_config) as source_client:
             # Verify connection first
-            if not verify_connection(source_client, "source"):
+            if not verify_connection(source_client, "source", CONTENT_TYPES):
                 print("Aborting migration due to connection failure.")
                 return
 
@@ -153,7 +188,7 @@ def main() -> None:
     try:
         with SyncClient(target_config) as target_client:
             # Verify connection first
-            if not verify_connection(target_client, "target"):
+            if not verify_connection(target_client, "target", CONTENT_TYPES):
                 print("Aborting migration due to connection failure.")
                 print(f"Export data saved to {backup_file} - you can retry import later.")
                 return
