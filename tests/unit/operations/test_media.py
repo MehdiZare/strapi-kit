@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from strapi_kit.exceptions import MediaError
 from strapi_kit.models.response.media import MediaFile
 from strapi_kit.operations.media import (
     build_media_download_url,
@@ -200,7 +201,7 @@ class TestUploadPayloadContextManager:
 
         upload_payload = build_upload_payload(test_file)
 
-        with pytest.raises(RuntimeError, match="must be used as a context manager"):
+        with pytest.raises(MediaError, match="must be used as a context manager"):
             _ = upload_payload.files_tuple
 
     def test_multiple_context_entries(self, tmp_path: Path) -> None:

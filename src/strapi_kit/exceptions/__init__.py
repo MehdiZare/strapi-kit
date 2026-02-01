@@ -3,6 +3,7 @@
 from .errors import (
     AuthenticationError,
     AuthorizationError,
+    ConfigurationError,
     ConflictError,
     ConnectionError,
     FormatError,
@@ -20,6 +21,7 @@ from .errors import (
 
 __all__ = [
     "StrapiError",
+    "ConfigurationError",
     "AuthenticationError",
     "AuthorizationError",
     "NotFoundError",

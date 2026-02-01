@@ -36,6 +36,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from strapi_kit.exceptions import ValidationError
 from strapi_kit.models.enums import PublicationState, SortDirection
 from strapi_kit.models.request.fields import FieldSelection
 from strapi_kit.models.request.filters import FilterBuilder
@@ -234,15 +235,15 @@ class StrapiQuery:
         offset_based = start is not None or limit is not None
 
         if page_based and offset_based:
-            raise ValueError("Cannot mix page-based and offset-based pagination")
+            raise ValidationError("Cannot mix page-based and offset-based pagination")
 
         if page_based:
             # Validate page value if explicitly provided
             if page is not None and page < 1:
-                raise ValueError("page must be >= 1")
+                raise ValidationError("page must be >= 1")
             # Validate page_size value if explicitly provided
             if page_size is not None and page_size < 1:
-                raise ValueError("page_size must be >= 1")
+                raise ValidationError("page_size must be >= 1")
             self._pagination = PagePagination(
                 page=1 if page is None else page,
                 page_size=25 if page_size is None else page_size,
@@ -251,10 +252,10 @@ class StrapiQuery:
         elif offset_based:
             # Validate start value if explicitly provided
             if start is not None and start < 0:
-                raise ValueError("start must be >= 0")
+                raise ValidationError("start must be >= 0")
             # Validate limit value if explicitly provided
             if limit is not None and limit < 1:
-                raise ValueError("limit must be >= 1")
+                raise ValidationError("limit must be >= 1")
             self._pagination = OffsetPagination(
                 start=0 if start is None else start,
                 limit=25 if limit is None else limit,

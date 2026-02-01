@@ -913,6 +913,42 @@ db_config = DatabaseConfig(db_connection)
 client = SyncClient(db_config)
 ```
 
+## Error Handling
+
+strapi-kit provides a rich exception hierarchy for precise error handling:
+
+```python
+from strapi_kit import (
+    StrapiError,           # Base for all errors
+    ConfigurationError,    # Invalid config (missing token, bad URL)
+    ValidationError,       # Invalid input/query params
+    AuthenticationError,   # HTTP 401
+    AuthorizationError,    # HTTP 403
+    NotFoundError,         # HTTP 404
+    ConflictError,         # HTTP 409
+    ServerError,           # HTTP 5xx
+    NetworkError,          # Connection issues (base)
+    RateLimitError,        # HTTP 429
+    ImportExportError,     # Data operations (base)
+    FormatError,           # Invalid data format
+    MediaError,            # Media upload/download errors
+)
+
+try:
+    with SyncClient(config) as client:
+        response = client.get_many("articles")
+except ConfigurationError as e:
+    print(f"Config issue: {e}")
+except ValidationError as e:
+    print(f"Invalid query: {e}")
+except NotFoundError as e:
+    print(f"Not found: {e}")
+except StrapiError as e:
+    print(f"Strapi error: {e}")
+```
+
+All exceptions inherit from `StrapiError`, making it easy to catch all package-specific errors while still allowing precise handling of specific error types.
+
 ## Development
 
 ### Setup

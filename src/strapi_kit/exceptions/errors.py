@@ -32,6 +32,19 @@ class StrapiError(Exception):
         return self.message
 
 
+class ConfigurationError(StrapiError):
+    """Raised when configuration is invalid or cannot be loaded.
+
+    This includes:
+    - Missing required configuration values
+    - Invalid configuration values (wrong types, out of range)
+    - Invalid URLs or authentication tokens
+    - Failed .env file loading
+    """
+
+    pass
+
+
 # HTTP Status Code Related Errors
 
 

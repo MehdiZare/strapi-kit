@@ -20,6 +20,7 @@ from ..auth.api_token import APITokenAuth
 from ..exceptions import (
     AuthenticationError,
     AuthorizationError,
+    ConfigurationError,
     ConflictError,
     NotFoundError,
     RateLimitError,
@@ -83,7 +84,7 @@ class BaseClient:
 
         # Validate authentication
         if not self.auth.validate_token():
-            raise ValueError("API token is required and cannot be empty")
+            raise ConfigurationError("API token is required and cannot be empty")
 
         # API version detection (for backward compatibility)
         self._api_version: Literal["v4", "v5"] | None = (

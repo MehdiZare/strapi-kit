@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Exception Handling Improvements**:
+  - Centralized `ConfigurationError` in the exceptions module for consistent imports
+  - Replaced generic `ValueError` with `ValidationError` for input validation errors (pagination, streaming, rate limiting)
+  - Replaced generic `ValueError` with `ConfigurationError` for configuration errors (API token validation)
+  - Replaced generic `ValueError` with `FormatError` for export path validation (path traversal prevention)
+  - Replaced generic `RuntimeError` with `MediaError` for media operation errors
+  - All exceptions now importable from `strapi_kit.exceptions` or `strapi_kit` directly
+
 - **Example Scripts Improvements**:
   - `basic_crud.py` ([#10](https://github.com/MehdiZare/strapi-kit/issues/10)): Fixed uninitialized `article_id` variable that could cause NameError if POST request failed
   - `simple_migration.py` ([#11](https://github.com/MehdiZare/strapi-kit/issues/11)): Added configuration validation, connection verification, error handling, timestamped file paths, and environment variable support

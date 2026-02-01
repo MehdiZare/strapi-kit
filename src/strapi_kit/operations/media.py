@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import IO, Any, Literal
 from urllib.parse import urljoin, urlparse
 
+from strapi_kit.exceptions import MediaError
 from strapi_kit.models.response.media import MediaFile
 
 
@@ -54,10 +55,10 @@ class UploadPayload:
             - mime_type: Detected MIME type or 'application/octet-stream' as fallback
 
         Raises:
-            RuntimeError: If accessed outside of context manager
+            MediaError: If accessed outside of context manager
         """
         if self._file_handle is None:
-            raise RuntimeError("UploadPayload must be used as a context manager")
+            raise MediaError("UploadPayload must be used as a context manager")
         filename = self._file_path.name
         mime_type, _ = mimetypes.guess_type(filename)
         mime_type = mime_type or "application/octet-stream"
