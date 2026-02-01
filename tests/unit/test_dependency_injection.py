@@ -113,31 +113,34 @@ class TestSyncClientDependencyInjection:
         mock_http = MockHTTPClient()
         mock_parser = MockParser()
 
-        # Inject all dependencies
         client = SyncClient(config, http_client=mock_http, auth=mock_auth, parser=mock_parser)
 
-        # Verify injected dependencies are used
-        assert client.auth is mock_auth
-        assert client._client is mock_http
-        assert client.parser is mock_parser
+        client.get_one("articles/1")
 
-        # Verify ownership tracking
-        assert not client._owns_client  # We injected it, so we don't own it
+        assert mock_auth.validate_called
+        assert mock_auth.get_headers_called
+        assert mock_parser.parse_single_called
+        assert len(mock_http.requests) == 1
+        method, url, kwargs = mock_http.requests[0]
+        assert method == "GET"
+        assert "articles" in url
+        assert kwargs["headers"]["Authorization"] == "Bearer mock-token"
+        client.close()
 
     def test_default_dependencies_created(self):
-        """Test that default dependencies are created when not injected."""
+        """Test that default dependencies are used when not injected."""
         config = StrapiConfig(base_url="http://localhost:1337", api_token="test")
 
-        client = SyncClient(config)
+        mock_http = MockHTTPClient()
+        client = SyncClient(config, http_client=mock_http)
 
-        # Verify defaults were created
-        assert isinstance(client.auth, APITokenAuth)
-        assert isinstance(client._client, httpx.Client)
-        assert isinstance(client.parser, VersionDetectingParser)
+        response = client.get_one("articles/1")
 
-        # Verify ownership tracking
-        assert client._owns_client  # We created it, so we own it
-
+        assert len(mock_http.requests) == 1
+        _, _, kwargs = mock_http.requests[0]
+        assert kwargs["headers"]["Authorization"] == "Bearer test"
+        assert response.data is not None
+        assert response.data.document_id == "abc"
         client.close()
 
     def test_injected_client_not_closed(self):
@@ -151,28 +154,38 @@ class TestSyncClientDependencyInjection:
         # Injected client should NOT be closed
         assert not mock_http.closed
 
-    def test_owned_client_is_closed(self):
+    def test_owned_client_is_closed(self, monkeypatch):
         """Test that owned HTTP client IS closed by SyncClient."""
+        closed = False
+
+        def wrapped_close(self):
+            nonlocal closed
+            closed = True
+
+        monkeypatch.setattr(httpx.Client, "close", wrapped_close)
         config = StrapiConfig(base_url="http://localhost:1337", api_token="test")
 
-        with SyncClient(config) as client:
-            _ = client._client
+        client = SyncClient(config)
+        client.close()
 
         # Owned client should be closed after context exit
-        # Note: We can't check httpx.Client.is_closed without making a request
-        # So we just verify the close was called without error
+        assert closed is True
 
     def test_custom_auth_used_in_requests(self):
         """Test that custom auth provider is used for headers."""
         config = StrapiConfig(base_url="http://localhost:1337", api_token="test")
         mock_auth = MockAuth(token="custom-token")
 
-        client = SyncClient(config, auth=mock_auth)
+        mock_http = MockHTTPClient()
+        client = SyncClient(config, auth=mock_auth, http_client=mock_http)
 
-        # Get headers and verify custom auth was called
-        headers = client._get_headers()
+        client.get("articles")
+
         assert mock_auth.get_headers_called
-        assert headers["Authorization"] == "Bearer custom-token"
+        assert len(mock_http.requests) == 1
+        _, _, kwargs = mock_http.requests[0]
+        assert kwargs["headers"]["Authorization"] == "Bearer custom-token"
+        client.close()
 
     def test_custom_parser_used(self):
         """Test that custom parser is used for response parsing."""
@@ -201,33 +214,34 @@ class TestAsyncClientDependencyInjection:
         mock_http = MockAsyncHTTPClient()
         mock_parser = MockParser()
 
-        # Inject all dependencies
         client = AsyncClient(config, http_client=mock_http, auth=mock_auth, parser=mock_parser)
 
-        # Verify injected dependencies are used
-        assert client.auth is mock_auth
-        assert client._client is mock_http
-        assert client.parser is mock_parser
+        await client.get_one("articles/1")
 
-        # Verify ownership tracking
-        assert not client._owns_client  # We injected it, so we don't own it
-
+        assert mock_auth.validate_called
+        assert mock_auth.get_headers_called
+        assert mock_parser.parse_single_called
+        assert len(mock_http.requests) == 1
+        method, url, kwargs = mock_http.requests[0]
+        assert method == "GET"
+        assert "articles" in url
+        assert kwargs["headers"]["Authorization"] == "Bearer mock-token"
         await client.close()
 
     async def test_default_dependencies_created(self):
-        """Test that default dependencies are created when not injected."""
+        """Test that default dependencies are used when not injected."""
         config = StrapiConfig(base_url="http://localhost:1337", api_token="test")
 
-        client = AsyncClient(config)
+        mock_http = MockAsyncHTTPClient()
+        client = AsyncClient(config, http_client=mock_http)
 
-        # Verify defaults were created
-        assert isinstance(client.auth, APITokenAuth)
-        assert isinstance(client._client, httpx.AsyncClient)
-        assert isinstance(client.parser, VersionDetectingParser)
+        response = await client.get_one("articles/1")
 
-        # Verify ownership tracking
-        assert client._owns_client  # We created it, so we own it
-
+        assert len(mock_http.requests) == 1
+        _, _, kwargs = mock_http.requests[0]
+        assert kwargs["headers"]["Authorization"] == "Bearer test"
+        assert response.data is not None
+        assert response.data.document_id == "abc"
         await client.close()
 
     async def test_injected_client_not_closed(self):
@@ -240,6 +254,22 @@ class TestAsyncClientDependencyInjection:
 
         # Injected client should NOT be closed
         assert not mock_http.closed
+
+    async def test_owned_client_is_closed(self, monkeypatch):
+        """Test that owned HTTP client IS closed by AsyncClient."""
+        closed = False
+
+        async def wrapped_close(self):
+            nonlocal closed
+            closed = True
+
+        monkeypatch.setattr(httpx.AsyncClient, "aclose", wrapped_close)
+        config = StrapiConfig(base_url="http://localhost:1337", api_token="test")
+
+        client = AsyncClient(config)
+        await client.close()
+
+        assert closed is True
 
     async def test_custom_parser_used(self):
         """Test that custom parser is used for response parsing."""
@@ -371,17 +401,18 @@ class TestDIUsageExamples:
         config2 = StrapiConfig(base_url="http://cms2.example.com", api_token="token2")
 
         # Share one HTTP client for connection pooling across both CMS instances
-        shared_http = httpx.Client()
+        shared_http = MockHTTPClient()
 
         client1 = SyncClient(config1, http_client=shared_http)
         client2 = SyncClient(config2, http_client=shared_http)
 
-        # Both clients share the connection pool
-        assert client1._client is client2._client
+        client1.get("articles")
+        client2.get("articles")
+        assert len(shared_http.requests) == 2
 
         # Close clients (won't close shared HTTP client)
         client1.close()
         client2.close()
 
         # We manage shared client lifecycle
-        shared_http.close()
+        assert not shared_http.closed
