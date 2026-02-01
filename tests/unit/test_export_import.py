@@ -17,6 +17,7 @@ from strapi_kit.models import (
     ExportMetadata,
     ImportOptions,
 )
+from strapi_kit.utils.uid import uid_to_endpoint
 
 
 @pytest.fixture
@@ -179,14 +180,14 @@ def test_save_and_load_export_file(sample_export_data: ExportData, tmp_path: Pat
 
 def test_uid_to_endpoint() -> None:
     """Test UID to endpoint conversion with proper pluralization."""
-    assert StrapiExporter._uid_to_endpoint("api::article.article") == "articles"
-    assert StrapiExporter._uid_to_endpoint("api::author.author") == "authors"
+    assert uid_to_endpoint("api::article.article") == "articles"
+    assert uid_to_endpoint("api::author.author") == "authors"
     # Handles irregular plurals correctly
-    assert StrapiExporter._uid_to_endpoint("api::category.category") == "categories"
-    assert StrapiExporter._uid_to_endpoint("api::class.class") == "classes"
+    assert uid_to_endpoint("api::category.category") == "categories"
+    assert uid_to_endpoint("api::class.class") == "classes"
     # Uses model name (after dot), not API name (before dot)
-    assert StrapiExporter._uid_to_endpoint("api::blog.post") == "posts"
-    assert StrapiExporter._uid_to_endpoint("api::shop.product") == "products"
+    assert uid_to_endpoint("api::blog.post") == "posts"
+    assert uid_to_endpoint("api::shop.product") == "products"
 
 
 # Import Tests
@@ -311,10 +312,13 @@ def test_import_validation_warns_on_version_mismatch(
     # Modify export data to have different version
     sample_export_data.metadata.strapi_version = "v4"
 
-    with SyncClient(strapi_config) as client:
-        # Client will report v5 (or auto)
-        client._api_version = "v5"
+    config = StrapiConfig(
+        base_url=strapi_config.base_url,
+        api_token=strapi_config.api_token,
+        api_version="v5",
+    )
 
+    with SyncClient(config) as client:
         importer = StrapiImporter(client)
         options = ImportOptions(dry_run=True)
 
