@@ -6,6 +6,8 @@ using the asynchronous client.
 
 import asyncio
 
+from pydantic import SecretStr
+
 from py_strapi import AsyncClient, StrapiConfig
 
 
@@ -14,7 +16,7 @@ async def main() -> None:
     # Configure client
     config = StrapiConfig(
         base_url="http://localhost:1337",
-        api_token="your-api-token-here",
+        api_token=SecretStr("your-api-token-here"),
     )
 
     # Use async client with context manager
@@ -46,9 +48,9 @@ async def main() -> None:
 
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
-                    print(f"Request {i+1} failed: {result}")
+                    print(f"Request {i + 1} failed: {result}")
                 else:
-                    print(f"Request {i+1}: {len(result.get('data', []))} items")
+                    print(f"Request {i + 1}: {len(result.get('data', []))} items")
         except Exception as e:
             print(f"Error: {e}")
 
@@ -59,8 +61,8 @@ async def main() -> None:
             for i in range(3):
                 article_data = {
                     "data": {
-                        "title": f"Async Article {i+1}",
-                        "content": f"Content for article {i+1}",
+                        "title": f"Async Article {i + 1}",
+                        "content": f"Content for article {i + 1}",
                     }
                 }
                 create_tasks.append(client.post("articles", json=article_data))

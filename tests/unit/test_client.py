@@ -29,9 +29,7 @@ class TestSyncClient:
         # Client should be closed after context
 
     @respx.mock
-    def test_get_request_success(
-        self, strapi_config: StrapiConfig, mock_v4_response: dict
-    ) -> None:
+    def test_get_request_success(self, strapi_config: StrapiConfig, mock_v4_response: dict) -> None:
         """Test successful GET request."""
         respx.get("http://localhost:1337/api/articles/1").mock(
             return_value=Response(200, json=mock_v4_response)

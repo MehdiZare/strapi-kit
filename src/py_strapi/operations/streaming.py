@@ -1,0 +1,144 @@
+"""Streaming pagination utilities for large result sets.
+
+This module provides generators that automatically handle pagination,
+allowing memory-efficient iteration over large datasets.
+"""
+
+from collections.abc import AsyncGenerator, Generator
+from typing import TYPE_CHECKING
+
+from ..models import StrapiQuery
+from ..models.response.normalized import NormalizedEntity
+
+if TYPE_CHECKING:
+    from ..client.async_client import AsyncClient
+    from ..client.sync_client import SyncClient
+
+
+def stream_entities(
+    client: "SyncClient",
+    endpoint: str,
+    query: StrapiQuery | None = None,
+    page_size: int = 100,
+) -> Generator[NormalizedEntity, None, None]:
+    """Stream entities from endpoint with automatic pagination.
+
+    This generator automatically fetches pages as needed, yielding
+    entities one at a time without loading the entire dataset into memory.
+
+    Args:
+        client: SyncClient instance
+        endpoint: API endpoint (e.g., "articles")
+        query: Optional query (filters, sorts, populate, etc.)
+        page_size: Items per page (default: 100)
+
+    Yields:
+        NormalizedEntity objects one at a time
+
+    Raises:
+        ValueError: If page_size < 1
+
+    Example:
+        >>> with SyncClient(config) as client:
+        ...     for article in stream_entities(client, "articles", page_size=50):
+        ...         print(article.attributes["title"])
+        ...         # Process one at a time without loading all into memory
+    """
+    if page_size < 1:
+        raise ValueError("page_size must be >= 1")
+
+    current_page = 1
+
+    # Build base query - create copy to avoid mutating caller's query
+    base_query = query.copy() if query is not None else StrapiQuery()
+
+    while True:
+        # Update pagination for current page on a copy
+        page_query = base_query.copy().paginate(page=current_page, page_size=page_size)
+
+        # Fetch page
+        response = client.get_many(endpoint, query=page_query)
+
+        # Yield each entity
+        yield from response.data
+
+        # Safety check: if no data returned, stop to prevent infinite loop
+        if not response.data:
+            break
+
+        # Check if more pages exist
+        if response.meta and response.meta.pagination:
+            total_pages = response.meta.pagination.page_count
+            # Handle None or 0 page_count - stop to prevent infinite loop
+            if total_pages is None or total_pages == 0 or current_page >= total_pages:
+                break
+        else:
+            # No pagination metadata, assume single page
+            break
+
+        current_page += 1
+
+
+async def stream_entities_async(
+    client: "AsyncClient",
+    endpoint: str,
+    query: StrapiQuery | None = None,
+    page_size: int = 100,
+) -> AsyncGenerator[NormalizedEntity, None]:
+    """Async version of stream_entities.
+
+    This async generator automatically fetches pages as needed, yielding
+    entities one at a time without loading the entire dataset into memory.
+
+    Args:
+        client: AsyncClient instance
+        endpoint: API endpoint (e.g., "articles")
+        query: Optional query (filters, sorts, populate, etc.)
+        page_size: Items per page (default: 100)
+
+    Yields:
+        NormalizedEntity objects one at a time
+
+    Raises:
+        ValueError: If page_size < 1
+
+    Example:
+        >>> async with AsyncClient(config) as client:
+        ...     async for article in stream_entities_async(client, "articles"):
+        ...         print(article.attributes["title"])
+        ...         # Process asynchronously without loading all into memory
+    """
+    if page_size < 1:
+        raise ValueError("page_size must be >= 1")
+
+    current_page = 1
+
+    # Build base query - create copy to avoid mutating caller's query
+    base_query = query.copy() if query is not None else StrapiQuery()
+
+    while True:
+        # Update pagination for current page on a copy
+        page_query = base_query.copy().paginate(page=current_page, page_size=page_size)
+
+        # Fetch page
+        response = await client.get_many(endpoint, query=page_query)
+
+        # Yield each entity
+        for entity in response.data:
+            yield entity
+
+        # Safety check: if no data returned, stop to prevent infinite loop
+        if not response.data:
+            break
+
+        # Check if more pages exist
+        if response.meta and response.meta.pagination:
+            total_pages = response.meta.pagination.page_count
+            # Handle None or 0 page_count - stop to prevent infinite loop
+            if total_pages is None or total_pages == 0 or current_page >= total_pages:
+                break
+        else:
+            # No pagination metadata, assume single page
+            break
+
+        current_page += 1
