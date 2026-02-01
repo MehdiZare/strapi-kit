@@ -6,7 +6,7 @@ can be imported without errors.
 
 from pydantic import SecretStr
 
-from py_strapi import (
+from strapi_kit import (
     AsyncClient,
     AuthenticationError,
     StrapiConfig,

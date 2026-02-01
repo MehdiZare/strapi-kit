@@ -1,6 +1,6 @@
 """Tests for media handler."""
 
-from py_strapi.export.media_handler import MediaHandler
+from strapi_kit.export.media_handler import MediaHandler
 
 
 def test_extract_media_references_single() -> None:

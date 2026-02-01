@@ -4,14 +4,14 @@ import httpx
 import pytest
 import respx
 
-from py_strapi import (
+from strapi_kit import (
     AsyncClient,
     StrapiConfig,
     stream_entities,
     stream_entities_async,
 )
-from py_strapi.client.sync_client import SyncClient
-from py_strapi.models import FilterBuilder, StrapiQuery
+from strapi_kit.client.sync_client import SyncClient
+from strapi_kit.models import FilterBuilder, StrapiQuery
 
 
 @pytest.fixture

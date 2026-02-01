@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from py_strapi import (
+from strapi_kit import (
     ConfigFactory,
     ConfigurationError,
     RetryConfig,

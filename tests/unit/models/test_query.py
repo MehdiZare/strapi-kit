@@ -2,10 +2,10 @@
 
 import pytest
 
-from py_strapi.models.enums import PublicationState, SortDirection
-from py_strapi.models.request.filters import FilterBuilder
-from py_strapi.models.request.populate import Populate
-from py_strapi.models.request.query import StrapiQuery
+from strapi_kit.models.enums import PublicationState, SortDirection
+from strapi_kit.models.request.filters import FilterBuilder
+from strapi_kit.models.request.populate import Populate
+from strapi_kit.models.request.query import StrapiQuery
 
 
 class TestStrapiQuery:

@@ -2,14 +2,14 @@
 
 ## Overview
 
-py-strapi provides comprehensive export/import functionality for migrating Strapi content between instances. The system automatically handles relation resolution using content type schemas.
+strapi-kit provides comprehensive export/import functionality for migrating Strapi content between instances. The system automatically handles relation resolution using content type schemas.
 
 ## Quick Start
 
 ### Export
 
 ```python
-from py_strapi import SyncClient, StrapiExporter, StrapiConfig
+from strapi_kit import SyncClient, StrapiExporter, StrapiConfig
 
 config = StrapiConfig(base_url="http://localhost:1337", api_token="token")
 
@@ -29,7 +29,7 @@ with SyncClient(config) as client:
 ### Import
 
 ```python
-from py_strapi import StrapiImporter
+from strapi_kit import StrapiImporter
 
 target_config = StrapiConfig(base_url="http://localhost:1338", api_token="token")
 
@@ -121,7 +121,7 @@ result = importer.import_data(export_data)
 ### Import Options
 
 ```python
-from py_strapi.models import ImportOptions, ConflictResolution
+from strapi_kit.models import ImportOptions, ConflictResolution
 
 options = ImportOptions(
     skip_relations=False,          # Import relations (default)
@@ -202,7 +202,7 @@ for content_type, schema in export_data.metadata.schemas.items():
 The schema cache can be used directly:
 
 ```python
-from py_strapi.cache import InMemorySchemaCache
+from strapi_kit.cache import InMemorySchemaCache
 
 with SyncClient(config) as client:
     cache = InMemorySchemaCache(client)
@@ -276,7 +276,7 @@ export_data = exporter.export_content_types([
 ## Schema Model Reference
 
 ```python
-from py_strapi.models import (
+from strapi_kit.models import (
     ContentTypeSchema,
     FieldSchema,
     FieldType,
@@ -299,8 +299,8 @@ is_rel = schema.is_relation_field("author")
 ## Example: Complete Migration
 
 ```python
-from py_strapi import SyncClient, StrapiConfig, StrapiExporter, StrapiImporter
-from py_strapi.models import ImportOptions
+from strapi_kit import SyncClient, StrapiConfig, StrapiExporter, StrapiImporter
+from strapi_kit.models import ImportOptions
 
 # Source instance
 source_config = StrapiConfig(

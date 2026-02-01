@@ -171,4 +171,4 @@ temp/
 tmp/
 
 # Hatch version file (auto-generated during build)
-src/py_strapi/_version.py
+src/strapi_kit/_version.py

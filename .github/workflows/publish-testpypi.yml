@@ -31,6 +31,7 @@ jobs:
        contains(github.event.pull_request.labels.*.name, 'release:patch'))
 
     runs-on: ubuntu-latest
+    environment: testpypi
     env:
       PYTHON_VERSION: "3.12"
 
@@ -47,7 +48,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: ⚡  Install uv (with cache)
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -174,6 +175,7 @@ jobs:
   publish-prerelease:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    environment: testpypi
     env:
       PYTHON_VERSION: "3.12"
 
@@ -189,7 +191,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: ⚡  Install uv (with cache)
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 

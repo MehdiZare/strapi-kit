@@ -22,8 +22,8 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
-from py_strapi import StrapiExporter, StrapiImporter, SyncClient
-from py_strapi.models import ImportOptions, StrapiConfig
+from strapi_kit import StrapiExporter, StrapiImporter, SyncClient
+from strapi_kit.models import ImportOptions, StrapiConfig
 
 
 def progress_callback(current: int, total: int, message: str) -> None:

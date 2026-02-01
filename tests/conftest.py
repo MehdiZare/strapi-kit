@@ -2,7 +2,7 @@
 
 import pytest
 
-from py_strapi import StrapiConfig
+from strapi_kit import StrapiConfig
 
 
 @pytest.fixture

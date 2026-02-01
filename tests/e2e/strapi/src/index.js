@@ -82,7 +82,7 @@ async function createApiToken(strapi) {
 
     const token = await tokenService.create({
       name: tokenName,
-      description: 'API token for py-strapi E2E tests',
+      description: 'API token for strapi-kit E2E tests',
       type: 'full-access',
       lifespan: null,
     });

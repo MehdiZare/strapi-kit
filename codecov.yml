@@ -1,4 +1,4 @@
-# Codecov configuration for py-strapi
+# Codecov configuration for strapi-kit
 # https://docs.codecov.com/docs/codecov-yaml
 
 coverage:
@@ -51,7 +51,7 @@ comment:
 flags:
   unit:
     paths:
-      - src/py_strapi/
+      - src/strapi_kit/
     carryforward: true
     after_n_builds: 1
 

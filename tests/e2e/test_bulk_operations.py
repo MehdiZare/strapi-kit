@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from py_strapi import SyncClient
+from strapi_kit import SyncClient
 
 
 @pytest.mark.e2e
@@ -172,7 +172,7 @@ class TestBulkDeleteOperations:
         assert result.failed == 0
 
         # Verify all were deleted
-        from py_strapi.exceptions import NotFoundError
+        from strapi_kit.exceptions import NotFoundError
 
         for id_ in created_ids:
             with pytest.raises(NotFoundError):
