@@ -262,6 +262,16 @@ class TestUidUtilities:
         assert uid_to_endpoint("api::key.key") == "keys"
         assert uid_to_endpoint("api::toy.toy") == "toys"
 
+    def test_uid_to_endpoint_different_api_and_model_names(self):
+        """Test UID where API name differs from model name.
+
+        For "api::blog.post", should pluralize "post" (model name),
+        not "blog" (API name).
+        """
+        assert uid_to_endpoint("api::blog.post") == "posts"
+        assert uid_to_endpoint("api::cms.article") == "articles"
+        assert uid_to_endpoint("api::shop.product") == "products"
+
     def test_extract_model_name(self):
         """Test extracting model name from UID."""
         assert extract_model_name("api::article.article") == "article"

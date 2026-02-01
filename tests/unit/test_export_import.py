@@ -184,6 +184,9 @@ def test_uid_to_endpoint() -> None:
     # Handles irregular plurals correctly
     assert StrapiExporter._uid_to_endpoint("api::category.category") == "categories"
     assert StrapiExporter._uid_to_endpoint("api::class.class") == "classes"
+    # Uses model name (after dot), not API name (before dot)
+    assert StrapiExporter._uid_to_endpoint("api::blog.post") == "posts"
+    assert StrapiExporter._uid_to_endpoint("api::shop.product") == "products"
 
 
 # Import Tests

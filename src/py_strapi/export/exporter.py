@@ -106,6 +106,9 @@ class StrapiExporter:
 
             total_content_types = len(content_types)
 
+            # Collect media IDs during entity streaming (before relations are stripped)
+            all_media_ids: set[int] = set()
+
             for idx, content_type in enumerate(content_types):
                 if progress_callback:
                     progress_callback(
@@ -123,6 +126,12 @@ class StrapiExporter:
                 # Stream entities for memory efficiency
                 entities = []
                 for entity in stream_entities(self.client, endpoint, query=export_query):
+                    # Extract media references BEFORE stripping relations
+                    # (media can be embedded in relation-like fields with {"data": ...} structure)
+                    if include_media:
+                        media_ids = MediaHandler.extract_media_references(entity.attributes)
+                        all_media_ids.update(media_ids)
+
                     # Extract relations from entity data
                     relations = RelationResolver.extract_relations(entity.attributes)
 
@@ -154,7 +163,9 @@ class StrapiExporter:
 
                 # media_dir is guaranteed non-None here (validated at method start)
                 assert media_dir is not None
-                self._export_media(export_data, media_dir, progress_callback)
+                self._export_media(
+                    export_data, media_dir, progress_callback, media_ids=all_media_ids
+                )
 
             if progress_callback:
                 progress_callback(
@@ -219,6 +230,8 @@ class StrapiExporter:
         export_data: ExportData,
         media_dir: Path | str,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        *,
+        media_ids: set[int] | None = None,
     ) -> None:
         """Export media files referenced in entities.
 
@@ -226,17 +239,17 @@ class StrapiExporter:
             export_data: Export data to add media to
             media_dir: Directory to download media files to
             progress_callback: Optional progress callback
+            media_ids: Pre-collected media IDs (extracted before relation stripping)
         """
-        # Collect all media IDs from entities
-        media_ids: set[int] = set()
-
-        for entities in export_data.entities.values():
-            for entity in entities:
-                # Check data for media references
-                # Note: entity.relations is already flattened to dict[str, list[int|str]]
-                # format by RelationResolver, so media references are only in entity.data
-                data_media = MediaHandler.extract_media_references(entity.data)
-                media_ids.update(data_media)
+        # Use pre-collected media IDs if provided, otherwise collect from entity.data
+        # Note: Pre-collecting is important because entity.data has relations stripped,
+        # so media embedded in relation-like fields would be lost otherwise.
+        if media_ids is None:
+            media_ids = set()
+            for entities in export_data.entities.values():
+                for entity in entities:
+                    data_media = MediaHandler.extract_media_references(entity.data)
+                    media_ids.update(data_media)
 
         if not media_ids:
             logger.info("No media files to export")
@@ -331,15 +344,21 @@ class StrapiExporter:
         metadata is not available.
 
         Args:
-            uid: Content type UID (e.g., "api::article.article")
+            uid: Content type UID (e.g., "api::article.article", "api::blog.post")
 
         Returns:
-            API endpoint (e.g., "articles")
+            API endpoint (e.g., "articles", "posts")
         """
-        # Extract the last part after "::" and make it plural
+        # Extract the model name (after the dot) and pluralize it
+        # For "api::blog.post", we want "post" -> "posts", not "blog" -> "blogs"
         parts = uid.split("::")
         if len(parts) == 2:
-            name = parts[1].split(".")[0]
+            api_model = parts[1]
+            # Get model name (after the dot if present)
+            if "." in api_model:
+                name = api_model.split(".")[1]
+            else:
+                name = api_model
             # Handle common irregular plurals
             if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
                 return name[:-1] + "ies"  # category -> categories

@@ -541,9 +541,9 @@ class StrapiImporter:
                         f"for field {field_name}"
                     )
 
-            # Preserve empty lists to allow clearing relations
-            # (only skip if new_ids is None, not if it's an empty list)
-            if new_ids is not None:
+            # Preserve empty lists only when source relation was explicitly empty.
+            # If old_ids had values but none resolved, skip to avoid clearing relations.
+            if new_ids or len(old_ids) == 0:
                 resolved[field_name] = new_ids
 
         return resolved
@@ -578,15 +578,21 @@ class StrapiImporter:
         metadata is not available.
 
         Args:
-            uid: Content type UID (e.g., "api::article.article")
+            uid: Content type UID (e.g., "api::article.article", "api::blog.post")
 
         Returns:
-            API endpoint (e.g., "articles")
+            API endpoint (e.g., "articles", "posts")
         """
-        # Extract the last part after "::" and make it plural
+        # Extract the model name (after the dot) and pluralize it
+        # For "api::blog.post", we want "post" -> "posts", not "blog" -> "blogs"
         parts = uid.split("::")
         if len(parts) == 2:
-            name = parts[1].split(".")[0]
+            api_model = parts[1]
+            # Get model name (after the dot if present)
+            if "." in api_model:
+                name = api_model.split(".")[1]
+            else:
+                name = api_model
             # Handle common irregular plurals
             if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
                 return name[:-1] + "ies"  # category -> categories

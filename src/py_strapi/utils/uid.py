@@ -12,10 +12,10 @@ def uid_to_endpoint(uid: str) -> str:
     (e.g., "person" -> "people"), use the schema's plural_name instead.
 
     Args:
-        uid: Content type UID (e.g., "api::article.article")
+        uid: Content type UID (e.g., "api::article.article", "api::blog.post")
 
     Returns:
-        API endpoint (e.g., "articles")
+        API endpoint (e.g., "articles", "posts")
 
     Examples:
         >>> uid_to_endpoint("api::article.article")
@@ -24,11 +24,19 @@ def uid_to_endpoint(uid: str) -> str:
         'categories'
         >>> uid_to_endpoint("api::class.class")
         'classes'
+        >>> uid_to_endpoint("api::blog.post")
+        'posts'
     """
-    # Extract the last part after "::" and make it plural
+    # Extract the model name (after the dot) and pluralize it
+    # For "api::blog.post", we want "post" -> "posts", not "blog" -> "blogs"
     parts = uid.split("::")
     if len(parts) == 2:
-        name = parts[1].split(".")[0]
+        api_model = parts[1]
+        # Get model name (after the dot if present)
+        if "." in api_model:
+            name = api_model.split(".")[1]
+        else:
+            name = api_model
         # Handle common irregular plurals
         if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
             return name[:-1] + "ies"  # category -> categories
