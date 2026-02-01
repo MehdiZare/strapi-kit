@@ -8,7 +8,11 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..models.content_type import ComponentListItem, ContentTypeListItem
+    from ..models.content_type import ContentTypeSchema as CTBContentTypeSchema
 
 import httpx
 
@@ -1030,3 +1034,85 @@ class AsyncClient(BaseClient):
             succeeded=success_count,
             failed=len(failures),
         )
+
+    # Content-Type Builder API
+
+    async def get_content_types(
+        self,
+        *,
+        include_plugins: bool = False,
+    ) -> list["ContentTypeListItem"]:
+        """List all content types from Content-Type Builder API.
+
+        Retrieves schema information for all content types defined in Strapi.
+
+        Args:
+            include_plugins: Whether to include plugin content types
+                            (e.g., users-permissions). Defaults to False.
+
+        Returns:
+            List of ContentTypeListItem with uid, kind, info, and attributes
+
+        Examples:
+            >>> # Get only API content types
+            >>> content_types = await client.get_content_types()
+            >>> for ct in content_types:
+            ...     print(f"{ct.uid}: {ct.info.display_name}")
+            api::article.article: Article
+            api::category.category: Category
+
+            >>> # Include plugin content types
+            >>> all_types = await client.get_content_types(include_plugins=True)
+            >>> plugin_types = [ct for ct in all_types if ct.uid.startswith("plugin::")]
+        """
+
+        raw_response = await self.get("content-type-builder/content-types")
+        return self._parse_content_types_response(raw_response, include_plugins)
+
+    async def get_components(self) -> list["ComponentListItem"]:
+        """List all components from Content-Type Builder API.
+
+        Retrieves schema information for all components defined in Strapi.
+
+        Returns:
+            List of ComponentListItem with uid, category, info, and attributes
+
+        Examples:
+            >>> components = await client.get_components()
+            >>> for comp in components:
+            ...     print(f"{comp.category}/{comp.uid}: {comp.info.display_name}")
+            shared/shared.seo: SEO
+            blocks/blocks.hero: Hero Section
+        """
+
+        raw_response = await self.get("content-type-builder/components")
+        return self._parse_components_response(raw_response)
+
+    async def get_content_type_schema(self, uid: str) -> "CTBContentTypeSchema":
+        """Get full schema for a specific content type.
+
+        Retrieves detailed schema information including all field configurations.
+
+        Args:
+            uid: Content type UID (e.g., "api::article.article")
+
+        Returns:
+            CTBContentTypeSchema with complete field definitions
+
+        Raises:
+            NotFoundError: If content type doesn't exist
+
+        Examples:
+            >>> schema = await client.get_content_type_schema("api::article.article")
+            >>> schema.info.display_name
+            'Article'
+            >>> schema.attributes["title"]["type"]
+            'string'
+            >>> schema.is_relation_field("author")
+            True
+            >>> schema.get_relation_target("author")
+            'api::author.author'
+        """
+
+        raw_response = await self.get(f"content-type-builder/content-types/{uid}")
+        return self._parse_content_type_schema_response(raw_response)
