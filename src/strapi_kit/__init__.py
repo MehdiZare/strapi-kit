@@ -13,13 +13,13 @@ from .__version__ import __version__
 from .client import AsyncClient, SyncClient
 from .config_provider import (
     ConfigFactory,
-    ConfigurationError,
     create_config,
     load_config,
 )
 from .exceptions import (
     AuthenticationError,
     AuthorizationError,
+    ConfigurationError,
     ConflictError,
     FormatError,
     ImportExportError,

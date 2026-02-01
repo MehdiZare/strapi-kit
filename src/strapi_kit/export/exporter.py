@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from strapi_kit.cache.schema_cache import InMemorySchemaCache
-from strapi_kit.exceptions import ImportExportError
+from strapi_kit.exceptions import ImportExportError, ValidationError
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.export.relation_resolver import RelationResolver
 from strapi_kit.models.export_format import (
@@ -78,7 +78,7 @@ class StrapiExporter:
             ExportData containing all exported content
 
         Raises:
-            ValueError: If include_media=True but media_dir is not provided
+            ValidationError: If include_media=True but media_dir is not provided
             ImportExportError: If export fails
 
         Example:
@@ -89,7 +89,7 @@ class StrapiExporter:
             >>> print(f"Exported {export_data.get_entity_count()} entities")
         """
         if include_media and media_dir is None:
-            raise ValueError("media_dir must be provided when include_media=True")
+            raise ValidationError("media_dir must be provided when include_media=True")
 
         try:
             # Create metadata
@@ -161,8 +161,9 @@ class StrapiExporter:
                         "Exporting media files",
                     )
 
-                # media_dir is guaranteed non-None here (validated at method start)
-                assert media_dir is not None
+                # Type guard: media_dir validated at method start (line 91-92)
+                if media_dir is None:
+                    raise ValidationError("media_dir must be provided when include_media=True")
                 self._export_media(
                     export_data, media_dir, progress_callback, media_ids=all_media_ids
                 )

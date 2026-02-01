@@ -7,6 +7,7 @@ import respx
 from strapi_kit import (
     AsyncClient,
     StrapiConfig,
+    ValidationError,
     stream_entities,
     stream_entities_async,
 )
@@ -400,16 +401,16 @@ async def test_async_stream_entities_empty_results(strapi_config: StrapiConfig) 
 
 
 def test_stream_entities_page_size_zero_raises_error(strapi_config: StrapiConfig) -> None:
-    """Test that page_size=0 raises ValueError."""
+    """Test that page_size=0 raises ValidationError."""
     with SyncClient(strapi_config) as client:
-        with pytest.raises(ValueError, match="page_size must be >= 1"):
+        with pytest.raises(ValidationError, match="page_size must be >= 1"):
             list(stream_entities(client, "articles", page_size=0))
 
 
 def test_stream_entities_page_size_negative_raises_error(strapi_config: StrapiConfig) -> None:
-    """Test that negative page_size raises ValueError."""
+    """Test that negative page_size raises ValidationError."""
     with SyncClient(strapi_config) as client:
-        with pytest.raises(ValueError, match="page_size must be >= 1"):
+        with pytest.raises(ValidationError, match="page_size must be >= 1"):
             list(stream_entities(client, "articles", page_size=-5))
 
 
@@ -417,9 +418,9 @@ def test_stream_entities_page_size_negative_raises_error(strapi_config: StrapiCo
 async def test_async_stream_entities_page_size_zero_raises_error(
     strapi_config: StrapiConfig,
 ) -> None:
-    """Test that page_size=0 raises ValueError for async."""
+    """Test that page_size=0 raises ValidationError for async."""
     async with AsyncClient(strapi_config) as client:
-        with pytest.raises(ValueError, match="page_size must be >= 1"):
+        with pytest.raises(ValidationError, match="page_size must be >= 1"):
             async for _ in stream_entities_async(client, "articles", page_size=0):
                 pass
 
@@ -428,8 +429,8 @@ async def test_async_stream_entities_page_size_zero_raises_error(
 async def test_async_stream_entities_page_size_negative_raises_error(
     strapi_config: StrapiConfig,
 ) -> None:
-    """Test that negative page_size raises ValueError for async."""
+    """Test that negative page_size raises ValidationError for async."""
     async with AsyncClient(strapi_config) as client:
-        with pytest.raises(ValueError, match="page_size must be >= 1"):
+        with pytest.raises(ValidationError, match="page_size must be >= 1"):
             async for _ in stream_entities_async(client, "articles", page_size=-10):
                 pass

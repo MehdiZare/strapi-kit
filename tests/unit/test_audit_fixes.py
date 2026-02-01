@@ -17,7 +17,7 @@ import httpx
 import pytest
 import respx
 
-from strapi_kit import StrapiConfig, SyncClient
+from strapi_kit import StrapiConfig, SyncClient, ValidationError
 from strapi_kit.exceptions import FormatError
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.models.request.filters import FilterBuilder
@@ -196,10 +196,10 @@ class TestRateLimiter:
 
     def test_rate_limiter_invalid_rate(self):
         """Test rate limiter rejects invalid rate."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             TokenBucketRateLimiter(rate=0)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             TokenBucketRateLimiter(rate=-1)
 
     def test_rate_limiter_acquire(self):

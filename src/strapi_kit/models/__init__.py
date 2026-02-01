@@ -5,6 +5,9 @@ Includes configuration models and request/response models for Strapi API interac
 
 from .bulk import BulkOperationFailure, BulkOperationResult
 from .config import RetryConfig, StrapiConfig
+from .content_type import ComponentListItem, ContentTypeListItem
+from .content_type import ContentTypeInfo as CTBContentTypeInfo
+from .content_type import ContentTypeSchema as CTBContentTypeSchema
 from .enums import FilterOperator, PublicationState, SortDirection
 from .export_format import ExportData, ExportedEntity, ExportedMediaFile, ExportMetadata
 from .import_options import ConflictResolution, ImportOptions, ImportResult
@@ -101,4 +104,9 @@ __all__ = [
     "FieldSchema",
     "FieldType",
     "RelationType",
+    # Content-Type Builder models
+    "CTBContentTypeInfo",
+    "CTBContentTypeSchema",
+    "ContentTypeListItem",
+    "ComponentListItem",
 ]

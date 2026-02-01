@@ -10,6 +10,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from strapi_kit.exceptions import FormatError
+
 from .schema import ContentTypeSchema
 
 
@@ -117,13 +119,13 @@ class ExportedMediaFile(BaseModel):
             The validated path
 
         Raises:
-            ValueError: If path contains traversal sequences or is absolute
+            FormatError: If path contains traversal sequences or is absolute
         """
         if ".." in v or v.startswith("/") or v.startswith("\\"):
-            raise ValueError("local_path must be relative without path traversal")
+            raise FormatError("local_path must be relative without path traversal")
         # Block Windows drive-letter absolute paths (e.g., C:\, D:/)
         if PureWindowsPath(v).is_absolute():
-            raise ValueError("local_path must be relative without path traversal")
+            raise FormatError("local_path must be relative without path traversal")
         return v
 
 

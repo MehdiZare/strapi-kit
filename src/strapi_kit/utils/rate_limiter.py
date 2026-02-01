@@ -9,6 +9,8 @@ import logging
 import threading
 import time
 
+from strapi_kit.exceptions import ValidationError
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,7 +39,7 @@ class TokenBucketRateLimiter:
             capacity: Bucket capacity (defaults to rate for 1 second burst)
         """
         if rate <= 0:
-            raise ValueError("Rate must be positive")
+            raise ValidationError("Rate must be positive")
 
         self._rate = rate
         self._capacity = capacity if capacity is not None else rate
@@ -121,7 +123,7 @@ class AsyncTokenBucketRateLimiter:
             capacity: Bucket capacity (defaults to rate for 1 second burst)
         """
         if rate <= 0:
-            raise ValueError("Rate must be positive")
+            raise ValidationError("Rate must be positive")
 
         self._rate = rate
         self._capacity = capacity if capacity is not None else rate

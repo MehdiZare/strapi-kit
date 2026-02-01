@@ -5,7 +5,11 @@ automatic response format detection, error handling, and authentication.
 """
 
 import logging
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from ..models.content_type import ComponentListItem, ContentTypeListItem
+    from ..models.content_type import ContentTypeSchema as CTBContentTypeSchema
 
 import httpx
 from tenacity import (
@@ -20,6 +24,7 @@ from ..auth.api_token import APITokenAuth
 from ..exceptions import (
     AuthenticationError,
     AuthorizationError,
+    ConfigurationError,
     ConflictError,
     NotFoundError,
     RateLimitError,
@@ -83,7 +88,7 @@ class BaseClient:
 
         # Validate authentication
         if not self.auth.validate_token():
-            raise ValueError("API token is required and cannot be empty")
+            raise ConfigurationError("API token is required and cannot be empty")
 
         # API version detection (for backward compatibility)
         self._api_version: Literal["v4", "v5"] | None = (
@@ -458,3 +463,87 @@ class BaseClient:
 
         # Media list follows standard collection format
         return self._parse_collection_response(response_data)
+
+    def _parse_content_types_response(
+        self,
+        response_data: dict[str, Any],
+        include_plugins: bool = False,
+    ) -> list["ContentTypeListItem"]:
+        """Parse content-type-builder content types response.
+
+        Args:
+            response_data: Raw JSON response from content-type-builder
+            include_plugins: Whether to include plugin content types
+
+        Returns:
+            List of ContentTypeListItem instances
+        """
+        from ..models.content_type import ContentTypeListItem
+
+        data = response_data.get("data", [])
+        result = []
+
+        for item in data:
+            uid = item.get("uid", "")
+            # Filter out plugin content types if not requested
+            if not include_plugins and uid.startswith("plugin::"):
+                continue
+
+            try:
+                content_type = ContentTypeListItem.model_validate(item)
+                result.append(content_type)
+            except Exception:
+                # Skip malformed items
+                logger.warning(f"Failed to parse content type: {uid}")
+                continue
+
+        return result
+
+    def _parse_components_response(
+        self,
+        response_data: dict[str, Any],
+    ) -> list["ComponentListItem"]:
+        """Parse content-type-builder components response.
+
+        Args:
+            response_data: Raw JSON response from content-type-builder
+
+        Returns:
+            List of ComponentListItem instances
+        """
+        from ..models.content_type import ComponentListItem
+
+        data = response_data.get("data", [])
+        result = []
+
+        for item in data:
+            uid = item.get("uid", "")
+            try:
+                component = ComponentListItem.model_validate(item)
+                result.append(component)
+            except Exception:
+                # Skip malformed items
+                logger.warning(f"Failed to parse component: {uid}")
+                continue
+
+        return result
+
+    def _parse_content_type_schema_response(
+        self,
+        response_data: dict[str, Any],
+    ) -> "CTBContentTypeSchema":
+        """Parse content-type-builder single content type schema response.
+
+        Args:
+            response_data: Raw JSON response from content-type-builder
+
+        Returns:
+            CTBContentTypeSchema instance
+
+        Raises:
+            ValidationError: If response cannot be parsed
+        """
+        from ..models.content_type import ContentTypeSchema as CTBContentTypeSchema
+
+        data = response_data.get("data", response_data)
+        return CTBContentTypeSchema.model_validate(data)

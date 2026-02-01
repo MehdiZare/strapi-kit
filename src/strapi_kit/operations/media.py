@@ -5,10 +5,12 @@ and response normalization across sync and async clients.
 """
 
 import json
+import mimetypes
 from pathlib import Path
 from typing import IO, Any, Literal
 from urllib.parse import urljoin, urlparse
 
+from strapi_kit.exceptions import MediaError
 from strapi_kit.models.response.media import MediaFile
 
 
@@ -43,19 +45,24 @@ class UploadPayload:
         self._file_handle: IO[bytes] | None = None
 
     @property
-    def files_tuple(self) -> tuple[str, IO[bytes], None]:
+    def files_tuple(self) -> tuple[str, IO[bytes], str]:
         """Get the files tuple for httpx multipart upload.
 
         Returns:
-            Tuple of (filename, file_handle, content_type)
-            Content type is None to let httpx auto-detect MIME type.
+            Tuple of (filename, file_handle, mime_type) where:
+            - filename: The actual file name from the path
+            - file_handle: Open file handle for reading
+            - mime_type: Detected MIME type or 'application/octet-stream' as fallback
 
         Raises:
-            RuntimeError: If accessed outside of context manager
+            MediaError: If accessed outside of context manager
         """
         if self._file_handle is None:
-            raise RuntimeError("UploadPayload must be used as a context manager")
-        return ("file", self._file_handle, None)
+            raise MediaError("UploadPayload must be used as a context manager")
+        filename = self._file_path.name
+        mime_type, _ = mimetypes.guess_type(filename)
+        mime_type = mime_type or "application/octet-stream"
+        return (filename, self._file_handle, mime_type)
 
     @property
     def data(self) -> dict[str, Any] | None:
