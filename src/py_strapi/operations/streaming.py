@@ -43,13 +43,12 @@ def stream_entities(
     """
     current_page = 1
 
-    # Build base query
-    if query is None:
-        query = StrapiQuery()
+    # Build base query - create copy to avoid mutating caller's query
+    base_query = query.copy() if query is not None else StrapiQuery()
 
     while True:
-        # Update pagination for current page
-        page_query = query.paginate(page=current_page, page_size=page_size)
+        # Update pagination for current page on a copy
+        page_query = base_query.copy().paginate(page=current_page, page_size=page_size)
 
         # Fetch page
         response = client.get_many(endpoint, query=page_query)
@@ -102,13 +101,12 @@ async def stream_entities_async(
     """
     current_page = 1
 
-    # Build base query
-    if query is None:
-        query = StrapiQuery()
+    # Build base query - create copy to avoid mutating caller's query
+    base_query = query.copy() if query is not None else StrapiQuery()
 
     while True:
-        # Update pagination for current page
-        page_query = query.paginate(page=current_page, page_size=page_size)
+        # Update pagination for current page on a copy
+        page_query = base_query.copy().paginate(page=current_page, page_size=page_size)
 
         # Fetch page
         response = await client.get_many(endpoint, query=page_query)

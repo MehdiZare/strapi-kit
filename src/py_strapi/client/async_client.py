@@ -16,6 +16,7 @@ from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
 from ..exceptions import (
+    FormatError,
     MediaError,
     StrapiError,
 )
@@ -32,6 +33,7 @@ from ..models.response.normalized import (
 )
 from ..operations.media import build_media_download_url, build_upload_payload
 from ..protocols import AsyncHTTPClient, AuthProvider, ConfigProvider, ResponseParser
+from ..utils.rate_limiter import AsyncTokenBucketRateLimiter
 from .base import BaseClient
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,11 @@ class AsyncClient(BaseClient):
             http_client or self._create_default_http_client()
         )
         self._owns_client = http_client is None
+
+        # Initialize rate limiter if configured
+        self._rate_limiter: AsyncTokenBucketRateLimiter | None = None
+        if hasattr(config, "rate_limit_per_second") and config.rate_limit_per_second:
+            self._rate_limiter = AsyncTokenBucketRateLimiter(rate=config.rate_limit_per_second)
 
     def _create_default_http_client(self) -> httpx.AsyncClient:
         """Create default async HTTP client with connection pooling.
@@ -157,6 +164,10 @@ class AsyncClient(BaseClient):
         @retry_decorator  # type: ignore[untyped-decorator]
         async def _do_request() -> dict[str, Any]:
             """Internal async request implementation with retry support."""
+            # Apply rate limiting if configured
+            if self._rate_limiter:
+                await self._rate_limiter.acquire()
+
             url = self._build_url(endpoint)
             request_headers = self._get_headers(headers)
 
@@ -180,8 +191,16 @@ class AsyncClient(BaseClient):
                     logger.debug(f"Response: {response.status_code} (no content)")
                     return {}
 
-                # Parse and return JSON
-                data: dict[str, Any] = response.json()
+                # Parse and return JSON with proper error handling for non-JSON responses
+                try:
+                    data: dict[str, Any] = response.json()
+                except Exception as json_error:
+                    content_type = response.headers.get("content-type", "unknown")
+                    body_preview = response.text[:500] if response.text else ""
+                    raise FormatError(
+                        f"Received non-JSON response (content-type: {content_type})",
+                        details={"body_preview": body_preview},
+                    ) from json_error
 
                 # Detect API version from response
                 if data and isinstance(data, dict):
@@ -737,16 +756,26 @@ class AsyncClient(BaseClient):
             if name is not None:
                 file_info["name"] = name
 
-            # Strapi v5 uses POST /api/upload?id=x with form-data
-            url = f"{self._build_url('upload')}?id={media_id}"
             headers = self._build_upload_headers()
 
-            # Send as form-data with fileInfo as JSON string
-            response = await self._client.post(
-                url,
-                data={"fileInfo": json_module.dumps(file_info)} if file_info else {},
-                headers=headers,
-            )
+            # v4 uses PUT /api/upload/files/:id
+            # v5 uses POST /api/upload?id=x with form-data
+            if self._api_version == "v4":
+                url = self._build_url(f"upload/files/{media_id}")
+                response = await self._client.request(
+                    method="PUT",
+                    url=url,
+                    json={"fileInfo": file_info} if file_info else {},
+                    headers=self._get_headers(),
+                )
+            else:
+                # v5 or auto (default to v5 behavior)
+                url = f"{self._build_url('upload')}?id={media_id}"
+                response = await self._client.post(
+                    url,
+                    data={"fileInfo": json_module.dumps(file_info)} if file_info else {},
+                    headers=headers,
+                )
 
             # Handle errors
             if not response.is_success:

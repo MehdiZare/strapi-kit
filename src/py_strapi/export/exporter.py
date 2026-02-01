@@ -19,6 +19,7 @@ from py_strapi.models.export_format import (
     ExportedEntity,
     ExportMetadata,
 )
+from py_strapi.models.request.query import StrapiQuery
 from py_strapi.operations.streaming import stream_entities
 
 if TYPE_CHECKING:
@@ -114,11 +115,14 @@ class StrapiExporter:
                     )
 
                 # Extract endpoint from UID (e.g., "api::article.article" -> "articles")
-                endpoint = self._uid_to_endpoint(content_type)
+                endpoint = self._get_endpoint(content_type)
+
+                # Build query with populate_all to ensure relations/media are included
+                export_query = StrapiQuery().populate_all()
 
                 # Stream entities for memory efficiency
                 entities = []
-                for entity in stream_entities(self.client, endpoint):
+                for entity in stream_entities(self.client, endpoint, query=export_query):
                     # Extract relations from entity data
                     relations = RelationResolver.extract_relations(entity.attributes)
 
@@ -299,23 +303,40 @@ class StrapiExporter:
 
         logger.info(f"Cached {self._schema_cache.cache_size} schemas")
 
-    @staticmethod
-    def _uid_to_endpoint(uid: str) -> str:
-        """Convert content type UID to API endpoint.
+    def _get_endpoint(self, uid: str) -> str:
+        """Get API endpoint for a content type.
 
-        Handles common irregular pluralization patterns.
+        Prefers schema.plural_name when available to handle custom plural
+        names correctly (e.g., "person" -> "people"). Falls back to
+        hardcoded pluralization rules for basic cases.
 
         Args:
             uid: Content type UID (e.g., "api::article.article")
 
         Returns:
             API endpoint (e.g., "articles")
+        """
+        # Try to get plural_name from cached schema
+        if self._schema_cache.has_schema(uid):
+            schema = self._schema_cache.get_schema(uid)
+            if schema.plural_name:
+                return schema.plural_name
 
-        Example:
-            >>> StrapiExporter._uid_to_endpoint("api::article.article")
-            'articles'
-            >>> StrapiExporter._uid_to_endpoint("api::category.category")
-            'categories'
+        # Fallback to hardcoded pluralization
+        return self._uid_to_endpoint_fallback(uid)
+
+    @staticmethod
+    def _uid_to_endpoint_fallback(uid: str) -> str:
+        """Fallback pluralization for content type UID.
+
+        Handles common English pluralization patterns. Used when schema
+        metadata is not available.
+
+        Args:
+            uid: Content type UID (e.g., "api::article.article")
+
+        Returns:
+            API endpoint (e.g., "articles")
         """
         # Extract the last part after "::" and make it plural
         parts = uid.split("::")
@@ -330,3 +351,17 @@ class StrapiExporter:
                 return name + "s"
             return name
         return uid
+
+    @staticmethod
+    def _uid_to_endpoint(uid: str) -> str:
+        """Convert content type UID to API endpoint.
+
+        Deprecated: Use _get_endpoint() instead which uses schema metadata.
+
+        Args:
+            uid: Content type UID (e.g., "api::article.article")
+
+        Returns:
+            API endpoint (e.g., "articles")
+        """
+        return StrapiExporter._uid_to_endpoint_fallback(uid)

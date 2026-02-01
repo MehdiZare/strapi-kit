@@ -33,6 +33,7 @@ Examples:
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from py_strapi.models.enums import PublicationState, SortDirection
@@ -116,6 +117,30 @@ class StrapiQuery:
         self._fields: FieldSelection | None = None
         self._locale: str | None = None
         self._publication_state: PublicationState | None = None
+
+    def copy(self) -> StrapiQuery:
+        """Create a deep copy of this query.
+
+        Useful for modifying a query without affecting the original,
+        especially in streaming operations that modify pagination.
+
+        Returns:
+            Deep copy of this query
+
+        Examples:
+            >>> base_query = StrapiQuery().filter(FilterBuilder().eq("status", "published"))
+            >>> modified = base_query.copy().paginate(page=2)
+            >>> # base_query is unchanged
+        """
+        new_query = StrapiQuery()
+        new_query._filters = copy.deepcopy(self._filters)
+        new_query._sort = copy.deepcopy(self._sort)
+        new_query._pagination = copy.deepcopy(self._pagination)
+        new_query._populate = copy.deepcopy(self._populate)
+        new_query._fields = copy.deepcopy(self._fields)
+        new_query._locale = self._locale
+        new_query._publication_state = self._publication_state
+        return new_query
 
     def filter(self, filters: FilterBuilder) -> StrapiQuery:
         """Add filter conditions to the query.

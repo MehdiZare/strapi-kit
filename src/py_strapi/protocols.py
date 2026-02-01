@@ -298,6 +298,120 @@ class ConfigProvider(Protocol):
 
 
 @runtime_checkable
+class StrapiClient(Protocol):
+    """Protocol for Strapi client implementations.
+
+    Defines the interface that both SyncClient and AsyncClient implement,
+    allowing for type-safe dependency injection in export/import modules.
+
+    Note: This protocol defines the sync version. Async methods follow the
+    same signature but are awaitable.
+    """
+
+    @property
+    def base_url(self) -> str:
+        """Get the base URL of the Strapi instance."""
+        ...
+
+    @property
+    def api_version(self) -> str | None:
+        """Get the detected or configured API version."""
+        ...
+
+    def get_one(
+        self,
+        endpoint: str,
+        query: Any = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Get a single entity.
+
+        Args:
+            endpoint: API endpoint path
+            query: Optional query configuration
+            headers: Additional headers
+
+        Returns:
+            Normalized single entity response
+        """
+        ...
+
+    def get_many(
+        self,
+        endpoint: str,
+        query: Any = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedCollectionResponse:
+        """Get multiple entities.
+
+        Args:
+            endpoint: API endpoint path
+            query: Optional query configuration
+            headers: Additional headers
+
+        Returns:
+            Normalized collection response
+        """
+        ...
+
+    def create(
+        self,
+        endpoint: str,
+        data: dict[str, Any],
+        query: Any = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Create a new entity.
+
+        Args:
+            endpoint: API endpoint path
+            data: Entity data to create
+            query: Optional query configuration
+            headers: Additional headers
+
+        Returns:
+            Normalized single entity response
+        """
+        ...
+
+    def update(
+        self,
+        endpoint: str,
+        data: dict[str, Any],
+        query: Any = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Update an existing entity.
+
+        Args:
+            endpoint: API endpoint path
+            data: Entity data to update
+            query: Optional query configuration
+            headers: Additional headers
+
+        Returns:
+            Normalized single entity response
+        """
+        ...
+
+    def remove(
+        self,
+        endpoint: str,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Delete an entity.
+
+        Args:
+            endpoint: API endpoint path
+            headers: Additional headers
+
+        Returns:
+            Normalized single entity response
+        """
+        ...
+
+
+@runtime_checkable
 class SchemaProvider(Protocol):
     """Protocol for content type schema providers.
 

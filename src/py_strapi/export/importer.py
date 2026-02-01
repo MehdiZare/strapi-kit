@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from py_strapi.cache.schema_cache import InMemorySchemaCache
-from py_strapi.exceptions import ImportExportError, ValidationError
+from py_strapi.exceptions import ImportExportError, NotFoundError, ValidationError
 from py_strapi.export.media_handler import MediaHandler
 from py_strapi.export.relation_resolver import RelationResolver
 from py_strapi.models.export_format import ExportData
-from py_strapi.models.import_options import ImportOptions, ImportResult
+from py_strapi.models.import_options import ConflictResolution, ImportOptions, ImportResult
 from py_strapi.models.schema import ContentTypeSchema
 
 if TYPE_CHECKING:
@@ -214,6 +214,11 @@ class StrapiImporter:
     ) -> None:
         """Import entities for specified content types.
 
+        Handles conflict resolution based on options:
+        - SKIP: Skip entities that already exist
+        - UPDATE: Update existing entities with imported data
+        - FAIL: Fail import if conflicts are detected
+
         Args:
             export_data: Export data
             content_types: Content types to import
@@ -241,8 +246,41 @@ class StrapiImporter:
                         result.entities_imported += 1
                         continue
 
-                    # Create entity with updated media references
-                    # Note: create() already wraps data in {"data": ...}
+                    # Check for existing entity if document_id is available (for conflict handling)
+                    existing_id: int | None = None
+                    if entity.document_id:
+                        existing_id = self._check_entity_exists(endpoint, entity.document_id)
+
+                    if existing_id is not None:
+                        # Entity already exists - handle according to conflict resolution
+                        if options.conflict_resolution == ConflictResolution.SKIP:
+                            result.entities_skipped += 1
+                            # Still track the ID mapping for relations
+                            if content_type not in result.id_mapping:
+                                result.id_mapping[content_type] = {}
+                            result.id_mapping[content_type][entity.id] = existing_id
+                            continue
+
+                        elif options.conflict_resolution == ConflictResolution.FAIL:
+                            raise ImportExportError(
+                                f"Entity already exists: {content_type} with documentId "
+                                f"{entity.document_id}. Use conflict_resolution=SKIP or UPDATE."
+                            )
+
+                        elif options.conflict_resolution == ConflictResolution.UPDATE:
+                            # Update existing entity
+                            response = self.client.update(
+                                f"{endpoint}/{entity.document_id}",
+                                entity_data,
+                            )
+                            if response.data:
+                                if content_type not in result.id_mapping:
+                                    result.id_mapping[content_type] = {}
+                                result.id_mapping[content_type][entity.id] = response.data.id
+                                result.entities_updated += 1
+                            continue
+
+                    # Create new entity
                     response = self.client.create(endpoint, entity_data)
 
                     if response.data:
@@ -257,9 +295,33 @@ class StrapiImporter:
                     result.add_error(f"Validation error importing {content_type} #{entity.id}: {e}")
                     result.entities_failed += 1
 
+                except ImportExportError:
+                    # Re-raise ImportExportError (e.g., from FAIL conflict resolution)
+                    raise
+
                 except Exception as e:
                     result.add_error(f"Failed to import {content_type} #{entity.id}: {e}")
                     result.entities_failed += 1
+
+    def _check_entity_exists(self, endpoint: str, document_id: str) -> int | None:
+        """Check if an entity exists by document ID.
+
+        Args:
+            endpoint: API endpoint
+            document_id: Document ID to check
+
+        Returns:
+            Entity's numeric ID if exists, None otherwise
+        """
+        try:
+            response = self.client.get_one(f"{endpoint}/{document_id}")
+            if response.data:
+                return response.data.id
+        except NotFoundError:
+            pass
+        except Exception as e:
+            logger.warning(f"Error checking entity existence: {e}")
+        return None
 
     def _import_relations(
         self,
