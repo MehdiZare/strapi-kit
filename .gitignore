@@ -172,3 +172,8 @@ tmp/
 
 # Hatch version file (auto-generated during build)
 src/strapi_kit/_version.py
+
+# Node.js (not used in this project)
+node_modules/
+package.json
+package-lock.json
