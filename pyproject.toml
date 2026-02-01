@@ -41,7 +41,7 @@ dev = [
     "pre-commit>=4.5.0",
     "bandit[toml]>=1.9.3",
     "detect-secrets>=1.5.0",
-    "safety>=2.3.0,<3.0.0",  # <3.0.0 to avoid API auth requirements in CI
+    "safety>=2.3.0,<4.0.0",  # <3.0.0 to avoid API auth requirements in CI
 ]
 docs = [
     "mkdocs>=1.6.1",
