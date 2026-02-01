@@ -15,6 +15,7 @@ A modern Python client for Strapi CMS with comprehensive import/export capabilit
 - 🔒 **Type Safe**: Built with Pydantic for robust data validation and type safety
 - 🔄 **Import/Export**: Comprehensive backup/restore and data migration tools
 - 🔁 **Smart Retry**: Automatic retry with exponential backoff for transient failures
+- 🔍 **Schema Introspection**: Content-Type Builder API support for schema discovery
 - 📦 **Modern Python**: Built for Python 3.12+ with full type hints
 
 ## Installation
@@ -608,6 +609,143 @@ asyncio.run(main())
 - Update metadata without re-uploading
 - Full support for both sync and async
 
+### Content-Type Builder API
+
+Query Strapi's Content-Type Builder to discover schemas, content types, and components:
+
+```python
+from strapi_kit import SyncClient, StrapiConfig
+
+config = StrapiConfig(base_url="http://localhost:1337", api_token="your-token")
+
+with SyncClient(config) as client:
+    # List all content types (excludes plugins by default)
+    content_types = client.get_content_types()
+    for ct in content_types:
+        print(f"{ct.uid}: {ct.info.display_name}")
+        # api::article.article: Article
+        # api::category.category: Category
+
+    # Include plugin content types
+    all_types = client.get_content_types(include_plugins=True)
+
+    # List all components
+    components = client.get_components()
+    for comp in components:
+        print(f"{comp.category}/{comp.uid}: {comp.info.display_name}")
+        # shared/shared.seo: SEO
+        # blocks/blocks.hero: Hero Section
+
+    # Get full schema for a content type
+    schema = client.get_content_type_schema("api::article.article")
+    print(f"Display name: {schema.display_name}")
+    print(f"Plural name: {schema.plural_name}")
+
+    # Check field types
+    print(schema.get_field_type("title"))  # "string"
+    print(schema.is_relation_field("author"))  # True
+    print(schema.get_relation_target("author"))  # "api::author.author"
+
+    # Check for components
+    print(schema.is_component_field("seo"))  # True
+    print(schema.get_component_uid("seo"))  # "shared.seo"
+```
+
+**Async version:**
+
+```python
+async with AsyncClient(config) as client:
+    content_types = await client.get_content_types()
+    components = await client.get_components()
+    schema = await client.get_content_type_schema("api::article.article")
+```
+
+### UID Utilities
+
+Utility functions for working with Strapi content type UIDs:
+
+```python
+from strapi_kit.utils import (
+    uid_to_endpoint,
+    uid_to_api_id,  # Alias for uid_to_endpoint
+    api_id_to_singular,
+    uid_to_admin_url,
+    extract_model_name,
+    is_api_content_type,
+)
+
+# Convert UID to API endpoint (pluralized)
+uid_to_endpoint("api::article.article")  # "articles"
+uid_to_endpoint("api::category.category")  # "categories"
+uid_to_endpoint("api::class.class")  # "classes"
+
+# Convert plural API ID to singular
+api_id_to_singular("articles")  # "article"
+api_id_to_singular("categories")  # "category"
+api_id_to_singular("people")  # "person" (handles irregular plurals)
+api_id_to_singular("children")  # "child"
+
+# Build admin panel URL
+uid_to_admin_url("api::article.article", "http://localhost:1337")
+# "http://localhost:1337/admin/content-manager/collection-types/api::article.article"
+
+uid_to_admin_url("api::homepage.homepage", "http://localhost:1337", kind="singleType")
+# "http://localhost:1337/admin/content-manager/single-types/api::homepage.homepage"
+
+# Extract model name from UID
+extract_model_name("api::article.article")  # "article"
+extract_model_name("plugin::users-permissions.user")  # "user"
+
+# Check if UID is an API content type
+is_api_content_type("api::article.article")  # True
+is_api_content_type("plugin::users-permissions.user")  # False
+```
+
+### SEO Configuration Detection
+
+Detect SEO configuration patterns in content type schemas:
+
+```python
+from strapi_kit.utils import detect_seo_configuration, SEOConfiguration
+
+# Detect SEO in a schema dict
+schema = {
+    "uid": "api::article.article",
+    "attributes": {
+        "title": {"type": "string"},
+        "seo": {"type": "component", "component": "shared.seo"},
+    }
+}
+
+config = detect_seo_configuration(schema)
+print(config.has_seo)  # True
+print(config.seo_type)  # "component"
+print(config.seo_field_name)  # "seo"
+print(config.seo_component_uid)  # "shared.seo"
+print(config.fields)  # {"title": "seo.metaTitle", "description": "seo.metaDescription", ...}
+
+# Also detects flat SEO fields
+schema_flat = {
+    "uid": "api::page.page",
+    "attributes": {
+        "metaTitle": {"type": "string"},
+        "metaDescription": {"type": "text"},
+        "ogImage": {"type": "media"},
+    }
+}
+
+config = detect_seo_configuration(schema_flat)
+print(config.has_seo)  # True
+print(config.seo_type)  # "flat"
+print(config.fields)  # {"title": "metaTitle", "description": "metaDescription", "og_image": "ogImage"}
+```
+
+**Supported SEO patterns:**
+
+- **Component-based**: Fields named `seo`, `meta`, `metadata` with type `component`
+- **Component UIDs**: Components with `seo` in the UID (e.g., `shared.seo`, `custom.page-seo`)
+- **Flat fields**: `metaTitle`, `meta_title`, `seoTitle`, `metaDescription`, `ogTitle`, `canonicalUrl`, `noIndex`, etc.
+
 ### Export/Import with Relation Resolution
 
 strapi-kit provides comprehensive export/import functionality with automatic relation resolution for migrating content between Strapi instances.
@@ -1066,11 +1204,17 @@ This project is in active development. Currently implemented:
 - **Schema Caching**: Efficient content type metadata handling
 - **85% overall test coverage** with 460 passing tests
 
-### 🚧 Phase 5-6: Advanced Features (Planned)
+### ✅ Phase 5: Schema Introspection (Complete)
+- **Content-Type Builder API**: List content types, components, and full schemas
+- **UID Utilities**: Convert UIDs to endpoints, singularize, build admin URLs
+- **SEO Detection**: Detect SEO configuration patterns in schemas
+- **86% overall test coverage** with 528 passing tests
+
+### 🚧 Phase 6: Advanced Features (Planned)
 - Bulk operations with streaming
-- Content type introspection
 - Advanced retry strategies
 - Rate limiting
+- GraphQL support
 
 ### Key Features
 - **Type-Safe**: Full Pydantic validation and mypy strict mode compliance
