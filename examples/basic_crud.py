@@ -7,6 +7,7 @@ using the synchronous client.
 from pydantic import SecretStr
 
 from strapi_kit import StrapiConfig, SyncClient
+from strapi_kit.exceptions import StrapiError
 
 
 def main() -> None:
@@ -27,7 +28,7 @@ def main() -> None:
         try:
             response = client.get("articles", params={"pagination[limit]": 5})
             print(f"Found {len(response.get('data', []))} articles")
-        except Exception as e:
+        except StrapiError as e:
             print(f"Error: {e}")
 
         # POST request - Create article
@@ -42,8 +43,11 @@ def main() -> None:
             }
             response = client.post("articles", json=new_article)
             article_id = response.get("data", {}).get("id")
+            if not article_id:
+                print("Error creating article: missing id in response")
+                return
             print(f"Created article with ID: {article_id}")
-        except Exception as e:
+        except StrapiError as e:
             print(f"Error creating article: {e}")
             print("Skipping update/get/delete operations")
             return  # Exit early if create fails
@@ -59,7 +63,7 @@ def main() -> None:
                 }
                 response = client.put(f"articles/{article_id}", json=update_data)
                 print(f"Updated article: {response.get('data', {}).get('title')}")
-        except Exception as e:
+        except StrapiError as e:
             print(f"Error: {e}")
 
         # GET request - Get single article
@@ -68,7 +72,7 @@ def main() -> None:
             if article_id:
                 response = client.get(f"articles/{article_id}")
                 print(f"Retrieved: {response.get('data', {}).get('title')}")
-        except Exception as e:
+        except StrapiError as e:
             print(f"Error: {e}")
 
         # DELETE request - Delete article
@@ -77,7 +81,7 @@ def main() -> None:
             if article_id:
                 response = client.delete(f"articles/{article_id}")
                 print("Article deleted successfully")
-        except Exception as e:
+        except StrapiError as e:
             print(f"Error: {e}")
 
 

@@ -76,6 +76,12 @@ class TestApiIdToSingular:
         assert api_id_to_singular("dishes") == "dish"
         assert api_id_to_singular("buses") == "bus"
 
+    def test_zzes_to_z(self) -> None:
+        """Test -zzes to -z conversion (double consonant before -es)."""
+        assert api_id_to_singular("quizzes") == "quiz"
+        assert api_id_to_singular("buzzes") == "buzz"
+        assert api_id_to_singular("fizzes") == "fizz"
+
     def test_irregular_plurals(self) -> None:
         """Test irregular plural handling."""
         assert api_id_to_singular("people") == "person"
