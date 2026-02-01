@@ -34,7 +34,11 @@ if TYPE_CHECKING:
 
 # Default configuration
 DEFAULT_STRAPI_URL = "http://localhost:1337"
-DEFAULT_API_TOKEN = "e2e-test-token-strapi-kit-12345"
+
+# TEST_ONLY: This is an intentionally invalid placeholder token for tests.
+# It will fail authentication - real tokens must be provided via STRAPI_E2E_TOKEN
+# environment variable or extracted from Strapi container logs at runtime.
+_TEST_PLACEHOLDER_TOKEN = "test-placeholder-not-a-real-token"  # nosec B105
 E2E_DIR = Path(__file__).parent
 DOCKER_COMPOSE_FILE = E2E_DIR / "docker-compose.yml"
 
@@ -84,8 +88,8 @@ def _get_strapi_url() -> str:
 
 
 def _get_api_token() -> str:
-    """Get the API token from environment or default."""
-    return os.environ.get("STRAPI_E2E_TOKEN", DEFAULT_API_TOKEN)
+    """Get the API token from environment or placeholder fallback."""
+    return os.environ.get("STRAPI_E2E_TOKEN", _TEST_PLACEHOLDER_TOKEN)
 
 
 def _docker_compose_cmd() -> list[str]:

@@ -1,6 +1,9 @@
 """Tests for AsyncClient media operations."""
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
@@ -8,16 +11,9 @@ import respx
 
 from strapi_kit.client.async_client import AsyncClient
 from strapi_kit.exceptions import MediaError, NotFoundError
-from strapi_kit.models.config import StrapiConfig
 
-
-@pytest.fixture
-def strapi_config() -> StrapiConfig:
-    """Create test Strapi configuration."""
-    return StrapiConfig(
-        base_url="http://localhost:1337",
-        api_token="test-token",
-    )
+if TYPE_CHECKING:
+    from strapi_kit import StrapiConfig
 
 
 @pytest.fixture
