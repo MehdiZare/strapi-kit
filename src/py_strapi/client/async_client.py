@@ -826,9 +826,10 @@ class AsyncClient(BaseClient):
             >>> result = await client.bulk_create("articles", items, max_concurrency=10)
             >>> print(f"Created {result.succeeded}/{result.total}")
         """
-        successes = []
-        failures = []
+        successes: list[NormalizedEntity] = []
+        failures: list[BulkOperationFailure] = []
         semaphore = asyncio.Semaphore(max_concurrency)
+        lock = asyncio.Lock()
         completed = 0
 
         async def create_one(idx: int, item: dict[str, Any]) -> None:
@@ -837,22 +838,27 @@ class AsyncClient(BaseClient):
             async with semaphore:
                 try:
                     response = await self.create(endpoint, item, query=query)
-                    if response.data:
-                        successes.append(response.data)
 
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(items))
+                    async with lock:
+                        if response.data:
+                            successes.append(response.data)
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(items))
 
                 except StrapiError as e:
-                    failures.append(
-                        BulkOperationFailure(
-                            index=idx,
-                            item=item,
-                            error=str(e),
-                            exception=e,
+                    async with lock:
+                        failures.append(
+                            BulkOperationFailure(
+                                index=idx,
+                                item=item,
+                                error=str(e),
+                                exception=e,
+                            )
                         )
-                    )
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(items))
 
         # Create all tasks
         tasks = [create_one(i, item) for i, item in enumerate(items)]
@@ -899,9 +905,10 @@ class AsyncClient(BaseClient):
             >>> result = await client.bulk_update("articles", updates)
             >>> print(f"Updated {result.succeeded}/{result.total}")
         """
-        successes = []
-        failures = []
+        successes: list[NormalizedEntity] = []
+        failures: list[BulkOperationFailure] = []
         semaphore = asyncio.Semaphore(max_concurrency)
+        lock = asyncio.Lock()
         completed = 0
 
         async def update_one(idx: int, entity_id: str | int, data: dict[str, Any]) -> None:
@@ -910,22 +917,27 @@ class AsyncClient(BaseClient):
             async with semaphore:
                 try:
                     response = await self.update(f"{endpoint}/{entity_id}", data, query=query)
-                    if response.data:
-                        successes.append(response.data)
 
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(updates))
+                    async with lock:
+                        if response.data:
+                            successes.append(response.data)
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(updates))
 
                 except StrapiError as e:
-                    failures.append(
-                        BulkOperationFailure(
-                            index=idx,
-                            item={"id": entity_id, "data": data},
-                            error=str(e),
-                            exception=e,
+                    async with lock:
+                        failures.append(
+                            BulkOperationFailure(
+                                index=idx,
+                                item={"id": entity_id, "data": data},
+                                error=str(e),
+                                exception=e,
+                            )
                         )
-                    )
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(updates))
 
         # Create all tasks
         tasks = [update_one(i, entity_id, data) for i, (entity_id, data) in enumerate(updates)]
@@ -970,6 +982,7 @@ class AsyncClient(BaseClient):
         successes: list[NormalizedEntity] = []
         failures: list[BulkOperationFailure] = []
         semaphore = asyncio.Semaphore(max_concurrency)
+        lock = asyncio.Lock()
         completed = 0
         success_count = 0
 
@@ -979,25 +992,30 @@ class AsyncClient(BaseClient):
             async with semaphore:
                 try:
                     response = await self.remove(f"{endpoint}/{entity_id}")
-                    # DELETE may return 204 No Content with no data
-                    # Count as success when no exception is raised
-                    success_count += 1
-                    if response.data:
-                        successes.append(response.data)
 
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(ids))
+                    async with lock:
+                        # DELETE may return 204 No Content with no data
+                        # Count as success when no exception is raised
+                        success_count += 1
+                        if response.data:
+                            successes.append(response.data)
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(ids))
 
                 except StrapiError as e:
-                    failures.append(
-                        BulkOperationFailure(
-                            index=idx,
-                            item={"id": entity_id},
-                            error=str(e),
-                            exception=e,
+                    async with lock:
+                        failures.append(
+                            BulkOperationFailure(
+                                index=idx,
+                                item={"id": entity_id},
+                                error=str(e),
+                                exception=e,
+                            )
                         )
-                    )
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(ids))
 
         # Create all tasks
         tasks = [delete_one(i, entity_id) for i, entity_id in enumerate(ids)]

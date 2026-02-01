@@ -6,7 +6,7 @@ type safety and validation with support for environment variables.
 
 from typing import Literal
 
-from pydantic import Field, HttpUrl, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -123,12 +123,38 @@ class StrapiConfig(BaseSettings):
         description="Whether to verify SSL certificates",
     )
 
-    @field_validator("base_url", mode="after")
+    @field_validator("base_url", mode="before")
     @classmethod
-    def validate_base_url(cls, v: HttpUrl) -> str:
-        """Ensure base URL doesn't have trailing slash."""
-        url_str = str(v)
-        return url_str.rstrip("/")
+    def validate_base_url(cls, v: str) -> str:
+        """Validate URL format and ensure no trailing slash.
+
+        Args:
+            v: URL string to validate
+
+        Returns:
+            Validated URL without trailing slash
+
+        Raises:
+            ValueError: If URL is not a valid HTTP(S) URL
+        """
+        if not isinstance(v, str):
+            raise ValueError("base_url must be a string")
+
+        url_str = v.strip().rstrip("/")
+
+        # Validate URL format
+        if not url_str:
+            raise ValueError("base_url cannot be empty")
+
+        if not url_str.startswith(("http://", "https://")):
+            raise ValueError(f"base_url must start with http:// or https://, got: {url_str[:50]}")
+
+        # Basic structure validation (scheme://host)
+        parts = url_str.split("://", 1)
+        if len(parts) != 2 or not parts[1]:
+            raise ValueError(f"Invalid URL format: {url_str[:50]}")
+
+        return url_str
 
     def get_api_token(self) -> str:
         """Get the API token as a plain string.

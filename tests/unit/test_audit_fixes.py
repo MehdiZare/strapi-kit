@@ -500,3 +500,83 @@ class TestRateLimitingInClient:
 
         with SyncClient(config) as client:
             assert client._rate_limiter is None
+
+
+class TestBaseUrlValidation:
+    """Tests for base_url validation in StrapiConfig."""
+
+    def test_valid_http_url(self):
+        """Test valid HTTP URL is accepted."""
+        config = StrapiConfig(
+            base_url="http://localhost:1337",
+            api_token="test-token-12345678",
+        )
+        assert config.base_url == "http://localhost:1337"
+
+    def test_valid_https_url(self):
+        """Test valid HTTPS URL is accepted."""
+        config = StrapiConfig(
+            base_url="https://api.example.com",
+            api_token="test-token-12345678",
+        )
+        assert config.base_url == "https://api.example.com"
+
+    def test_trailing_slash_removed(self):
+        """Test trailing slash is stripped from base_url."""
+        config = StrapiConfig(
+            base_url="http://localhost:1337/",
+            api_token="test-token-12345678",
+        )
+        assert config.base_url == "http://localhost:1337"
+
+    def test_invalid_scheme_rejected(self):
+        """Test URLs without http/https scheme are rejected."""
+        with pytest.raises(ValueError) as exc_info:
+            StrapiConfig(
+                base_url="ftp://localhost:1337",
+                api_token="test-token-12345678",
+            )
+        assert "http://" in str(exc_info.value) or "https://" in str(exc_info.value)
+
+    def test_no_scheme_rejected(self):
+        """Test URLs without any scheme are rejected."""
+        with pytest.raises(ValueError) as exc_info:
+            StrapiConfig(
+                base_url="localhost:1337",
+                api_token="test-token-12345678",
+            )
+        assert "http://" in str(exc_info.value) or "https://" in str(exc_info.value)
+
+    def test_empty_url_rejected(self):
+        """Test empty URL is rejected."""
+        with pytest.raises(ValueError) as exc_info:
+            StrapiConfig(
+                base_url="",
+                api_token="test-token-12345678",
+            )
+        assert "empty" in str(exc_info.value).lower()
+
+    def test_whitespace_only_rejected(self):
+        """Test whitespace-only URL is rejected."""
+        with pytest.raises(ValueError) as exc_info:
+            StrapiConfig(
+                base_url="   ",
+                api_token="test-token-12345678",
+            )
+        assert "empty" in str(exc_info.value).lower()
+
+    def test_url_with_path(self):
+        """Test URL with path is accepted."""
+        config = StrapiConfig(
+            base_url="http://localhost:1337/strapi",
+            api_token="test-token-12345678",
+        )
+        assert config.base_url == "http://localhost:1337/strapi"
+
+    def test_url_whitespace_trimmed(self):
+        """Test whitespace is trimmed from URL."""
+        config = StrapiConfig(
+            base_url="  http://localhost:1337  ",
+            api_token="test-token-12345678",
+        )
+        assert config.base_url == "http://localhost:1337"
