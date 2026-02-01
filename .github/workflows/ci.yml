@@ -80,16 +80,23 @@ jobs:
           # Install project with dev dependencies
           uv pip install --system -e ".[dev]"
 
-          # Run tests with coverage
-          pytest --cov=strapi_kit --cov-report=xml --cov-report=term -v
+          # Run tests with coverage and JUnit XML for test analytics
+          pytest --cov=strapi_kit --cov-report=xml --cov-report=term --junitxml=junit.xml -o junit_family=legacy -v
 
-      - name: 📈 Coverage upload
+      - name: 📈 Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          slug: MehdiZare/strapi-kit
           files: coverage.xml
           flags: unittests
           fail_ci_if_error: false
+
+      - name: 📊 Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   test-matrix-expected:
     name: Test-MatrixExpected

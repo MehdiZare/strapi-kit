@@ -913,33 +913,28 @@ cd strapi-kit
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install dependencies (uv is recommended for faster installs)
+# Install dependencies including pre-commit (uv recommended)
 uv pip install -e ".[dev]"
 # Or with pip
 pip install -e ".[dev]"
 
 # Install pre-commit hooks (one-time setup)
-make install-hooks
-# Or manually:
 pre-commit install
 ```
 
 ### Pre-commit Hooks
 
-This project uses pre-commit hooks to ensure code quality:
+This project uses pre-commit hooks to ensure code quality. The `pre-commit` package is included in `[dev]` dependencies.
 
 ```bash
-# Install pre-commit hooks (one-time setup)
-make install-hooks
-
-# Or manually:
+# Install hooks (one-time setup, after installing dev dependencies)
 pre-commit install
 
 # Run hooks manually on all files
-make run-hooks
+pre-commit run --all-files
 
 # Update hooks to latest versions
-make update-hooks
+pre-commit autoupdate
 ```
 
 **What the hooks check:**
