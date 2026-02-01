@@ -5,15 +5,15 @@ A simplified example for migrating content between two Strapi instances.
 Perfect for getting started quickly.
 
 Usage:
-    1. Update SOURCE_URL, SOURCE_TOKEN, TARGET_URL, TARGET_TOKEN below
+    1. Set required environment variables (see below)
     2. Update CONTENT_TYPES with your content types
     3. Run: python simple_migration.py
 
-Environment Variables (optional):
-    SOURCE_STRAPI_URL: Override SOURCE_URL
-    SOURCE_STRAPI_TOKEN: Override SOURCE_TOKEN
-    TARGET_STRAPI_URL: Override TARGET_URL
-    TARGET_STRAPI_TOKEN: Override TARGET_TOKEN
+Environment Variables:
+    SOURCE_STRAPI_TOKEN: (required) API token for source Strapi instance
+    TARGET_STRAPI_TOKEN: (required) API token for target Strapi instance
+    SOURCE_STRAPI_URL: (optional) Source URL, defaults to http://localhost:1337
+    TARGET_STRAPI_URL: (optional) Target URL, defaults to http://localhost:1338
 """
 
 import os
@@ -26,14 +26,14 @@ from strapi_kit.exceptions import StrapiError
 from strapi_kit.models import StrapiQuery
 
 # ============================================================================
-# CONFIGURATION - Update these values or use environment variables
+# CONFIGURATION - Set via environment variables (required)
 # ============================================================================
 
 SOURCE_URL = os.getenv("SOURCE_STRAPI_URL", "http://localhost:1337")
-SOURCE_TOKEN = os.getenv("SOURCE_STRAPI_TOKEN", "your-source-api-token-here")
+SOURCE_TOKEN = os.getenv("SOURCE_STRAPI_TOKEN", "")
 
 TARGET_URL = os.getenv("TARGET_STRAPI_URL", "http://localhost:1338")
-TARGET_TOKEN = os.getenv("TARGET_STRAPI_TOKEN", "your-target-api-token-here")
+TARGET_TOKEN = os.getenv("TARGET_STRAPI_TOKEN", "")
 
 # List your content types here
 CONTENT_TYPES = [
@@ -51,20 +51,20 @@ def validate_config() -> None:
     Raises:
         ValueError: If required configuration is missing or invalid.
     """
-    if not SOURCE_TOKEN or SOURCE_TOKEN == "your-source-api-token-here":
+    if not SOURCE_TOKEN:
         raise ValueError(
-            "SOURCE_TOKEN not configured. "
-            "Set SOURCE_STRAPI_TOKEN environment variable or update SOURCE_TOKEN in the script."
+            "SOURCE_STRAPI_TOKEN environment variable is required. "
+            "Set it to your source Strapi API token."
         )
-    if not TARGET_TOKEN or TARGET_TOKEN == "your-target-api-token-here":
+    if not TARGET_TOKEN:
         raise ValueError(
-            "TARGET_TOKEN not configured. "
-            "Set TARGET_STRAPI_TOKEN environment variable or update TARGET_TOKEN in the script."
+            "TARGET_STRAPI_TOKEN environment variable is required. "
+            "Set it to your target Strapi API token."
         )
     if not SOURCE_URL:
-        raise ValueError("SOURCE_URL cannot be empty.")
+        raise ValueError("SOURCE_STRAPI_URL cannot be empty.")
     if not TARGET_URL:
-        raise ValueError("TARGET_URL cannot be empty.")
+        raise ValueError("TARGET_STRAPI_URL cannot be empty.")
 
 
 def _uid_to_endpoint(uid: str) -> str:
