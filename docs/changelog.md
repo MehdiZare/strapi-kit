@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Media Upload MIME Type Detection** ([#13](https://github.com/MehdiZare/strapi-kit/issues/13)): Fixed `upload_file()` to properly detect and set MIME type based on file extension instead of using `application/octet-stream` for all uploads. Also now sends actual filename instead of hardcoded "file".
+
+### Changed
+
+- **Example Scripts Improvements**:
+  - `basic_crud.py` ([#10](https://github.com/MehdiZare/strapi-kit/issues/10)): Fixed uninitialized `article_id` variable that could cause NameError if POST request failed
+  - `simple_migration.py` ([#11](https://github.com/MehdiZare/strapi-kit/issues/11)): Added configuration validation, connection verification, error handling, timestamped file paths, and environment variable support
+  - `full_migration_v5.py` ([#12](https://github.com/MehdiZare/strapi-kit/issues/12)): Replaced hardcoded API tokens with environment variables (`SOURCE_STRAPI_TOKEN`, `TARGET_STRAPI_TOKEN`, etc.) for security
+
 ### Added
 
 #### Core Infrastructure
@@ -45,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Protocol-based dependency injection for testability
 - Automatic retry with exponential backoff
 - Comprehensive type hints and mypy strict compliance
-- 89% test coverage with 355 passing tests
+- 85% test coverage with 460 passing tests
 - Extensive documentation and examples
 
 ### Features in Development

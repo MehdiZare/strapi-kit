@@ -686,23 +686,35 @@ We provide two complete migration examples for different use cases:
 Perfect for straightforward migrations with known content types:
 
 ```bash
-# 1. Edit examples/simple_migration.py with your configuration
-# 2. Run the migration
+# Set environment variables (or edit the script)
+export SOURCE_STRAPI_TOKEN='your-source-token'
+export TARGET_STRAPI_TOKEN='your-target-token'
+
+# Run the migration
 python examples/simple_migration.py
 ```
 
 Features:
 - ✅ Single-file, easy to understand
-- ✅ Migrates specific content types
-- ✅ Includes media files
+- ✅ Environment variable support for credentials
+- ✅ Configuration validation before migration
+- ✅ Connection verification for both instances
+- ✅ Timestamped backup files to prevent overwrites
+- ✅ Comprehensive error handling
 - ✅ Automatic relation resolution
-- ✅ Saves backup to JSON
+- ✅ Includes media files
 
 #### Full Migration (Production-Ready)
 
 Comprehensive migration tool with auto-discovery and verification:
 
 ```bash
+# Set environment variables (required)
+export SOURCE_STRAPI_URL="http://localhost:1337"
+export SOURCE_STRAPI_TOKEN="your-source-api-token"
+export TARGET_STRAPI_URL="http://localhost:1338"
+export TARGET_STRAPI_TOKEN="your-target-api-token"
+
 # Export all content from source
 python examples/full_migration_v5.py export
 
@@ -717,6 +729,7 @@ python examples/full_migration_v5.py verify
 ```
 
 Features:
+- ✅ **Environment variable configuration** (no hardcoded credentials)
 - ✅ **Auto-discovers all content types** (no manual configuration needed)
 - ✅ Progress bars for long operations
 - ✅ Detailed migration reports
@@ -999,7 +1012,7 @@ This project is in active development. Currently implemented:
 - **Query Builder**: `StrapiQuery` fluent API with full type safety
 - **Typed Client Methods**: `get_one()`, `get_many()`, `create()`, `update()`, `remove()`
 - **Dependency Injection**: Full DI support with protocols for testability
-- **93% test coverage** with 196 passing tests
+- **Full test coverage** with type-safe query building
 
 ### ✅ Phase 3: Media Operations (Complete)
 - **Media Upload**: Single and batch file uploads with metadata
@@ -1015,7 +1028,7 @@ This project is in active development. Currently implemented:
 - **Media Export**: Download and package media files
 - **Content Import**: Import with ID mapping and relation resolution
 - **Schema Caching**: Efficient content type metadata handling
-- **89% overall test coverage** with 355 passing tests
+- **85% overall test coverage** with 460 passing tests
 
 ### 🚧 Phase 5-6: Advanced Features (Planned)
 - Bulk operations with streaming
