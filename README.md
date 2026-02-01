@@ -1,6 +1,10 @@
 # strapi-kit
 
-**PyPI Package**: `strapi-kit`
+[![CI](https://github.com/MehdiZare/strapi-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/MehdiZare/strapi-kit/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/MehdiZare/strapi-kit/graph/badge.svg)](https://codecov.io/gh/MehdiZare/strapi-kit)
+[![PyPI version](https://img.shields.io/pypi/v/strapi-kit.svg)](https://pypi.org/project/strapi-kit/)
+[![Python versions](https://img.shields.io/pypi/pyversions/strapi-kit.svg)](https://pypi.org/project/strapi-kit/)
+[![License](https://img.shields.io/pypi/l/strapi-kit.svg)](https://github.com/MehdiZare/strapi-kit/blob/main/LICENSE)
 
 A modern Python client for Strapi CMS with comprehensive import/export capabilities.
 
