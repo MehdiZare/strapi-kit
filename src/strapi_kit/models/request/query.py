@@ -221,7 +221,9 @@ class StrapiQuery:
             Self for method chaining
 
         Raises:
-            ValueError: If mixing page-based and offset-based parameters
+            strapi_kit.exceptions.ValidationError: If mixing page-based and
+                offset-based parameters, or if pagination values are invalid
+                (page < 1, page_size < 1, start < 0, limit < 1)
 
         Examples:
             >>> # Page-based
