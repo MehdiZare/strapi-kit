@@ -6,7 +6,7 @@ using the synchronous client.
 
 from pydantic import SecretStr
 
-from py_strapi import StrapiConfig, SyncClient
+from strapi_kit import StrapiConfig, SyncClient
 
 
 def main() -> None:

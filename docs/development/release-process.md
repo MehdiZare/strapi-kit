@@ -58,7 +58,7 @@ dynamic = ["version"]  # Version from git tags
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/py_strapi/__version__.py"
+version-file = "src/strapi_kit/__version__.py"
 ```
 
 ## Release Types
@@ -129,7 +129,7 @@ graph LR
 pip install -i https://test.pypi.org/simple/ strapi-kit==0.2.0.dev123
 
 # Test functionality
-python -c "import py_strapi; print(py_strapi.__version__)"
+python -c "import strapi_kit; print(strapi_kit.__version__)"
 
 # Verify
 pytest
@@ -237,7 +237,7 @@ source test-env/bin/activate
 pip install dist/*.whl
 
 # Test
-python -c "import py_strapi; print(py_strapi.__version__)"
+python -c "import strapi_kit; print(strapi_kit.__version__)"
 pytest
 
 # Deactivate

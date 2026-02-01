@@ -62,8 +62,8 @@ This includes:
 ## Verify Installation
 
 ```python
-import py_strapi
-print(py_strapi.__version__)
+import strapi_kit
+print(strapi_kit.__version__)
 ```
 
 ## Next Steps

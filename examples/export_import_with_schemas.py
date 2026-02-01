@@ -6,8 +6,8 @@ with automatic relation resolution using cached content type schemas.
 
 from pydantic import SecretStr
 
-from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
-from py_strapi.models import ImportOptions
+from strapi_kit import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
+from strapi_kit.models import ImportOptions
 
 # Configure source and target Strapi instances
 source_config = StrapiConfig(

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import httpx
 
-from py_strapi import (
+from strapi_kit import (
     AsyncClient,
     AuthProvider,
     HTTPClient,
@@ -17,7 +17,7 @@ from py_strapi import (
     SyncClient,
     VersionDetectingParser,
 )
-from py_strapi.auth.api_token import APITokenAuth
+from strapi_kit.auth.api_token import APITokenAuth
 
 
 class MockAuth:
@@ -89,14 +89,14 @@ class MockParser:
     def parse_single(self, response_data):
         """Mark single parse as called."""
         self.parse_single_called = True
-        from py_strapi.models.response.normalized import NormalizedSingleResponse
+        from strapi_kit.models.response.normalized import NormalizedSingleResponse
 
         return NormalizedSingleResponse(data=None, meta=None)
 
     def parse_collection(self, response_data):
         """Mark collection parse as called."""
         self.parse_collection_called = True
-        from py_strapi.models.response.normalized import NormalizedCollectionResponse
+        from strapi_kit.models.response.normalized import NormalizedCollectionResponse
 
         return NormalizedCollectionResponse(data=[], meta=None)
 
@@ -296,7 +296,7 @@ class TestProtocolCompliance:
             client = httpx.AsyncClient()
 
             # Should satisfy protocol (runtime check)
-            from py_strapi.protocols import AsyncHTTPClient
+            from strapi_kit.protocols import AsyncHTTPClient
 
             assert isinstance(client, AsyncHTTPClient)
 

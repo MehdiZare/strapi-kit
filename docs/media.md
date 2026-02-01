@@ -1,10 +1,10 @@
 # Media Upload/Download
 
-Complete guide to working with media files in py-strapi.
+Complete guide to working with media files in strapi-kit.
 
 ## Overview
 
-py-strapi provides comprehensive media file operations for Strapi's media library, including:
+strapi-kit provides comprehensive media file operations for Strapi's media library, including:
 
 - File uploads with metadata
 - Batch uploads
@@ -22,7 +22,7 @@ All operations support both **Strapi v4 and v5** with automatic version detectio
 Upload a single file to the media library:
 
 ```python
-from py_strapi import SyncClient, StrapiConfig
+from strapi_kit import SyncClient, StrapiConfig
 
 config = StrapiConfig(
     base_url="http://localhost:1337",
@@ -104,7 +104,7 @@ for media in media_list:
 If one file fails during batch upload, a `MediaError` is raised with details about which file failed. Previously uploaded files are **NOT** rolled back.
 
 ```python
-from py_strapi.exceptions import MediaError
+from strapi_kit.exceptions import MediaError
 
 try:
     media_list = client.upload_files(files)
@@ -187,7 +187,7 @@ for media in response.data:
 Use `StrapiQuery` to filter results:
 
 ```python
-from py_strapi.models import StrapiQuery, FilterBuilder
+from strapi_kit.models import StrapiQuery, FilterBuilder
 
 # Filter by MIME type
 query = StrapiQuery().filter(
@@ -279,7 +279,7 @@ print("Media file deleted")
 **Note:** Deleting media also removes references from entities using it.
 
 ```python
-from py_strapi.exceptions import NotFoundError, MediaError
+from strapi_kit.exceptions import NotFoundError, MediaError
 
 try:
     client.delete_media(999)
@@ -295,7 +295,7 @@ All media methods have async equivalents:
 
 ```python
 import asyncio
-from py_strapi import AsyncClient, StrapiConfig
+from strapi_kit import AsyncClient, StrapiConfig
 
 async def main():
     config = StrapiConfig(
@@ -341,9 +341,9 @@ asyncio.run(main())
 Upload, manage, and download media files:
 
 ```python
-from py_strapi import SyncClient, StrapiConfig
-from py_strapi.models import StrapiQuery, FilterBuilder
-from py_strapi.exceptions import MediaError
+from strapi_kit import SyncClient, StrapiConfig
+from strapi_kit.models import StrapiQuery, FilterBuilder
+from strapi_kit.exceptions import MediaError
 
 config = StrapiConfig(
     base_url="http://localhost:1337",
@@ -448,7 +448,7 @@ print(f"Uploaded: {len(uploaded)}, Failed: {len(failed)}")
 ### Common Exceptions
 
 ```python
-from py_strapi.exceptions import (
+from strapi_kit.exceptions import (
     MediaError,
     NotFoundError,
     AuthenticationError,
@@ -594,9 +594,9 @@ if media.formats:
 
 ## Strapi v4 vs v5
 
-py-strapi handles version differences automatically:
+strapi-kit handles version differences automatically:
 
-| Feature          | Strapi v4            | Strapi v5            | py-strapi          |
+| Feature          | Strapi v4            | Strapi v5            | strapi-kit          |
 | ---------------- | -------------------- | -------------------- | ------------------ |
 | Media ID         | Numeric `id`         | `id` + `documentId`  | Both supported     |
 | Upload endpoint  | `/api/upload`        | `/api/upload`        | Same               |

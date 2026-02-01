@@ -55,7 +55,7 @@ jobs:
           ruff check src/ tests/
 
           # Run type checking
-          mypy src/py_strapi/
+          mypy src/strapi_kit/
 
           # Run security checks
           bandit -c pyproject.toml -r src/
@@ -81,13 +81,13 @@ jobs:
           uv pip install --system -e ".[dev]"
 
           # Run tests with coverage
-          pytest --cov=py_strapi --cov-report=xml --cov-report=term -v
+          pytest --cov=strapi_kit --cov-report=xml --cov-report=term -v
 
       - name: 📈 Coverage upload
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          file: coverage.xml
+          files: coverage.xml
           flags: unittests
           fail_ci_if_error: false
 

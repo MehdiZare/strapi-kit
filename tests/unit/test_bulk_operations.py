@@ -4,12 +4,12 @@ import httpx
 import pytest
 import respx
 
-from py_strapi import (
+from strapi_kit import (
     AsyncClient,
     BulkOperationResult,
     StrapiConfig,
 )
-from py_strapi.client.sync_client import SyncClient
+from strapi_kit.client.sync_client import SyncClient
 
 
 @pytest.fixture
@@ -357,7 +357,7 @@ async def test_async_bulk_delete_all_success(strapi_config: StrapiConfig) -> Non
 
 def test_bulk_operation_result_is_complete_success() -> None:
     """Test is_complete_success method."""
-    from py_strapi.models.response.normalized import NormalizedEntity
+    from strapi_kit.models.response.normalized import NormalizedEntity
 
     # Complete success
     result = BulkOperationResult(

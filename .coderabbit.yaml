@@ -51,7 +51,7 @@ reviews:
         - Check for proper use of fixtures and mocks
         - Verify async tests use proper asyncio patterns
 
-    - path: "src/py_strapi/**"
+    - path: "src/strapi_kit/**"
       instructions: |
         - Verify type hints are complete and accurate (mypy strict mode)
         - Check for proper exception handling with specific exception types

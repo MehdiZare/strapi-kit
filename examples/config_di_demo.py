@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Demo script showing configuration dependency injection patterns.
 
-This script demonstrates various ways to configure py-strapi using the
+This script demonstrates various ways to configure strapi-kit using the
 new ConfigFactory system.
 """
 
 from pydantic import SecretStr
 
-from py_strapi import (
+from strapi_kit import (
     ConfigFactory,
     create_config,
     load_config,
@@ -171,7 +171,7 @@ def main():
     """Run all demos."""
     print("\n")
     print("╔" + "=" * 58 + "╗")
-    print("║" + " " * 8 + "py-strapi Configuration DI Demo" + " " * 18 + "║")
+    print("║" + " " * 8 + "strapi-kit Configuration DI Demo" + " " * 17 + "║")
     print("╚" + "=" * 58 + "╝")
     print()
 

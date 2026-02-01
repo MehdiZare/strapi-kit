@@ -1,4 +1,4 @@
-# py-strapi
+# strapi-kit
 
 **PyPI Package**: `strapi-kit`
 
@@ -42,8 +42,8 @@ uv pip install -e ".[dev]"
 The typed API provides full type safety, IDE autocomplete, and automatic v4/v5 normalization:
 
 ```python
-from py_strapi import SyncClient, StrapiConfig
-from py_strapi.models import StrapiQuery, FilterBuilder, SortDirection
+from strapi_kit import SyncClient, StrapiConfig
+from strapi_kit.models import StrapiQuery, FilterBuilder, SortDirection
 
 config = StrapiConfig(
     base_url="http://localhost:1337",
@@ -74,7 +74,7 @@ with SyncClient(config) as client:
 The raw API returns dictionaries directly from Strapi:
 
 ```python
-from py_strapi import SyncClient, StrapiConfig
+from strapi_kit import SyncClient, StrapiConfig
 
 config = StrapiConfig(
     base_url="http://localhost:1337",
@@ -93,8 +93,8 @@ Both typed and raw APIs work with async:
 
 ```python
 import asyncio
-from py_strapi import AsyncClient, StrapiConfig
-from py_strapi.models import StrapiQuery, FilterBuilder
+from strapi_kit import AsyncClient, StrapiConfig
+from strapi_kit.models import StrapiQuery, FilterBuilder
 
 async def main():
     config = StrapiConfig(
@@ -115,7 +115,7 @@ asyncio.run(main())
 
 ## Configuration
 
-py-strapi provides flexible configuration options through dependency injection:
+strapi-kit provides flexible configuration options through dependency injection:
 
 ### 1. Using .env Files (Recommended for Development)
 
@@ -133,7 +133,7 @@ STRAPI_RETRY_MAX_ATTEMPTS=3
 Then load it automatically:
 
 ```python
-from py_strapi import load_config, SyncClient
+from strapi_kit import load_config, SyncClient
 
 # Automatically searches for .env, .env.local, or ~/.config/strapi/.env
 config = load_config()
@@ -154,7 +154,7 @@ export STRAPI_MAX_CONNECTIONS=100
 ```
 
 ```python
-from py_strapi import ConfigFactory, SyncClient
+from strapi_kit import ConfigFactory, SyncClient
 
 # Load from environment variables only (no .env files)
 config = ConfigFactory.from_environment_only()
@@ -168,7 +168,7 @@ with SyncClient(config) as client:
 Create configuration programmatically:
 
 ```python
-from py_strapi import create_config, SyncClient
+from strapi_kit import create_config, SyncClient
 
 config = create_config(
     base_url="http://localhost:1337",
@@ -187,7 +187,7 @@ with SyncClient(config) as client:
 #### Custom .env File Location
 
 ```python
-from py_strapi import ConfigFactory
+from strapi_kit import ConfigFactory
 
 # Load from specific file
 config = ConfigFactory.from_env_file("/path/to/custom.env")
@@ -205,7 +205,7 @@ config = ConfigFactory.from_env(
 #### Layered Configuration (Development → Production)
 
 ```python
-from py_strapi import ConfigFactory
+from strapi_kit import ConfigFactory
 
 # Base configuration from .env file
 base_config = ConfigFactory.from_env_file(".env")
@@ -227,7 +227,7 @@ final_config = ConfigFactory.merge(base_config, production_overrides)
 Configure automatic retry behavior:
 
 ```python
-from py_strapi import StrapiConfig, RetryConfig
+from strapi_kit import StrapiConfig, RetryConfig
 
 config = StrapiConfig(
     base_url="http://localhost:1337",
@@ -276,7 +276,7 @@ All available options:
 Use the `FilterBuilder` to create complex filters with 24 operators:
 
 ```python
-from py_strapi.models import StrapiQuery, FilterBuilder
+from strapi_kit.models import StrapiQuery, FilterBuilder
 
 # Simple equality
 query = StrapiQuery().filter(FilterBuilder().eq("status", "published"))
@@ -323,7 +323,7 @@ query = StrapiQuery().filter(
 Sort by one or multiple fields:
 
 ```python
-from py_strapi.models import StrapiQuery, SortDirection
+from strapi_kit.models import StrapiQuery, SortDirection
 
 # Single field
 query = StrapiQuery().sort_by("publishedAt", SortDirection.DESC)
@@ -343,7 +343,7 @@ query = StrapiQuery().sort_by("author.name", SortDirection.ASC)
 Choose between page-based or offset-based pagination:
 
 ```python
-from py_strapi.models import StrapiQuery
+from strapi_kit.models import StrapiQuery
 
 # Page-based pagination
 query = StrapiQuery().paginate(page=1, page_size=25)
@@ -360,7 +360,7 @@ query = StrapiQuery().paginate(page=1, page_size=100, with_count=False)
 Expand relations, components, and dynamic zones:
 
 ```python
-from py_strapi.models import StrapiQuery, Populate, FilterBuilder, SortDirection
+from strapi_kit.models import StrapiQuery, Populate, FilterBuilder, SortDirection
 
 # Populate all relations
 query = StrapiQuery().populate_all()
@@ -393,7 +393,7 @@ query = StrapiQuery().populate(
 Select specific fields to reduce payload size:
 
 ```python
-from py_strapi.models import StrapiQuery
+from strapi_kit.models import StrapiQuery
 
 query = StrapiQuery().select(["title", "description", "publishedAt"])
 ```
@@ -403,7 +403,7 @@ query = StrapiQuery().select(["title", "description", "publishedAt"])
 For i18n and draft/publish workflows:
 
 ```python
-from py_strapi.models import StrapiQuery, PublicationState
+from strapi_kit.models import StrapiQuery, PublicationState
 
 # Set locale
 query = StrapiQuery().with_locale("fr")
@@ -417,8 +417,8 @@ query = StrapiQuery().with_publication_state(PublicationState.LIVE)
 Combine all features for complex queries:
 
 ```python
-from py_strapi import SyncClient, StrapiConfig
-from py_strapi.models import (
+from strapi_kit import SyncClient, StrapiConfig
+from strapi_kit.models import (
     StrapiQuery,
     FilterBuilder,
     SortDirection,
@@ -481,7 +481,7 @@ with SyncClient(config) as client:
 Create, read, update, and delete entities:
 
 ```python
-from py_strapi import SyncClient, StrapiConfig
+from strapi_kit import SyncClient, StrapiConfig
 
 config = StrapiConfig(base_url="http://localhost:1337", api_token="your-token")
 
@@ -512,8 +512,8 @@ with SyncClient(config) as client:
 Upload, download, and manage media files in Strapi's media library:
 
 ```python
-from py_strapi import SyncClient, StrapiConfig
-from py_strapi.models import StrapiQuery, FilterBuilder
+from strapi_kit import SyncClient, StrapiConfig
+from strapi_kit.models import StrapiQuery, FilterBuilder
 
 config = StrapiConfig(base_url="http://localhost:1337", api_token="your-token")
 
@@ -580,7 +580,7 @@ with SyncClient(config) as client:
 
 ```python
 import asyncio
-from py_strapi import AsyncClient, StrapiConfig
+from strapi_kit import AsyncClient, StrapiConfig
 
 async def main():
     config = StrapiConfig(base_url="http://localhost:1337", api_token="your-token")
@@ -606,10 +606,10 @@ asyncio.run(main())
 
 ### Export/Import with Relation Resolution
 
-py-strapi provides comprehensive export/import functionality with automatic relation resolution for migrating content between Strapi instances.
+strapi-kit provides comprehensive export/import functionality with automatic relation resolution for migrating content between Strapi instances.
 
 ```python
-from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
+from strapi_kit import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
 
 # Export from source instance
 source_config = StrapiConfig(
@@ -759,7 +759,7 @@ Both examples include:
 
 ## Dependency Injection
 
-py-strapi supports full dependency injection for testability and customization. All dependencies have sensible defaults but can be overridden.
+strapi-kit supports full dependency injection for testability and customization. All dependencies have sensible defaults but can be overridden.
 
 ### Why DI?
 
@@ -771,7 +771,7 @@ py-strapi supports full dependency injection for testability and customization. 
 ### Basic DI Example
 
 ```python
-from py_strapi import SyncClient, StrapiConfig
+from strapi_kit import SyncClient, StrapiConfig
 import httpx
 
 config = StrapiConfig(
@@ -793,7 +793,7 @@ client2 = SyncClient(config, http_client=shared_http)
 ### Injectable Dependencies
 
 ```python
-from py_strapi import (
+from strapi_kit import (
     SyncClient,
     AsyncClient,
     StrapiConfig,
@@ -865,7 +865,7 @@ assert len(mock_http.requests) == 1
 
 ### Protocols (Type Interfaces)
 
-py-strapi uses Python protocols for dependency interfaces:
+strapi-kit uses Python protocols for dependency interfaces:
 
 - **`ConfigProvider`**: Configuration interface
 - **`AuthProvider`**: Authentication interface
@@ -958,7 +958,7 @@ git commit --no-verify
 pytest
 
 # Run with coverage
-pytest --cov=py_strapi --cov-report=html
+pytest --cov=strapi_kit --cov-report=html
 
 # Run specific test file
 pytest tests/unit/test_client.py -v
@@ -974,7 +974,7 @@ ruff format src/ tests/
 ruff check src/ tests/
 
 # Type checking
-mypy src/py_strapi/
+mypy src/strapi_kit/
 
 # Security checks
 make security

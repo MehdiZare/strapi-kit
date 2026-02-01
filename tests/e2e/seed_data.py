@@ -1,7 +1,7 @@
 """Data seeding utilities for E2E tests.
 
 This module provides utilities to seed test data into a Strapi instance
-using the py-strapi client, which also serves as validation that the
+using the strapi-kit client, which also serves as validation that the
 package works correctly.
 """
 
@@ -12,11 +12,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from py_strapi.exceptions import StrapiError
+from strapi_kit.exceptions import StrapiError
 
 if TYPE_CHECKING:
-    from py_strapi import SyncClient
-    from py_strapi.models.response.normalized import NormalizedEntity
+    from strapi_kit import SyncClient
+    from strapi_kit.models.response.normalized import NormalizedEntity
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ def _entity_to_seeded(entity: NormalizedEntity, original_data: dict) -> SeededEn
 class DataSeeder:
     """Seeds test data into a Strapi instance.
 
-    This class creates test data using the py-strapi client,
+    This class creates test data using the strapi-kit client,
     which validates that the package's create operations work correctly.
 
     Usage:

@@ -1,6 +1,6 @@
 # Models Reference
 
-Complete reference for py-strapi's type-safe models and query builder.
+Complete reference for strapi-kit's type-safe models and query builder.
 
 ## Table of Contents
 
@@ -13,7 +13,7 @@ Complete reference for py-strapi's type-safe models and query builder.
 
 ## Overview
 
-py-strapi provides a complete type-safe interface for building Strapi queries and parsing responses. The models work with both Strapi v4 and v5, automatically detecting the version and normalizing responses to a consistent format.
+strapi-kit provides a complete type-safe interface for building Strapi queries and parsing responses. The models work with both Strapi v4 and v5, automatically detecting the version and normalizing responses to a consistent format.
 
 ### Key Components
 
@@ -29,7 +29,7 @@ py-strapi provides a complete type-safe interface for building Strapi queries an
 The main interface for building complete queries:
 
 ```python
-from py_strapi.models import StrapiQuery
+from strapi_kit.models import StrapiQuery
 
 query = StrapiQuery()
 ```
@@ -53,7 +53,7 @@ query = StrapiQuery().filter(
 Add primary sort field:
 
 ```python
-from py_strapi.models import SortDirection
+from strapi_kit.models import SortDirection
 
 query = StrapiQuery().sort_by("publishedAt", SortDirection.DESC)
 ```
@@ -88,7 +88,7 @@ query = StrapiQuery().paginate(page=1, page_size=100, with_count=False)
 Advanced population configuration:
 
 ```python
-from py_strapi.models import Populate
+from strapi_kit.models import Populate
 
 query = StrapiQuery().populate(
     Populate()
@@ -134,7 +134,7 @@ query = StrapiQuery().with_locale("fr")
 Filter by publication state:
 
 ```python
-from py_strapi.models import PublicationState
+from strapi_kit.models import PublicationState
 
 query = StrapiQuery().with_publication_state(PublicationState.LIVE)
 ```
@@ -155,7 +155,7 @@ params = query.to_query_params()
 Fluent API for building filters with 24 operators:
 
 ```python
-from py_strapi.models import FilterBuilder
+from strapi_kit.models import FilterBuilder
 
 builder = FilterBuilder()
 ```
@@ -460,7 +460,7 @@ The client handles this automatically based on version detection.
 Populate relations with their own filters and sorting:
 
 ```python
-from py_strapi.models import Populate, FilterBuilder, Sort, SortDirection
+from strapi_kit.models import Populate, FilterBuilder, Sort, SortDirection
 
 query = StrapiQuery().populate(
     Populate()
@@ -569,7 +569,7 @@ if response.meta and response.meta.available_locales:
 ### Type Safety Benefits
 
 ```python
-from py_strapi.models import NormalizedEntity
+from strapi_kit.models import NormalizedEntity
 
 response = client.get_one("articles/1")
 

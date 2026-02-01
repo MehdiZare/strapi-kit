@@ -2,9 +2,9 @@
 
 from datetime import datetime
 
-from py_strapi.models.response.normalized import NormalizedEntity
-from py_strapi.models.response.v4 import V4Attributes, V4Entity
-from py_strapi.models.response.v5 import V5Entity
+from strapi_kit.models.response.normalized import NormalizedEntity
+from strapi_kit.models.response.v4 import V4Attributes, V4Entity
+from strapi_kit.models.response.v5 import V5Entity
 
 
 class TestNormalizedEntity:

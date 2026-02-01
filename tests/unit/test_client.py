@@ -4,8 +4,8 @@ import pytest
 import respx
 from httpx import Response
 
-from py_strapi import AsyncClient, StrapiConfig, SyncClient
-from py_strapi.exceptions import (
+from strapi_kit import AsyncClient, StrapiConfig, SyncClient
+from strapi_kit.exceptions import (
     AuthenticationError,
     NotFoundError,
     ServerError,

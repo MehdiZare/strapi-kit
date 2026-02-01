@@ -8,7 +8,7 @@ import asyncio
 
 from pydantic import SecretStr
 
-from py_strapi import AsyncClient, StrapiConfig
+from strapi_kit import AsyncClient, StrapiConfig
 
 
 async def main() -> None:

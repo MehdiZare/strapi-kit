@@ -5,7 +5,7 @@ This document provides an overview of strapi-kit's architecture and design decis
 ## High-Level Overview
 
 ```
-py_strapi/
+strapi_kit/
 ├── client/          # HTTP clients (sync/async)
 ├── models/          # Pydantic models for config & data
 ├── auth/            # Authentication mechanisms
@@ -126,8 +126,8 @@ StrapiError (base)
 ├─ ConflictError (409)
 ├─ ServerError (5xx)
 ├─ NetworkError
-│  ├─ ConnectionError (from py_strapi.exceptions, not builtin)
-│  ├─ TimeoutError (from py_strapi.exceptions, not builtin)
+│  ├─ ConnectionError (from strapi_kit.exceptions, not builtin)
+│  ├─ TimeoutError (from strapi_kit.exceptions, not builtin)
 │  └─ RateLimitError
 └─ ImportExportError
    ├─ FormatError
@@ -212,7 +212,7 @@ async with AsyncClient(config) as client:
 Always preserve the original exception:
 
 ```python
-from py_strapi.exceptions import ConnectionError
+from strapi_kit.exceptions import ConnectionError
 
 try:
     response = httpx_client.get(url)

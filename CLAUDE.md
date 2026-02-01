@@ -1,6 +1,6 @@
-# Claude Code Context for py-strapi
+# Claude Code Context for strapi-kit
 
-This file helps Claude Code instances work efficiently in this codebase. It contains architecture patterns, critical commands, and design decisions specific to py-strapi.
+This file helps Claude Code instances work efficiently in this codebase. It contains architecture patterns, critical commands, and design decisions specific to strapi-kit.
 
 **About this file**: This is a CLAUDE.md file, created to help Claude Code (Anthropic's official CLI for Claude) work more effectively in this repository. Learn more at https://claude.com/claude-code
 
@@ -43,7 +43,7 @@ make clean       # Remove all build/test artifacts
 pytest -v
 
 # Run with coverage report
-pytest --cov=py_strapi --cov-report=html --cov-report=term
+pytest --cov=strapi_kit --cov-report=html --cov-report=term
 
 # Run specific test file
 pytest tests/unit/test_client.py -v
@@ -52,10 +52,10 @@ pytest tests/unit/test_client.py -v
 #### Type Checking
 ```bash
 # Full type check (strict mode enabled)
-mypy src/py_strapi/
+mypy src/strapi_kit/
 
 # Type check with verbose output
-mypy src/py_strapi/ --show-error-codes
+mypy src/strapi_kit/ --show-error-codes
 ```
 
 #### Linting & Formatting
@@ -132,7 +132,7 @@ BaseClient (client/base.py)
 
 **Query Building** (`models/request/query.py`):
 ```python
-from py_strapi.models import StrapiQuery, FilterBuilder, SortDirection
+from strapi_kit.models import StrapiQuery, FilterBuilder, SortDirection
 
 query = (StrapiQuery()
     .filter(FilterBuilder()
@@ -273,9 +273,9 @@ assert len(mock_http.requests) == 1
 ```
 
 **Implementation modules**:
-- `src/py_strapi/protocols.py`: Protocol definitions
-- `src/py_strapi/parsers/version_detecting.py`: Default parser implementation
-- `src/py_strapi/auth/api_token.py`: Default auth implementation (satisfies AuthProvider)
+- `src/strapi_kit/protocols.py`: Protocol definitions
+- `src/strapi_kit/parsers/version_detecting.py`: Default parser implementation
+- `src/strapi_kit/auth/api_token.py`: Default auth implementation (satisfies AuthProvider)
 - `tests/unit/test_dependency_injection.py`: DI tests and usage examples
 
 ### Exception Hierarchy
@@ -291,8 +291,8 @@ StrapiError (base)
 ├─ ConflictError (409)
 ├─ ServerError (5xx)
 ├─ NetworkError (connection issues)
-│  ├─ ConnectionError (from py_strapi.exceptions, not builtin)
-│  ├─ TimeoutError (from py_strapi.exceptions, not builtin)
+│  ├─ ConnectionError (from strapi_kit.exceptions, not builtin)
+│  ├─ TimeoutError (from strapi_kit.exceptions, not builtin)
 │  └─ RateLimitError
 └─ ImportExportError (data operations)
    ├─ FormatError
@@ -365,7 +365,7 @@ While import/export functionality isn't implemented yet, the foundation is prepa
 
 ### Planned Module Structure
 ```
-py_strapi/
+strapi_kit/
 ├─ export/
 │  ├─ exporter.py          # Main export orchestration
 │  ├─ content_collector.py # Gather content types and entries
@@ -489,7 +489,7 @@ def test_get_many_typed(strapi_config):
 
 ### Dependency Management
 
-**py-strapi uses uv for fast dependency management:**
+**strapi-kit uses uv for fast dependency management:**
 
 ```bash
 # Install dependencies
@@ -588,13 +588,13 @@ ruff format src/ tests/
 ruff check src/ tests/ --fix
 
 # 3. Type check
-mypy src/py_strapi/
+mypy src/strapi_kit/
 
 # 4. Run security checks
 make security
 
 # 5. Run tests with coverage
-pytest --cov=py_strapi --cov-report=term
+pytest --cov=strapi_kit --cov-report=term
 
 # 6. Or run all quality checks at once
 make pre-commit
@@ -701,7 +701,7 @@ make pre-commit
 
 4. **Async test setup**: No need for explicit event loop fixtures - pytest-asyncio auto mode handles it.
 
-5. **Import naming conflict**: `ConnectionError` and `TimeoutError` conflict with builtins - always import explicitly from `py_strapi.exceptions` to avoid confusion.
+5. **Import naming conflict**: `ConnectionError` and `TimeoutError` conflict with builtins - always import explicitly from `strapi_kit.exceptions` to avoid confusion.
 
 6. **API prefix**: Don't include `/api/` in endpoint strings - it's added automatically.
 
@@ -724,7 +724,7 @@ make pre-commit
 
 **Import all model types from single location**:
 ```python
-from py_strapi.models import (
+from strapi_kit.models import (
     StrapiQuery,
     FilterBuilder,
     SortDirection,

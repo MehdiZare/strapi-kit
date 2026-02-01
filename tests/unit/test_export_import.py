@@ -8,9 +8,9 @@ import pytest
 import respx
 from pydantic import ValidationError as PydanticValidationError
 
-from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter
-from py_strapi.client.sync_client import SyncClient
-from py_strapi.models import (
+from strapi_kit import StrapiConfig, StrapiExporter, StrapiImporter
+from strapi_kit.client.sync_client import SyncClient
+from strapi_kit.models import (
     ExportData,
     ExportedEntity,
     ExportedMediaFile,
@@ -456,7 +456,7 @@ def test_exported_media_file_valid_paths() -> None:
 
 def test_import_result_helpers() -> None:
     """Test ImportResult helper methods."""
-    from py_strapi.models import ImportResult
+    from strapi_kit.models import ImportResult
 
     result = ImportResult(success=True, dry_run=False)
     result.entities_imported = 10
@@ -528,7 +528,7 @@ def test_export_includes_schemas(strapi_config: StrapiConfig) -> None:
 @respx.mock
 def test_import_resolves_relations_with_schema(strapi_config: StrapiConfig) -> None:
     """Test that import resolves relations correctly using schemas."""
-    from py_strapi.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
 
     # Create export data with schemas
     article_schema = ContentTypeSchema(

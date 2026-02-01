@@ -1,6 +1,6 @@
 """Tests for ConfigProvider protocol and configuration DI."""
 
-from py_strapi import ConfigProvider, StrapiConfig, SyncClient
+from strapi_kit import ConfigProvider, StrapiConfig, SyncClient
 
 
 class TestConfigProviderProtocol:

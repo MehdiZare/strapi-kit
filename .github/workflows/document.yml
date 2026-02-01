@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'src/py_strapi/**'
+      - 'src/strapi_kit/**'
       - 'README.md'
       - 'pyproject.toml'
       - 'mkdocs.yml'
@@ -14,7 +14,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'src/py_strapi/**'
+      - 'src/strapi_kit/**'
       - 'README.md'
       - 'pyproject.toml'
       - 'mkdocs.yml'
@@ -84,7 +84,7 @@ jobs:
         id: version
         run: |
           echo "📦 Getting package version"
-          VERSION=$(uv run python -c "import py_strapi; print(py_strapi.__version__)")
+          VERSION=$(uv run python -c "import strapi_kit; print(strapi_kit.__version__)")
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Package version: $VERSION"
 

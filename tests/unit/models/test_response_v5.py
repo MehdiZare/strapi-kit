@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from py_strapi.models.response.v5 import V5CollectionResponse, V5Entity
+from strapi_kit.models.response.v5 import V5CollectionResponse, V5Entity
 
 
 class TestV5Entity:

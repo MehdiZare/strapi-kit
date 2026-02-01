@@ -1,1 +1,1 @@
-"""Unit tests for py-strapi."""
+"""Unit tests for strapi-kit."""

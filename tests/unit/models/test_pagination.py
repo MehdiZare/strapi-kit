@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from py_strapi.models.request.pagination import OffsetPagination, PagePagination
+from strapi_kit.models.request.pagination import OffsetPagination, PagePagination
 
 
 class TestPagePagination:
@@ -165,14 +165,14 @@ class TestPaginationTypeAlias:
 
     def test_page_pagination_type(self) -> None:
         """Test PagePagination is valid Pagination type."""
-        from py_strapi.models.request.pagination import Pagination
+        from strapi_kit.models.request.pagination import Pagination
 
         pagination: Pagination = PagePagination(page=1, page_size=25)
         assert isinstance(pagination, PagePagination)
 
     def test_offset_pagination_type(self) -> None:
         """Test OffsetPagination is valid Pagination type."""
-        from py_strapi.models.request.pagination import Pagination
+        from strapi_kit.models.request.pagination import Pagination
 
         pagination: Pagination = OffsetPagination(start=0, limit=25)
         assert isinstance(pagination, OffsetPagination)

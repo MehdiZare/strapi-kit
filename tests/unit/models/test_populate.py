@@ -2,10 +2,10 @@
 
 import pytest
 
-from py_strapi.models.enums import SortDirection
-from py_strapi.models.request.filters import FilterBuilder
-from py_strapi.models.request.populate import Populate, PopulateField
-from py_strapi.models.request.sort import Sort
+from strapi_kit.models.enums import SortDirection
+from strapi_kit.models.request.filters import FilterBuilder
+from strapi_kit.models.request.populate import Populate, PopulateField
+from strapi_kit.models.request.sort import Sort
 
 
 class TestPopulateField:

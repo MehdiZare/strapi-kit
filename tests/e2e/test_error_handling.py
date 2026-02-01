@@ -1,6 +1,6 @@
 """E2E tests for error handling.
 
-Tests that errors from Strapi are correctly mapped to py-strapi exceptions.
+Tests that errors from Strapi are correctly mapped to strapi-kit exceptions.
 """
 
 from __future__ import annotations
@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 from pydantic import SecretStr
 
-from py_strapi import StrapiConfig, SyncClient
-from py_strapi.exceptions import (
+from strapi_kit import StrapiConfig, SyncClient
+from strapi_kit.exceptions import (
     AuthenticationError,
     NotFoundError,
     ValidationError,
@@ -189,7 +189,7 @@ class TestAsyncErrorHandling:
     @pytest.mark.asyncio
     async def test_async_auth_error(self, strapi_instance: str) -> None:
         """Test async AuthenticationError."""
-        from py_strapi import AsyncClient
+        from strapi_kit import AsyncClient
 
         config = StrapiConfig(
             base_url=strapi_instance,

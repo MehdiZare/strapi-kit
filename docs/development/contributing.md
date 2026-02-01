@@ -181,7 +181,7 @@ def create_entry(collection: str, data: dict[str, Any]) -> dict[str, Any]:
 - Include context in exception details
 
 ```python
-from py_strapi.exceptions import ConnectionError
+from strapi_kit.exceptions import ConnectionError
 
 # Good
 try:
@@ -220,7 +220,7 @@ except Exception:
 import pytest
 import httpx
 import respx
-from py_strapi import SyncClient, StrapiConfig
+from strapi_kit import SyncClient, StrapiConfig
 
 @pytest.mark.respx
 def test_get_articles_success(respx_mock, strapi_config):

@@ -4,14 +4,14 @@ import httpx
 import pytest
 import respx
 
-from py_strapi import AsyncClient, RetryConfig, StrapiConfig, SyncClient
-from py_strapi.exceptions import (
+from strapi_kit import AsyncClient, RetryConfig, StrapiConfig, SyncClient
+from strapi_kit.exceptions import (
     AuthenticationError,
     NotFoundError,
     ServerError,
     ValidationError,
 )
-from py_strapi.exceptions import (
+from strapi_kit.exceptions import (
     ConnectionError as StrapiConnectionError,
 )
 

@@ -1,6 +1,6 @@
 # Strapi Migration Guide
 
-Complete guide for migrating content between Strapi v5 instances using py-strapi.
+Complete guide for migrating content between Strapi v5 instances using strapi-kit.
 
 ## 📋 Table of Contents
 
@@ -17,7 +17,7 @@ Complete guide for migrating content between Strapi v5 instances using py-strapi
 ### Prerequisites
 
 ```bash
-# Install py-strapi
+# Install strapi-kit
 pip install strapi-kit
 
 # Or with uv (faster)
