@@ -86,14 +86,14 @@ class MockParser:
         self.parse_single_called = False
         self.parse_collection_called = False
 
-    def parse_single(self, response_data):
+    def parse_single(self, _response_data):
         """Mark single parse as called."""
         self.parse_single_called = True
         from strapi_kit.models.response.normalized import NormalizedSingleResponse
 
         return NormalizedSingleResponse(data=None, meta=None)
 
-    def parse_collection(self, response_data):
+    def parse_collection(self, _response_data):
         """Mark collection parse as called."""
         self.parse_collection_called = True
         from strapi_kit.models.response.normalized import NormalizedCollectionResponse
