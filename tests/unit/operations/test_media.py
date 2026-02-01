@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from py_strapi.models.response.media import MediaFile
-from py_strapi.operations.media import (
+from strapi_kit.models.response.media import MediaFile
+from strapi_kit.operations.media import (
     build_media_download_url,
     build_upload_payload,
     normalize_media_response,

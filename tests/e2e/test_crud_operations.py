@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from py_strapi import SyncClient
-from py_strapi.exceptions import NotFoundError
+from strapi_kit import SyncClient
+from strapi_kit.exceptions import NotFoundError
 
 
 @pytest.mark.e2e

@@ -25,9 +25,9 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
-from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
-from py_strapi.exceptions import StrapiError
-from py_strapi.models import ImportOptions
+from strapi_kit import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
+from strapi_kit.exceptions import StrapiError
+from strapi_kit.models import ImportOptions
 
 
 def _uid_to_endpoint(uid: str) -> str:

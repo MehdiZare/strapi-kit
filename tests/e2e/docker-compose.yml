@@ -3,7 +3,7 @@ services:
     build:
       context: ./strapi
       dockerfile: Dockerfile
-    container_name: py-strapi-e2e
+    container_name: strapi-kit-e2e
     ports:
       - "${STRAPI_PORT:-1337}:1337"
     environment:
@@ -20,7 +20,7 @@ services:
       DATABASE_FILENAME: .tmp/data.db
       # Pre-configured API token for E2E tests
       # This token is created via bootstrap script or lifecycle hook
-      E2E_API_TOKEN: ${E2E_API_TOKEN:-e2e-test-token-py-strapi-12345}
+      E2E_API_TOKEN: ${E2E_API_TOKEN:-e2e-test-token-strapi-kit-12345}
     volumes:
       # Persist SQLite database between container restarts
       - strapi_data:/opt/strapi/.tmp

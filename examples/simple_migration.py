@@ -12,7 +12,7 @@ Usage:
 
 from pydantic import SecretStr
 
-from py_strapi import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
+from strapi_kit import StrapiConfig, StrapiExporter, StrapiImporter, SyncClient
 
 # ============================================================================
 # CONFIGURATION - Update these values

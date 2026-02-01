@@ -1,7 +1,7 @@
 """Tests for sort functionality."""
 
-from py_strapi.models.enums import SortDirection
-from py_strapi.models.request.sort import Sort, SortField
+from strapi_kit.models.enums import SortDirection
+from strapi_kit.models.request.sort import Sort, SortField
 
 
 class TestSortField:

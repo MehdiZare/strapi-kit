@@ -1,1 +1,1 @@
-"""End-to-end tests for py-strapi against a real Strapi instance."""
+"""End-to-end tests for strapi-kit against a real Strapi instance."""

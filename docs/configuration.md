@@ -7,7 +7,7 @@ All configuration is handled through the `StrapiConfig` class using Pydantic Set
 ## Basic Configuration
 
 ```python
-from py_strapi import StrapiConfig
+from strapi_kit import StrapiConfig
 
 config = StrapiConfig(
     base_url="http://localhost:1337",

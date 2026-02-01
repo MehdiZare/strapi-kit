@@ -1,8 +1,8 @@
 {
-  "name": "py-strapi-e2e-test",
+  "name": "strapi-kit-e2e-test",
   "private": true,
   "version": "0.1.0",
-  "description": "Strapi v5 instance for py-strapi E2E testing",
+  "description": "Strapi v5 instance for strapi-kit E2E testing",
   "scripts": {
     "develop": "strapi develop",
     "start": "strapi start",
@@ -20,7 +20,7 @@
   "devDependencies": {
     "esbuild": "^0.24.0"
   },
-  "author": "py-strapi",
+  "author": "strapi-kit",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0 <=22.x.x",

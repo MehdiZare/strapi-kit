@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from py_strapi import SyncClient
-from py_strapi.models import FilterBuilder, SortDirection, StrapiQuery
+from strapi_kit import SyncClient
+from strapi_kit.models import FilterBuilder, SortDirection, StrapiQuery
 
 from .seed_data import DataSeeder, SeededData
 

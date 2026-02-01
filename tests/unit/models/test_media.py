@@ -1,6 +1,6 @@
 """Tests for media file models."""
 
-from py_strapi.models.response.media import MediaFile, MediaFormat
+from strapi_kit.models.response.media import MediaFile, MediaFormat
 
 
 class TestMediaFormat:

@@ -16,7 +16,7 @@ A modern Python client for Strapi CMS with comprehensive import/export capabilit
 ### Synchronous
 
 ```python
-from py_strapi import SyncClient, StrapiConfig
+from strapi_kit import SyncClient, StrapiConfig
 
 config = StrapiConfig(
     base_url="http://localhost:1337",
@@ -32,7 +32,7 @@ with SyncClient(config) as client:
 
 ```python
 import asyncio
-from py_strapi import AsyncClient, StrapiConfig
+from strapi_kit import AsyncClient, StrapiConfig
 
 async def main():
     config = StrapiConfig(

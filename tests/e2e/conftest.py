@@ -27,14 +27,14 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from py_strapi import AsyncClient, StrapiConfig, SyncClient
+from strapi_kit import AsyncClient, StrapiConfig, SyncClient
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 # Default configuration
 DEFAULT_STRAPI_URL = "http://localhost:1337"
-DEFAULT_API_TOKEN = "e2e-test-token-py-strapi-12345"
+DEFAULT_API_TOKEN = "e2e-test-token-strapi-kit-12345"
 E2E_DIR = Path(__file__).parent
 DOCKER_COMPOSE_FILE = E2E_DIR / "docker-compose.yml"
 

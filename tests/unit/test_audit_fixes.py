@@ -17,13 +17,13 @@ import httpx
 import pytest
 import respx
 
-from py_strapi import StrapiConfig, SyncClient
-from py_strapi.exceptions import FormatError
-from py_strapi.export.media_handler import MediaHandler
-from py_strapi.models.request.filters import FilterBuilder
-from py_strapi.models.request.query import StrapiQuery
-from py_strapi.utils.rate_limiter import AsyncTokenBucketRateLimiter, TokenBucketRateLimiter
-from py_strapi.utils.uid import extract_model_name, is_api_content_type, uid_to_endpoint
+from strapi_kit import StrapiConfig, SyncClient
+from strapi_kit.exceptions import FormatError
+from strapi_kit.export.media_handler import MediaHandler
+from strapi_kit.models.request.filters import FilterBuilder
+from strapi_kit.models.request.query import StrapiQuery
+from strapi_kit.utils.rate_limiter import AsyncTokenBucketRateLimiter, TokenBucketRateLimiter
+from strapi_kit.utils.uid import extract_model_name, is_api_content_type, uid_to_endpoint
 
 
 class TestMediaHandler:

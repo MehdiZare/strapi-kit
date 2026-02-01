@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from py_strapi import SyncClient
+from strapi_kit import SyncClient
 
 # Path to test fixtures
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "media"

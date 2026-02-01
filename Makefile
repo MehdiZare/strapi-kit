@@ -45,12 +45,12 @@ test-specific: ## Run specific test file (use TEST=path/to/test.py)
 
 coverage: ## Run tests with coverage report
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
-	pytest --cov=py_strapi --cov-report=html --cov-report=term
+	pytest --cov=strapi_kit --cov-report=html --cov-report=term
 	@echo "$(GREEN)✓ Coverage report generated in htmlcov/index.html$(NC)"
 
 coverage-xml: ## Generate XML coverage report for CI
 	@echo "$(BLUE)Generating XML coverage report...$(NC)"
-	pytest --cov=py_strapi --cov-report=xml
+	pytest --cov=strapi_kit --cov-report=xml
 
 # Code Quality
 lint: ## Run linting checks
@@ -74,7 +74,7 @@ format-check: ## Check if code is formatted correctly
 
 type-check: ## Run type checking with mypy
 	@echo "$(BLUE)Running type checks...$(NC)"
-	mypy src/py_strapi/
+	mypy src/strapi_kit/
 	@echo "$(GREEN)✓ Type checking complete$(NC)"
 
 quality: lint type-check ## Run all quality checks (lint + type-check)
@@ -181,13 +181,13 @@ release-prod: build ## Build and upload to PyPI
 
 # Development helpers
 shell: ## Start Python shell with project loaded
-	@python -c "import py_strapi; import IPython; IPython.embed()"
+	@python -c "import strapi_kit; import IPython; IPython.embed()"
 
 info: ## Show project information
 	@echo "$(BLUE)strapi-kit Project Information$(NC)"
 	@echo ""
 	@echo "  Python version:    $$(python --version)"
-	@echo "  Package version:   $$(python -c 'import py_strapi; print(py_strapi.__version__)' 2>/dev/null || echo 'Not installed')"
+	@echo "  Package version:   $$(python -c 'import strapi_kit; print(strapi_kit.__version__)' 2>/dev/null || echo 'Not installed')"
 	@echo "  Project root:      $$(pwd)"
 	@echo ""
 

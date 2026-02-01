@@ -277,7 +277,7 @@ make coverage
 open htmlcov/index.html
 
 # Generate XML for CI
-pytest --cov=py_strapi --cov-report=xml
+pytest --cov=strapi_kit --cov-report=xml
 ```
 
 ### Coverage Configuration

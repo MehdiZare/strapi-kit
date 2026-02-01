@@ -6,9 +6,9 @@ import httpx
 import pytest
 import respx
 
-from py_strapi.client.async_client import AsyncClient
-from py_strapi.exceptions import MediaError, NotFoundError
-from py_strapi.models.config import StrapiConfig
+from strapi_kit.client.async_client import AsyncClient
+from strapi_kit.exceptions import MediaError, NotFoundError
+from strapi_kit.models.config import StrapiConfig
 
 
 @pytest.fixture
@@ -289,7 +289,7 @@ class TestListMedia:
         self, strapi_config: StrapiConfig, mock_media_response: dict
     ) -> None:
         """Test listing media with query filters."""
-        from py_strapi.models import FilterBuilder, StrapiQuery
+        from strapi_kit.models import FilterBuilder, StrapiQuery
 
         response_data = {
             "data": [mock_media_response],

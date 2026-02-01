@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from py_strapi.models.response.v4 import V4Attributes, V4CollectionResponse, V4Entity
+from strapi_kit.models.response.v4 import V4Attributes, V4CollectionResponse, V4Entity
 
 
 class TestV4Attributes:

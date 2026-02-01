@@ -11,7 +11,7 @@ pip install strapi-kit
 ### 2. Configure Your Client
 
 ```python
-from py_strapi import StrapiConfig
+from strapi_kit import StrapiConfig
 
 config = StrapiConfig(
     base_url="http://localhost:1337",
@@ -24,7 +24,7 @@ config = StrapiConfig(
 === "Synchronous"
 
     ```python
-    from py_strapi import SyncClient
+    from strapi_kit import SyncClient
 
     with SyncClient(config) as client:
         # Get all articles
@@ -36,7 +36,7 @@ config = StrapiConfig(
 
     ```python
     import asyncio
-    from py_strapi import AsyncClient
+    from strapi_kit import AsyncClient
 
     async def main():
         async with AsyncClient(config) as client:
@@ -58,7 +58,7 @@ export STRAPI_API_TOKEN="your-api-token"
 Then create config without parameters:
 
 ```python
-from py_strapi import StrapiConfig
+from strapi_kit import StrapiConfig
 
 # Loads from environment variables
 config = StrapiConfig()

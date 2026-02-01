@@ -4,10 +4,10 @@ import pytest
 import respx
 from httpx import Response
 
-from py_strapi import StrapiConfig, SyncClient
-from py_strapi.cache.schema_cache import InMemorySchemaCache
-from py_strapi.exceptions import StrapiError
-from py_strapi.models.schema import ContentTypeSchema, FieldType, RelationType
+from strapi_kit import StrapiConfig, SyncClient
+from strapi_kit.cache.schema_cache import InMemorySchemaCache
+from strapi_kit.exceptions import StrapiError
+from strapi_kit.models.schema import ContentTypeSchema, FieldType, RelationType
 
 
 @pytest.fixture
