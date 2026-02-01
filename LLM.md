@@ -364,10 +364,16 @@ config = load_config()  # Auto-loads from .env or environment
 
 ```python
 def uid_to_endpoint(uid: str) -> str:
-    """Convert 'api::article.article' to 'articles'."""
+    """Convert 'api::article.article' to 'articles'.
+
+    Also handles plugin UIDs like 'plugin::users-permissions.user' -> 'users'.
+    """
     parts = uid.split("::")
     if len(parts) == 2:
-        name = parts[1].split(".")[0]
+        # Extract content name from after the dot
+        name_parts = parts[1].split(".")
+        name = name_parts[1] if len(name_parts) > 1 else name_parts[0]
+        # Pluralize
         if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
             return name[:-1] + "ies"
         if name.endswith(("s", "x", "z", "ch", "sh")):

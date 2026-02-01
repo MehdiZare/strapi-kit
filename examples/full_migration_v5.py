@@ -49,15 +49,18 @@ def _uid_to_endpoint(uid: str) -> str:
     Handles common irregular pluralization patterns.
 
     Args:
-        uid: Content type UID (e.g., "api::article.article")
+        uid: Content type UID (e.g., "api::article.article", "plugin::users-permissions.user")
 
     Returns:
-        API endpoint (e.g., "articles")
+        API endpoint (e.g., "articles", "users")
     """
-    # Extract the last part after "::" and make it plural
+    # Extract the content name after the dot and make it plural
     parts = uid.split("::")
     if len(parts) == 2:
-        name = parts[1].split(".")[0]
+        # Extract content name from after the dot (e.g., "article.article" -> "article")
+        # For plugin UIDs like "users-permissions.user", this correctly gets "user"
+        name_parts = parts[1].split(".")
+        name = name_parts[1] if len(name_parts) > 1 else name_parts[0]
         # Handle common irregular plurals
         if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
             return name[:-1] + "ies"  # category -> categories
