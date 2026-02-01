@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from py_strapi.cache.schema_cache import InMemorySchemaCache
-from py_strapi.exceptions import ImportExportError, NotFoundError, ValidationError
+from py_strapi.exceptions import (
+    ImportExportError,
+    NotFoundError,
+    StrapiError,
+    ValidationError,
+)
 from py_strapi.export.media_handler import MediaHandler
 from py_strapi.export.relation_resolver import RelationResolver
 from py_strapi.models.export_format import ExportData
@@ -299,7 +304,8 @@ class StrapiImporter:
                     # Re-raise ImportExportError (e.g., from FAIL conflict resolution)
                     raise
 
-                except Exception as e:
+                except StrapiError as e:
+                    # Catch Strapi-specific errors (API errors, network issues, etc.)
                     result.add_error(f"Failed to import {content_type} #{entity.id}: {e}")
                     result.entities_failed += 1
 

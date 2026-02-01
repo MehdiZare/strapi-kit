@@ -233,12 +233,10 @@ class StrapiExporter:
         for entities in export_data.entities.values():
             for entity in entities:
                 # Check data for media references
+                # Note: entity.relations is already flattened to dict[str, list[int|str]]
+                # format by RelationResolver, so media references are only in entity.data
                 data_media = MediaHandler.extract_media_references(entity.data)
                 media_ids.update(data_media)
-
-                # Also check relations for media references (RelationResolver may move them here)
-                relations_media = MediaHandler.extract_media_references(entity.relations)
-                media_ids.update(relations_media)
 
         if not media_ids:
             logger.info("No media files to export")

@@ -415,3 +415,55 @@ class TestRealWorldScenarios:
         assert config.base_url == "http://test.example.com"
         assert config.timeout == 5.0
         assert config.retry.max_attempts == 1
+
+
+class TestURLValidation:
+    """Test URL validation in StrapiConfig."""
+
+    def test_hostless_url_rejected(self):
+        """Test that hostless URLs like http:///path are rejected."""
+        with pytest.raises(ConfigurationError, match="Invalid configuration"):
+            ConfigFactory.create(
+                base_url="http:///path",
+                api_token="test-token",
+            )
+
+    def test_missing_host_rejected(self):
+        """Test that URLs without host component are rejected."""
+        with pytest.raises(ConfigurationError, match="Invalid configuration"):
+            ConfigFactory.create(
+                base_url="http://",
+                api_token="test-token",
+            )
+
+    def test_valid_localhost_url_accepted(self):
+        """Test that valid localhost URL is accepted."""
+        config = ConfigFactory.create(
+            base_url="http://localhost:1337",
+            api_token="test-token",
+        )
+        assert config.base_url == "http://localhost:1337"
+
+    def test_valid_https_url_accepted(self):
+        """Test that valid HTTPS URL is accepted."""
+        config = ConfigFactory.create(
+            base_url="https://api.example.com",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://api.example.com"
+
+    def test_valid_url_with_path_accepted(self):
+        """Test that valid URL with path is accepted."""
+        config = ConfigFactory.create(
+            base_url="http://localhost:1337/api/v1",
+            api_token="test-token",
+        )
+        assert config.base_url == "http://localhost:1337/api/v1"
+
+    def test_non_http_scheme_rejected(self):
+        """Test that non-HTTP schemes are rejected."""
+        with pytest.raises(ConfigurationError, match="Invalid configuration"):
+            ConfigFactory.create(
+                base_url="ftp://example.com",
+                api_token="test-token",
+            )

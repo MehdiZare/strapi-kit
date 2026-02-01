@@ -237,12 +237,28 @@ class StrapiQuery:
             raise ValueError("Cannot mix page-based and offset-based pagination")
 
         if page_based:
+            # Validate page value if explicitly provided
+            if page is not None and page < 1:
+                raise ValueError("page must be >= 1")
+            # Validate page_size value if explicitly provided
+            if page_size is not None and page_size < 1:
+                raise ValueError("page_size must be >= 1")
             self._pagination = PagePagination(
-                page=page or 1, page_size=page_size or 25, with_count=with_count
+                page=1 if page is None else page,
+                page_size=25 if page_size is None else page_size,
+                with_count=with_count,
             )
         elif offset_based:
+            # Validate start value if explicitly provided
+            if start is not None and start < 0:
+                raise ValueError("start must be >= 0")
+            # Validate limit value if explicitly provided
+            if limit is not None and limit < 1:
+                raise ValueError("limit must be >= 1")
             self._pagination = OffsetPagination(
-                start=start or 0, limit=limit or 25, with_count=with_count
+                start=0 if start is None else start,
+                limit=25 if limit is None else limit,
+                with_count=with_count,
             )
 
         return self

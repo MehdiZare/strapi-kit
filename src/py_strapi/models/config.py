@@ -5,6 +5,7 @@ type safety and validation with support for environment variables.
 """
 
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -149,10 +150,10 @@ class StrapiConfig(BaseSettings):
         if not url_str.startswith(("http://", "https://")):
             raise ValueError(f"base_url must start with http:// or https://, got: {url_str[:50]}")
 
-        # Basic structure validation (scheme://host)
-        parts = url_str.split("://", 1)
-        if len(parts) != 2 or not parts[1]:
-            raise ValueError(f"Invalid URL format: {url_str[:50]}")
+        # Use urlsplit for robust URL validation
+        parsed = urlsplit(url_str)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError(f"Invalid URL format (missing host): {url_str[:50]}")
 
         return url_str
 

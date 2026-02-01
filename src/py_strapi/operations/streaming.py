@@ -35,12 +35,18 @@ def stream_entities(
     Yields:
         NormalizedEntity objects one at a time
 
+    Raises:
+        ValueError: If page_size < 1
+
     Example:
         >>> with SyncClient(config) as client:
         ...     for article in stream_entities(client, "articles", page_size=50):
         ...         print(article.attributes["title"])
         ...         # Process one at a time without loading all into memory
     """
+    if page_size < 1:
+        raise ValueError("page_size must be >= 1")
+
     current_page = 1
 
     # Build base query - create copy to avoid mutating caller's query
@@ -93,12 +99,18 @@ async def stream_entities_async(
     Yields:
         NormalizedEntity objects one at a time
 
+    Raises:
+        ValueError: If page_size < 1
+
     Example:
         >>> async with AsyncClient(config) as client:
         ...     async for article in stream_entities_async(client, "articles"):
         ...         print(article.attributes["title"])
         ...         # Process asynchronously without loading all into memory
     """
+    if page_size < 1:
+        raise ValueError("page_size must be >= 1")
+
     current_page = 1
 
     # Build base query - create copy to avoid mutating caller's query

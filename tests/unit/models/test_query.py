@@ -299,3 +299,45 @@ class TestStrapiQuery:
         # Verify offset pagination
         assert params["pagination[start]"] == 0
         assert params["pagination[limit]"] == 50
+
+    def test_pagination_page_zero_raises_error(self) -> None:
+        """Test that page=0 raises ValueError."""
+        with pytest.raises(ValueError, match="page must be >= 1"):
+            StrapiQuery().paginate(page=0)
+
+    def test_pagination_negative_page_raises_error(self) -> None:
+        """Test that negative page raises ValueError."""
+        with pytest.raises(ValueError, match="page must be >= 1"):
+            StrapiQuery().paginate(page=-1)
+
+    def test_pagination_page_size_zero_raises_error(self) -> None:
+        """Test that page_size=0 raises ValueError."""
+        with pytest.raises(ValueError, match="page_size must be >= 1"):
+            StrapiQuery().paginate(page=1, page_size=0)
+
+    def test_pagination_negative_page_size_raises_error(self) -> None:
+        """Test that negative page_size raises ValueError."""
+        with pytest.raises(ValueError, match="page_size must be >= 1"):
+            StrapiQuery().paginate(page=1, page_size=-5)
+
+    def test_pagination_negative_start_raises_error(self) -> None:
+        """Test that negative start raises ValueError."""
+        with pytest.raises(ValueError, match="start must be >= 0"):
+            StrapiQuery().paginate(start=-1)
+
+    def test_pagination_limit_zero_raises_error(self) -> None:
+        """Test that limit=0 raises ValueError."""
+        with pytest.raises(ValueError, match="limit must be >= 1"):
+            StrapiQuery().paginate(start=0, limit=0)
+
+    def test_pagination_negative_limit_raises_error(self) -> None:
+        """Test that negative limit raises ValueError."""
+        with pytest.raises(ValueError, match="limit must be >= 1"):
+            StrapiQuery().paginate(start=0, limit=-10)
+
+    def test_pagination_start_zero_valid(self) -> None:
+        """Test that start=0 is valid (offset-based)."""
+        query = StrapiQuery().paginate(start=0, limit=25)
+        params = query.to_query_params()
+        assert params["pagination[start]"] == 0
+        assert params["pagination[limit]"] == 25
