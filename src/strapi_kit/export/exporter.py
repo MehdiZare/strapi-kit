@@ -161,8 +161,9 @@ class StrapiExporter:
                         "Exporting media files",
                     )
 
-                # media_dir is guaranteed non-None here (validated at method start)
-                assert media_dir is not None
+                # Type guard: media_dir validated at method start (line 91-92)
+                if media_dir is None:
+                    raise ValidationError("media_dir must be provided when include_media=True")
                 self._export_media(
                     export_data, media_dir, progress_callback, media_ids=all_media_ids
                 )
