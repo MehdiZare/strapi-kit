@@ -24,9 +24,11 @@ class TestBuildUploadPayload:
         with build_upload_payload(test_file) as payload:
             files_tuple = payload.files_tuple
             assert isinstance(files_tuple, tuple)
-            assert files_tuple[0] == "file"
+            assert files_tuple[0] == "test.jpg"  # Actual filename, not "file"
             # File handle should be readable
             assert hasattr(files_tuple[1], "read")
+            # MIME type should be detected
+            assert files_tuple[2] == "image/jpeg"
 
     def test_build_payload_with_metadata(self, tmp_path: Path) -> None:
         """Test building payload with all metadata fields."""
@@ -93,6 +95,47 @@ class TestBuildUploadPayload:
         """Test that FileNotFoundError is raised for non-existent file."""
         with pytest.raises(FileNotFoundError, match="File not found"):
             build_upload_payload("/nonexistent/path/to/file.jpg")
+
+    def test_build_payload_mime_type_png(self, tmp_path: Path) -> None:
+        """Test MIME type detection for PNG files."""
+        test_file = tmp_path / "image.png"
+        test_file.write_bytes(b"fake png data")
+
+        with build_upload_payload(test_file) as payload:
+            files_tuple = payload.files_tuple
+            assert files_tuple[0] == "image.png"
+            assert files_tuple[2] == "image/png"
+
+    def test_build_payload_mime_type_pdf(self, tmp_path: Path) -> None:
+        """Test MIME type detection for PDF files."""
+        test_file = tmp_path / "document.pdf"
+        test_file.write_bytes(b"fake pdf data")
+
+        with build_upload_payload(test_file) as payload:
+            files_tuple = payload.files_tuple
+            assert files_tuple[0] == "document.pdf"
+            assert files_tuple[2] == "application/pdf"
+
+    def test_build_payload_mime_type_txt(self, tmp_path: Path) -> None:
+        """Test MIME type detection for text files."""
+        test_file = tmp_path / "readme.txt"
+        test_file.write_bytes(b"fake text data")
+
+        with build_upload_payload(test_file) as payload:
+            files_tuple = payload.files_tuple
+            assert files_tuple[0] == "readme.txt"
+            assert files_tuple[2] == "text/plain"
+
+    def test_build_payload_mime_type_unknown(self, tmp_path: Path) -> None:
+        """Test MIME type fallback for unknown file extensions."""
+        test_file = tmp_path / "data.unknownext123"
+        test_file.write_bytes(b"fake unknown data")
+
+        with build_upload_payload(test_file) as payload:
+            files_tuple = payload.files_tuple
+            assert files_tuple[0] == "data.unknownext123"
+            # Unknown extensions should fallback to octet-stream
+            assert files_tuple[2] == "application/octet-stream"
 
     def test_build_payload_accepts_path_object(self, tmp_path: Path) -> None:
         """Test that Path objects are accepted."""

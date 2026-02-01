@@ -10,6 +10,12 @@ This example demonstrates a full content migration from one Strapi v5 instance t
 6. Resolve and restore all relations
 
 Usage:
+    # Set environment variables first:
+    export SOURCE_STRAPI_URL="http://localhost:1337"
+    export SOURCE_STRAPI_TOKEN="your-source-api-token"
+    export TARGET_STRAPI_URL="http://localhost:1338"
+    export TARGET_STRAPI_TOKEN="your-target-api-token"
+
     # Export from source
     python full_migration_v5.py export
 
@@ -18,8 +24,15 @@ Usage:
 
     # Full migration (export + import)
     python full_migration_v5.py migrate
+
+Environment Variables:
+    SOURCE_STRAPI_URL: URL of the source Strapi instance (default: http://localhost:1337)
+    SOURCE_STRAPI_TOKEN: API token for the source instance (required)
+    TARGET_STRAPI_URL: URL of the target Strapi instance (default: http://localhost:1338)
+    TARGET_STRAPI_TOKEN: API token for the target instance (required)
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -56,20 +69,43 @@ def _uid_to_endpoint(uid: str) -> str:
     return uid
 
 
-# Configuration
-SOURCE_CONFIG = StrapiConfig(
-    base_url="http://localhost:1337",  # Source Strapi v5 instance
-    api_token=SecretStr("your-source-api-token"),
-    api_version="v5",  # Explicitly set v5
-    timeout=120.0,  # Longer timeout for large exports
-)
+def validate_environment() -> None:
+    """Validate required environment variables are set.
 
-TARGET_CONFIG = StrapiConfig(
-    base_url="http://localhost:1338",  # Target Strapi v5 instance
-    api_token=SecretStr("your-target-api-token"),
-    api_version="v5",
-    timeout=120.0,
-)
+    Raises:
+        ValueError: If required environment variables are missing.
+    """
+    if not os.getenv("SOURCE_STRAPI_TOKEN"):
+        raise ValueError(
+            "SOURCE_STRAPI_TOKEN environment variable not set.\n"
+            "Set it with: export SOURCE_STRAPI_TOKEN='your-token'"
+        )
+    if not os.getenv("TARGET_STRAPI_TOKEN"):
+        raise ValueError(
+            "TARGET_STRAPI_TOKEN environment variable not set.\n"
+            "Set it with: export TARGET_STRAPI_TOKEN='your-token'"
+        )
+
+
+def get_source_config() -> StrapiConfig:
+    """Get configuration for source Strapi instance from environment."""
+    return StrapiConfig(
+        base_url=os.getenv("SOURCE_STRAPI_URL", "http://localhost:1337"),
+        api_token=SecretStr(os.getenv("SOURCE_STRAPI_TOKEN", "")),
+        api_version="v5",  # Explicitly set v5
+        timeout=120.0,  # Longer timeout for large exports
+    )
+
+
+def get_target_config() -> StrapiConfig:
+    """Get configuration for target Strapi instance from environment."""
+    return StrapiConfig(
+        base_url=os.getenv("TARGET_STRAPI_URL", "http://localhost:1338"),
+        api_token=SecretStr(os.getenv("TARGET_STRAPI_TOKEN", "")),
+        api_version="v5",
+        timeout=120.0,
+    )
+
 
 # Export configuration
 EXPORT_DIR = Path("./strapi_migration")
@@ -124,15 +160,19 @@ def discover_content_types(client: SyncClient) -> list[str]:
 def export_all_content() -> None:
     """Export all content from source Strapi instance."""
     print("=" * 80)
-    print("📦 EXPORTING ALL CONTENT FROM SOURCE STRAPI V5 INSTANCE")
+    print("EXPORTING ALL CONTENT FROM SOURCE STRAPI V5 INSTANCE")
     print("=" * 80)
+
+    # Validate environment
+    validate_environment()
+    source_config = get_source_config()
 
     # Create export directories
     EXPORT_DIR.mkdir(exist_ok=True)
     MEDIA_DIR.mkdir(exist_ok=True)
 
-    with SyncClient(SOURCE_CONFIG) as client:
-        print(f"\n✓ Connected to source: {SOURCE_CONFIG.base_url}")
+    with SyncClient(source_config) as client:
+        print(f"\n  Connected to source: {source_config.base_url}")
         print(f"  API Version: {client.api_version}")
 
         # Discover all content types
@@ -176,17 +216,21 @@ def export_all_content() -> None:
 def import_all_content() -> None:
     """Import all content to target Strapi instance."""
     print("=" * 80)
-    print("📦 IMPORTING ALL CONTENT TO TARGET STRAPI V5 INSTANCE")
+    print("IMPORTING ALL CONTENT TO TARGET STRAPI V5 INSTANCE")
     print("=" * 80)
+
+    # Validate environment
+    validate_environment()
+    target_config = get_target_config()
 
     # Check if export exists
     if not EXPORT_FILE.exists():
-        print(f"\n❌ Export file not found: {EXPORT_FILE}")
+        print(f"\nExport file not found: {EXPORT_FILE}")
         print("   Run 'python full_migration_v5.py export' first")
         return
 
     # Load export data
-    print(f"\n📂 Loading export data from {EXPORT_FILE}...")
+    print(f"\nLoading export data from {EXPORT_FILE}...")
     export_data = StrapiExporter.load_from_file(str(EXPORT_FILE))
 
     total_entities = export_data.get_entity_count()
@@ -195,8 +239,8 @@ def import_all_content() -> None:
     print(f"   Total entities: {total_entities}")
     print(f"   Media files: {total_media}")
 
-    with SyncClient(TARGET_CONFIG) as client:
-        print(f"\n✓ Connected to target: {TARGET_CONFIG.base_url}")
+    with SyncClient(target_config) as client:
+        print(f"\n  Connected to target: {target_config.base_url}")
         print(f"  API Version: {client.api_version}")
 
         # Create importer
@@ -243,11 +287,16 @@ def import_all_content() -> None:
 
 def migrate_all_content() -> None:
     """Perform complete migration: export from source and import to target."""
+    # Validate environment early
+    validate_environment()
+    source_config = get_source_config()
+    target_config = get_target_config()
+
     print("=" * 80)
-    print("🚀 FULL STRAPI V5 MIGRATION")
+    print("FULL STRAPI V5 MIGRATION")
     print("=" * 80)
-    print(f"Source: {SOURCE_CONFIG.base_url}")
-    print(f"Target: {TARGET_CONFIG.base_url}")
+    print(f"Source: {source_config.base_url}")
+    print(f"Target: {target_config.base_url}")
     print()
 
     try:
@@ -269,12 +318,17 @@ def migrate_all_content() -> None:
 
 def verify_migration() -> None:
     """Verify that migration was successful by comparing counts."""
+    # Validate environment
+    validate_environment()
+    source_config = get_source_config()
+    target_config = get_target_config()
+
     print("=" * 80)
-    print("🔍 VERIFYING MIGRATION")
+    print("VERIFYING MIGRATION")
     print("=" * 80)
 
-    with SyncClient(SOURCE_CONFIG) as source_client:
-        print(f"\n📊 Source instance ({SOURCE_CONFIG.base_url}):")
+    with SyncClient(source_config) as source_client:
+        print(f"\nSource instance ({source_config.base_url}):")
 
         # Discover content types
         content_types = discover_content_types(source_client)
@@ -291,8 +345,8 @@ def verify_migration() -> None:
             except Exception as e:
                 print(f"   {ct}: Error getting count - {e}")
 
-    with SyncClient(TARGET_CONFIG) as target_client:
-        print(f"\n📊 Target instance ({TARGET_CONFIG.base_url}):")
+    with SyncClient(target_config) as target_client:
+        print(f"\nTarget instance ({target_config.base_url}):")
 
         target_counts: dict[str, int] = {}
         for ct in content_types:
