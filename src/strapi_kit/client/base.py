@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from ..models.content_type import ContentTypeSchema as CTBContentTypeSchema
 
 import httpx
+from pydantic import ValidationError as PydanticValidationError
 from tenacity import (
     before_sleep_log,
     retry,
@@ -75,7 +76,7 @@ class BaseClient:
             parser: Response parser (defaults to VersionDetectingParser)
 
         Raises:
-            ValueError: If authentication token is invalid
+            ConfigurationError: If authentication token is invalid
         """
         self.config: ConfigProvider = config
         self.base_url = config.get_base_url()
@@ -492,9 +493,9 @@ class BaseClient:
             try:
                 content_type = ContentTypeListItem.model_validate(item)
                 result.append(content_type)
-            except Exception:
+            except PydanticValidationError as e:
                 # Skip malformed items
-                logger.warning(f"Failed to parse content type: {uid}")
+                logger.warning(f"Failed to parse content type: {uid}", exc_info=e)
                 continue
 
         return result
@@ -521,9 +522,9 @@ class BaseClient:
             try:
                 component = ComponentListItem.model_validate(item)
                 result.append(component)
-            except Exception:
+            except PydanticValidationError as e:
                 # Skip malformed items
-                logger.warning(f"Failed to parse component: {uid}")
+                logger.warning(f"Failed to parse component: {uid}", exc_info=e)
                 continue
 
         return result
@@ -546,4 +547,10 @@ class BaseClient:
         from ..models.content_type import ContentTypeSchema as CTBContentTypeSchema
 
         data = response_data.get("data", response_data)
-        return CTBContentTypeSchema.model_validate(data)
+        try:
+            return CTBContentTypeSchema.model_validate(data)
+        except PydanticValidationError as e:
+            raise ValidationError(
+                "Invalid content type schema response",
+                details={"errors": e.errors()},
+            ) from e

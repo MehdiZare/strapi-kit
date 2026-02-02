@@ -682,6 +682,7 @@ uid_to_endpoint("api::class.class")  # "classes"
 # Convert plural API ID to singular
 api_id_to_singular("articles")  # "article"
 api_id_to_singular("categories")  # "category"
+api_id_to_singular("quizzes")  # "quiz" (handles -zzes endings)
 api_id_to_singular("people")  # "person" (handles irregular plurals)
 api_id_to_singular("children")  # "child"
 

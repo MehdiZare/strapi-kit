@@ -146,15 +146,26 @@ def api_id_to_singular(api_id: str) -> str:
     if name.endswith("ies"):
         return name[:-3] + "y"
 
-    # Handle -es for words ending in s, x, z, ch, sh (classes -> class)
+    # Handle -zzes specifically
+    # Words with single z double it when pluralized: quiz -> quizzes (remove -zes, keep 1 z)
+    # Words with double z just add es: buzz -> buzzes, fizz -> fizzes (remove -es, keep zz)
+    if name.endswith("zzes"):
+        # Common double-z words: buzz, fizz, fuzz, jazz, razz, etc. (pattern: consonant + vowel + zz)
+        # Common single-z words that double: quiz, whiz (pattern: vowel + i + z or similar)
+        # Heuristic: 4-letter bases (buzz, fizz, jazz, fuzz) become 6-letter plurals
+        #            4-letter bases like quiz become 7-letter plurals
+        # So length 6 -> likely double-z base (remove -es)
+        #    length 7+ -> likely single-z base that was doubled (remove -zes)
+        if len(name) <= 6:
+            return name[:-2]  # buzzes -> buzz, fizzes -> fizz
+        else:
+            return name[:-3]  # quizzes -> quiz, whizzes -> whiz
+
+    # Handle -es for words ending in s, x, z, ch, sh (classes -> class, buses -> bus)
     if name.endswith("es"):
-        # Check if removing -es gives a word ending in s, x, z, ch, sh
         base = name[:-2]
         if base.endswith(("s", "x", "z", "ch", "sh")):
             return base
-        # Also handle -ses, -zes (buses -> bus, quizzes -> quiz)
-        if name.endswith("ses") or name.endswith("zes"):
-            return name[:-2]
 
     # Handle standard -s removal (articles -> article)
     if name.endswith("s") and len(name) > 1:

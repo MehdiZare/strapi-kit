@@ -22,33 +22,37 @@ from strapi_kit.exceptions import FormatError
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.query import StrapiQuery
+from strapi_kit.models.response.media import MediaFile
 from strapi_kit.utils.rate_limiter import AsyncTokenBucketRateLimiter, TokenBucketRateLimiter
 from strapi_kit.utils.uid import extract_model_name, is_api_content_type, uid_to_endpoint
 
 
+class DummyDownloadClient:
+    """Minimal client stub for MediaHandler download tests."""
+
+    def __init__(self) -> None:
+        self.saved_paths: list[str] = []
+
+    def download_file(self, _url: str, save_path: str) -> None:
+        self.saved_paths.append(save_path)
+
+
+def make_media(name: str, media_id: int = 1) -> MediaFile:
+    """Create a minimal MediaFile for tests."""
+    return MediaFile(
+        id=media_id,
+        name=name,
+        hash="hash",
+        ext=".jpg",
+        mime="image/jpeg",
+        size=1.0,
+        url="/uploads/test.jpg",
+        provider="local",
+    )
+
+
 class TestMediaHandler:
     """Tests for MediaHandler v4 detection and filename sanitization."""
-
-    def test_is_media_v5_format(self):
-        """Test media detection with v5 format (mime at top level)."""
-        item = {"id": 1, "mime": "image/jpeg", "name": "test.jpg"}
-        assert MediaHandler._is_media(item) is True
-
-    def test_is_media_v4_format(self):
-        """Test media detection with v4 format (mime in attributes)."""
-        item = {
-            "id": 1,
-            "attributes": {
-                "mime": "image/jpeg",
-                "name": "test.jpg",
-            },
-        }
-        assert MediaHandler._is_media(item) is True
-
-    def test_is_media_not_media(self):
-        """Test media detection returns False for non-media items."""
-        item = {"id": 1, "name": "Article Title"}
-        assert MediaHandler._is_media(item) is False
 
     def test_extract_media_references_v4_format(self):
         """Test extracting media references from v4 format."""
@@ -95,8 +99,18 @@ class TestMediaHandler:
         media_ids = MediaHandler.extract_media_references(data)
         assert set(media_ids) == {1, 2}
 
-    def test_sanitize_filename_path_traversal(self):
-        """Test sanitization prevents path traversal attacks."""
+    def test_extract_media_references_ignores_non_media(self):
+        """Test non-media entries are ignored."""
+        data = {
+            "cover": {
+                "data": {"id": 1, "name": "Article Title"},
+            }
+        }
+        media_ids = MediaHandler.extract_media_references(data)
+        assert media_ids == []
+
+    def test_download_media_file_blocks_path_traversal(self, tmp_path):
+        """Test download uses a sanitized, safe filename."""
         dangerous_names = [
             "../../../etc/passwd",
             "..\\..\\windows\\system32",
@@ -104,40 +118,52 @@ class TestMediaHandler:
             "\\windows\\system32",
         ]
         for name in dangerous_names:
-            sanitized = MediaHandler._sanitize_filename(name)
-            assert "/" not in sanitized
-            assert "\\" not in sanitized
-            assert ".." not in sanitized
+            client = DummyDownloadClient()
+            media = make_media(name)
+            output_path = MediaHandler.download_media_file(client, media, tmp_path)
+            assert output_path.parent == tmp_path
+            assert output_path.name.startswith("1_")
+            assert "/" not in output_path.name
+            assert "\\" not in output_path.name
+            assert ".." not in output_path.name
+            assert client.saved_paths == [str(output_path)]
 
-    def test_sanitize_filename_special_chars(self):
-        """Test sanitization removes dangerous special characters."""
+    def test_download_media_file_strips_special_chars(self, tmp_path):
+        """Test download strips dangerous special characters from filename."""
         name = 'file<script>alert("xss")</script>.jpg'
-        sanitized = MediaHandler._sanitize_filename(name)
-        assert "<" not in sanitized
-        assert ">" not in sanitized
-        assert '"' not in sanitized
+        client = DummyDownloadClient()
+        media = make_media(name)
+        output_path = MediaHandler.download_media_file(client, media, tmp_path)
+        assert "<" not in output_path.name
+        assert ">" not in output_path.name
+        assert '"' not in output_path.name
 
-    def test_sanitize_filename_empty(self):
-        """Test sanitization handles empty filenames."""
-        assert MediaHandler._sanitize_filename("") == "unnamed"
-        assert MediaHandler._sanitize_filename("   ") == "unnamed"
-        # "..." becomes "_" after ".." replacement and dot stripping
-        sanitized = MediaHandler._sanitize_filename("...")
-        # Just verify it's not empty and doesn't contain original dots pattern
-        assert sanitized and "..." not in sanitized
+    def test_download_media_file_handles_empty_names(self, tmp_path):
+        """Test empty filenames are replaced with a safe default."""
+        for name in ["", "   ", "..."]:
+            client = DummyDownloadClient()
+            media = make_media(name)
+            output_path = MediaHandler.download_media_file(client, media, tmp_path)
+            assert output_path.name.startswith("1_")
+            assert output_path.name != "1_"
 
-    def test_sanitize_filename_preserves_extension(self):
-        """Test sanitization preserves file extension."""
+    def test_download_media_file_preserves_extension(self, tmp_path):
+        """Test download preserves file extension and max length."""
         name = "a" * 300 + ".jpg"
-        sanitized = MediaHandler._sanitize_filename(name, max_length=200)
-        assert sanitized.endswith(".jpg")
-        assert len(sanitized) <= 200
+        client = DummyDownloadClient()
+        media = make_media(name)
+        output_path = MediaHandler.download_media_file(client, media, tmp_path)
+        assert output_path.name.endswith(".jpg")
+        max_length = len(str(media.id)) + 1 + 200
+        assert len(output_path.name) <= max_length
 
-    def test_sanitize_filename_null_bytes(self):
-        """Test sanitization removes null bytes."""
+    def test_download_media_file_removes_null_bytes(self, tmp_path):
+        """Test download removes null bytes from filename."""
         name = "file\x00name.jpg"
-        sanitized = MediaHandler._sanitize_filename(name)
-        assert "\x00" not in sanitized
+        client = DummyDownloadClient()
+        media = make_media(name)
+        output_path = MediaHandler.download_media_file(client, media, tmp_path)
+        assert "\x00" not in output_path.name
 
 
 class TestStrapiQueryCopy:
@@ -227,9 +253,7 @@ class TestAsyncRateLimiter:
     async def test_async_rate_limiter_creation(self):
         """Test async rate limiter can be created with valid rate."""
         limiter = AsyncTokenBucketRateLimiter(rate=10.0)
-        # Note: available_tokens is not thread-safe without lock
-        # This is just a basic creation test
-        assert limiter._rate == 10.0
+        assert limiter.available_tokens > 0
 
     @pytest.mark.asyncio
     async def test_async_rate_limiter_acquire(self):
@@ -300,7 +324,7 @@ class TestVersionDetectionCaching:
         with SyncClient(strapi_config) as client:
             client.get("test")
             # Version should not be cached on ambiguous response
-            assert client._api_version is None
+            assert client.api_version is None
 
     @respx.mock
     def test_v5_response_cached(self, strapi_config):
@@ -314,7 +338,7 @@ class TestVersionDetectionCaching:
 
         with SyncClient(strapi_config) as client:
             client.get("test")
-            assert client._api_version == "v5"
+            assert client.api_version == "v5"
 
     @respx.mock
     def test_v4_response_cached(self, strapi_config):
@@ -328,7 +352,7 @@ class TestVersionDetectionCaching:
 
         with SyncClient(strapi_config) as client:
             client.get("test")
-            assert client._api_version == "v4"
+            assert client.api_version == "v4"
 
     @respx.mock
     def test_reset_version_detection(self, strapi_config):
@@ -342,10 +366,10 @@ class TestVersionDetectionCaching:
 
         with SyncClient(strapi_config) as client:
             client.get("test")
-            assert client._api_version == "v5"
+            assert client.api_version == "v5"
 
             client.reset_version_detection()
-            assert client._api_version is None
+            assert client.api_version is None
 
 
 class TestNonJsonResponseHandling:
@@ -429,7 +453,7 @@ class TestMediaUpdateEndpoint:
         )
 
         with SyncClient(config) as client:
-            assert client._api_version == "v5"
+            assert client.api_version == "v5"
             media = client.update_media(42, alternative_text="New alt")
             assert media.id == 42
 
@@ -475,7 +499,7 @@ class TestMediaUpdateEndpoint:
         )
 
         with SyncClient(config) as client:
-            assert client._api_version == "v4"
+            assert client.api_version == "v4"
             media = client.update_media(42, alternative_text="New alt")
             assert media.id == 42
 
@@ -488,8 +512,20 @@ class TestMediaUpdateEndpoint:
 class TestRateLimitingInClient:
     """Tests for rate limiting integration in clients."""
 
-    def test_rate_limiter_initialized_when_configured(self):
-        """Test rate limiter is created when config has rate_limit_per_second."""
+    @respx.mock
+    def test_rate_limiter_applied_when_configured(self, monkeypatch):
+        """Test rate limiter is applied when configured."""
+        respx.get("http://localhost:1337/api/articles").mock(
+            return_value=httpx.Response(200, json={"data": []})
+        )
+        called = False
+
+        def wrapped_acquire(self, *args, **kwargs):
+            nonlocal called
+            called = True
+            return True
+
+        monkeypatch.setattr(TokenBucketRateLimiter, "acquire", wrapped_acquire)
         config = StrapiConfig(
             base_url="http://localhost:1337",
             api_token="test-token-12345678",
@@ -497,11 +533,24 @@ class TestRateLimitingInClient:
         )
 
         with SyncClient(config) as client:
-            assert client._rate_limiter is not None
-            assert isinstance(client._rate_limiter, TokenBucketRateLimiter)
+            client.get("articles")
 
-    def test_rate_limiter_not_initialized_when_disabled(self):
-        """Test rate limiter is None when not configured."""
+        assert called is True
+
+    @respx.mock
+    def test_rate_limiter_not_applied_when_disabled(self, monkeypatch):
+        """Test rate limiter is not applied when disabled."""
+        respx.get("http://localhost:1337/api/articles").mock(
+            return_value=httpx.Response(200, json={"data": []})
+        )
+        called = False
+
+        def wrapped_acquire(self, *args, **kwargs):
+            nonlocal called
+            called = True
+            return True
+
+        monkeypatch.setattr(TokenBucketRateLimiter, "acquire", wrapped_acquire)
         config = StrapiConfig(
             base_url="http://localhost:1337",
             api_token="test-token-12345678",
@@ -509,7 +558,9 @@ class TestRateLimitingInClient:
         )
 
         with SyncClient(config) as client:
-            assert client._rate_limiter is None
+            client.get("articles")
+
+        assert called is False
 
 
 class TestBaseUrlValidation:

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Exception handling improvements** ([#23](https://github.com/MehdiZare/strapi-kit/pull/23))
+  - Use `StrapiError` instead of bare `Exception` in examples for precise error handling
+  - Catch `PydanticValidationError` specifically in Content-Type Builder parsing
+  - Add proper exception chaining when re-raising validation errors
+  - Fix docstring to document `ConfigurationError` instead of `ValueError`
+
+- **Singularization bug fix** ([#23](https://github.com/MehdiZare/strapi-kit/pull/23))
+  - Fix `api_id_to_singular()` for `-zzes` endings: `quizzes` → `quiz`, `buzzes` → `buzz`
+  - Use length-based heuristic to distinguish single-z doubled vs double-z base words
+
 ### Added
 
 - **Content-Type Builder API** ([#15](https://github.com/MehdiZare/strapi-kit/issues/15))
