@@ -98,7 +98,7 @@ select = [
 ignore = [
     "E501",  # line too long (handled by formatter)
     "UP046", # Generic type parameter syntax (Python 3.12+, not using PEP 695 yet)
-    "S101",  # assert used in tests (ignored via per-file-ignores, kept for explicitness)
+    "S101",  # assert statements - tests skip all S rules, kept globally for convenience
 ]
 
 [tool.ruff.lint.per-file-ignores]

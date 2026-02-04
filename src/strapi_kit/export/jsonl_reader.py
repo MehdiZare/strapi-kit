@@ -88,6 +88,9 @@ class JSONLImportReader:
         except json.JSONDecodeError as e:
             raise FormatError(f"Invalid JSON on line 1: {e}") from e
 
+        if not isinstance(record, dict):
+            raise FormatError(f"Expected JSON object on line 1, got: {type(record).__name__}")
+
         if record.get("_type") != "metadata":
             raise FormatError(f"Expected metadata on line 1, got: {record.get('_type')}")
 
@@ -124,6 +127,12 @@ class JSONLImportReader:
                 record = json.loads(line)
             except json.JSONDecodeError as e:
                 raise FormatError(f"Invalid JSON on line {self._current_line}: {e}") from e
+
+            if not isinstance(record, dict):
+                raise FormatError(
+                    f"Expected JSON object on line {self._current_line}, "
+                    f"got: {type(record).__name__}"
+                )
 
             record_type = record.get("_type")
 

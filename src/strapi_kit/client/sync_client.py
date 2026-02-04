@@ -617,6 +617,7 @@ class SyncClient(BaseClient):
                 if save_path:
                     # Stream directly to disk for memory efficiency
                     path = Path(save_path)
+                    path.parent.mkdir(parents=True, exist_ok=True)
                     total_bytes = 0
                     with open(path, "wb") as f:
                         for chunk in response.iter_bytes():

@@ -126,7 +126,15 @@ class StrapiExporter:
                 export_query = StrapiQuery().populate_all()
 
                 # Get schema for this content type (already cached from _fetch_schemas)
-                schema = self._schema_cache.get_schema(content_type)
+                # Fallback to heuristic relation handling if schema not available
+                try:
+                    schema = self._schema_cache.get_schema(content_type)
+                except Exception as e:
+                    logger.warning(
+                        f"Schema not available for {content_type}: {e}. "
+                        "Using heuristic relation extraction."
+                    )
+                    schema = None
 
                 # Stream entities for memory efficiency
                 entities = []
@@ -137,16 +145,20 @@ class StrapiExporter:
                         media_ids = MediaHandler.extract_media_references(entity.attributes)
                         all_media_ids.update(media_ids)
 
-                    # Extract relations using schema for accuracy
-                    # This avoids false positives from fields that look like relations
-                    relations = RelationResolver.extract_relations_with_schema(
-                        entity.attributes, schema, self._schema_cache
-                    )
-
-                    # Strip relations using schema to preserve non-relation fields
-                    clean_data = RelationResolver.strip_relations_with_schema(
-                        entity.attributes, schema
-                    )
+                    # Extract relations and strip them from data
+                    # Use schema-based methods when available, fall back to heuristics
+                    if schema is not None:
+                        # Schema-based extraction (more accurate)
+                        relations = RelationResolver.extract_relations_with_schema(
+                            entity.attributes, schema, self._schema_cache
+                        )
+                        clean_data = RelationResolver.strip_relations_with_schema(
+                            entity.attributes, schema
+                        )
+                    else:
+                        # Heuristic fallback when schema is unavailable
+                        relations = RelationResolver.extract_relations(entity.attributes)
+                        clean_data = RelationResolver.strip_relations(entity.attributes)
 
                     exported_entity = ExportedEntity(
                         id=entity.id,

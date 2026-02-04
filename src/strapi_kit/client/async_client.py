@@ -626,6 +626,7 @@ class AsyncClient(BaseClient):
                     # Note: Using sync file I/O here as aiofiles is not a dependency
                     # The streaming download itself is async which is the main benefit
                     path = Path(save_path)
+                    path.parent.mkdir(parents=True, exist_ok=True)
                     total_bytes = 0
                     with open(path, "wb") as f:
                         async for chunk in response.aiter_bytes():
