@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-02-04
+
 ### Fixed
 
 - **JSONL import path traversal protection** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
@@ -17,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Refactored `import_from_jsonl()` to use true O(1) memory with two-pass streaming
   - Pass 1: Create entities, store only ID mappings (old_id → new_id)
   - Pass 2: Re-read file to resolve relations using ID mappings
-  - Memory profile reduced from O(entities) to O(entity_count × 2 ints)
+  - Memory profile reduced from O(entities) to O(entity_count x 2 ints)
   - Fixed: ID mappings now properly copied to `ImportResult` for caller access
 
 - **Strapi v5 update endpoint consistency** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
@@ -28,10 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Removed unused test fixtures** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
   - Removed unused `mock_media_response` parameter from `test_update_media_not_found` in sync and async tests
-
-## [0.1.0] - 2026-02-04
-
-### Fixed
 
 - **`update_media` version detection** ([#28](https://github.com/MehdiZare/strapi-kit/issues/28))
   - Fixed bug where `update_media()` used wrong endpoint when `api_version="auto"` and no prior API calls
@@ -81,7 +79,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.0.6] - 2026-02-03
 
 ### Fixed
-
 - **StrapiConfig extra env vars** ([#25](https://github.com/MehdiZare/strapi-kit/issues/25), [#26](https://github.com/MehdiZare/strapi-kit/pull/26))
   - Added `extra="ignore"` to `StrapiConfig` and `RetryConfig` model_config
   - Prevents `ValidationError: Extra inputs are not permitted` when unrelated `STRAPI_*` environment variables exist
