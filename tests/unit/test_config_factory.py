@@ -467,3 +467,49 @@ class TestURLValidation:
                 base_url="ftp://example.com",
                 api_token="test-token",
             )
+
+
+class TestExtraEnvVarsIgnored:
+    """Test that unrelated environment variables are ignored (Issue #25)."""
+
+    def test_strapi_config_ignores_extra_env_vars_in_file(self, tmp_path, monkeypatch):
+        """Test StrapiConfig ignores unrelated env vars in .env file."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .env with extra unrelated variables
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "STRAPI_BASE_URL=http://localhost:1337\n"
+            "STRAPI_API_TOKEN=test-token\n"
+            "STRAPI_UNRELATED_VAR=ignored\n"  # pragma: allowlist secret
+            "STRAPI_ANOTHER_EXTRA=ignored\n"
+        )
+
+        # Should not raise ValidationError for extra inputs
+        config = ConfigFactory.from_env()
+        assert config.base_url == "http://localhost:1337"
+        assert config.get_api_token() == "test-token"
+
+    def test_strapi_config_ignores_extra_env_vars_in_environment(self, monkeypatch):
+        """Test StrapiConfig ignores unrelated environment variables."""
+        monkeypatch.setenv("STRAPI_BASE_URL", "http://localhost:1337")
+        monkeypatch.setenv("STRAPI_API_TOKEN", "test-token")
+        monkeypatch.setenv("STRAPI_CUSTOM_EXTRA", "should-be-ignored")
+        monkeypatch.setenv("STRAPI_FOO_BAR", "also-ignored")
+
+        # Should not raise ValidationError for extra inputs
+        config = ConfigFactory.from_environment_only()
+        assert config.base_url == "http://localhost:1337"
+        assert config.get_api_token() == "test-token"
+
+    def test_retry_config_ignores_extra_env_vars(self, monkeypatch):
+        """Test RetryConfig ignores unrelated environment variables."""
+        from strapi_kit import RetryConfig
+
+        monkeypatch.setenv("STRAPI_RETRY_MAX_ATTEMPTS", "5")
+        monkeypatch.setenv("STRAPI_RETRY_UNRELATED", "should-be-ignored")
+        monkeypatch.setenv("STRAPI_RETRY_CUSTOM_VAR", "also-ignored")
+
+        # Should not raise ValidationError for extra inputs
+        retry_config = RetryConfig()
+        assert retry_config.max_attempts == 5

@@ -14,6 +14,163 @@ from strapi_kit.models.content_type import (
     ContentTypeSchema as CTBContentTypeSchema,
 )
 
+# Fixtures for Strapi v5 mock responses (Issue #25)
+
+
+@pytest.fixture
+def mock_v5_content_types_response() -> dict:
+    """Mock Strapi v5 response for get_content_types with nested schema."""
+    return {
+        "data": [
+            {
+                "uid": "api::article.article",
+                "apiID": "article",
+                "schema": {
+                    "kind": "collectionType",
+                    "collectionName": "articles",
+                    "info": {
+                        "displayName": "Article",
+                        "singularName": "article",
+                        "pluralName": "articles",
+                        "description": "Blog articles",
+                    },
+                    "attributes": {
+                        "title": {"type": "string", "required": True},
+                        "content": {"type": "richtext"},
+                        "author": {
+                            "type": "relation",
+                            "relation": "manyToOne",
+                            "target": "api::author.author",
+                        },
+                    },
+                    "pluginOptions": {"i18n": {"localized": True}},
+                },
+            },
+            {
+                "uid": "api::category.category",
+                "apiID": "category",
+                "schema": {
+                    "kind": "collectionType",
+                    "collectionName": "categories",
+                    "info": {
+                        "displayName": "Category",
+                        "singularName": "category",
+                        "pluralName": "categories",
+                    },
+                    "attributes": {
+                        "name": {"type": "string", "required": True},
+                    },
+                },
+            },
+            {
+                "uid": "plugin::users-permissions.user",
+                "apiID": "user",
+                "schema": {
+                    "kind": "collectionType",
+                    "info": {
+                        "displayName": "User",
+                        "singularName": "user",
+                        "pluralName": "users",
+                    },
+                    "attributes": {
+                        "username": {"type": "string"},
+                        "email": {"type": "email"},
+                    },
+                },
+            },
+        ]
+    }
+
+
+@pytest.fixture
+def mock_v5_components_response() -> dict:
+    """Mock Strapi v5 response for get_components with nested schema."""
+    return {
+        "data": [
+            {
+                "uid": "shared.seo",
+                "category": "shared",
+                "schema": {
+                    "info": {
+                        "displayName": "SEO",
+                        "description": "SEO metadata",
+                    },
+                    "attributes": {
+                        "metaTitle": {"type": "string"},
+                        "metaDescription": {"type": "text"},
+                        "metaImage": {"type": "media"},
+                    },
+                },
+            },
+            {
+                "uid": "blocks.hero",
+                "category": "blocks",
+                "schema": {
+                    "info": {
+                        "displayName": "Hero Section",
+                    },
+                    "attributes": {
+                        "title": {"type": "string"},
+                        "subtitle": {"type": "string"},
+                        "image": {"type": "media"},
+                    },
+                },
+            },
+        ]
+    }
+
+
+@pytest.fixture
+def mock_v5_single_content_type_response() -> dict:
+    """Mock Strapi v5 response for get_content_type_schema with nested schema."""
+    return {
+        "data": {
+            "uid": "api::article.article",
+            "apiID": "article",
+            "schema": {
+                "kind": "collectionType",
+                "collectionName": "articles",
+                "info": {
+                    "displayName": "Article",
+                    "singularName": "article",
+                    "pluralName": "articles",
+                    "description": "Blog articles",
+                },
+                "attributes": {
+                    "title": {"type": "string", "required": True, "maxLength": 255},
+                    "slug": {"type": "uid", "targetField": "title"},
+                    "content": {"type": "richtext"},
+                    "publishedAt": {"type": "datetime"},
+                    "author": {
+                        "type": "relation",
+                        "relation": "manyToOne",
+                        "target": "api::author.author",
+                        "inversedBy": "articles",
+                    },
+                    "category": {
+                        "type": "relation",
+                        "relation": "manyToOne",
+                        "target": "api::category.category",
+                    },
+                    "seo": {
+                        "type": "component",
+                        "component": "shared.seo",
+                    },
+                    "tags": {
+                        "type": "relation",
+                        "relation": "manyToMany",
+                        "target": "api::tag.tag",
+                    },
+                },
+                "options": {
+                    "draftAndPublish": True,
+                },
+                "pluginOptions": {"i18n": {"localized": True}},
+            },
+        }
+    }
+
+
 # Fixtures for mock responses
 
 
@@ -528,3 +685,259 @@ class TestEmptyResponses:
         with SyncClient(strapi_config) as client:
             components = client.get_components()
             assert components == []
+
+
+class TestSyncContentTypeBuilderV5:
+    """Tests for SyncClient Content-Type Builder methods with Strapi v5 responses (Issue #25)."""
+
+    @respx.mock
+    def test_get_content_types_v5(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_content_types_response: dict,
+    ) -> None:
+        """Test listing content types with v5 nested schema format."""
+        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+            return_value=Response(200, json=mock_v5_content_types_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            content_types = client.get_content_types()
+
+            # Should exclude plugin content types by default
+            assert len(content_types) == 2
+            assert all(isinstance(ct, ContentTypeListItem) for ct in content_types)
+            assert all(ct.uid.startswith("api::") for ct in content_types)
+
+            # Check first content type - should be normalized from v5 format
+            article = content_types[0]
+            assert article.uid == "api::article.article"
+            assert article.kind == "collectionType"
+            assert article.info.display_name == "Article"
+            assert article.info.singular_name == "article"
+            assert article.info.plural_name == "articles"
+            assert "title" in article.attributes
+            assert article.plugin_options == {"i18n": {"localized": True}}
+
+    @respx.mock
+    def test_get_content_types_v5_include_plugins(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_content_types_response: dict,
+    ) -> None:
+        """Test listing content types including plugins with v5 format."""
+        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+            return_value=Response(200, json=mock_v5_content_types_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            content_types = client.get_content_types(include_plugins=True)
+
+            # Should include all content types
+            assert len(content_types) == 3
+            plugin_types = [ct for ct in content_types if ct.uid.startswith("plugin::")]
+            assert len(plugin_types) == 1
+            assert plugin_types[0].uid == "plugin::users-permissions.user"
+
+    @respx.mock
+    def test_get_components_v5(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_components_response: dict,
+    ) -> None:
+        """Test listing components with v5 nested schema format."""
+        respx.get("http://localhost:1337/api/content-type-builder/components").mock(
+            return_value=Response(200, json=mock_v5_components_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            components = client.get_components()
+
+            assert len(components) == 2
+            assert all(isinstance(c, ComponentListItem) for c in components)
+
+            # Check first component - should be normalized from v5 format
+            seo = components[0]
+            assert seo.uid == "shared.seo"
+            assert seo.category == "shared"
+            assert seo.info.display_name == "SEO"
+            assert "metaTitle" in seo.attributes
+
+    @respx.mock
+    def test_get_content_type_schema_v5(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_content_type_response: dict,
+    ) -> None:
+        """Test getting single content type schema with v5 format."""
+        uid = "api::article.article"
+        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+            return_value=Response(200, json=mock_v5_single_content_type_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            schema = client.get_content_type_schema(uid)
+
+            assert isinstance(schema, CTBContentTypeSchema)
+            assert schema.uid == uid
+            assert schema.kind == "collectionType"
+            assert schema.display_name == "Article"
+            assert schema.singular_name == "article"
+            assert schema.plural_name == "articles"
+
+            # Test helper methods work with v5 normalized data
+            assert schema.get_field_type("title") == "string"
+            assert schema.is_relation_field("author") is True
+            assert schema.is_component_field("seo") is True
+            assert schema.get_relation_target("author") == "api::author.author"
+            assert schema.get_component_uid("seo") == "shared.seo"
+
+
+class TestAsyncContentTypeBuilderV5:
+    """Tests for AsyncClient Content-Type Builder methods with Strapi v5 responses (Issue #25)."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_content_types_v5(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_content_types_response: dict,
+    ) -> None:
+        """Test listing content types with v5 nested schema format."""
+        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+            return_value=Response(200, json=mock_v5_content_types_response)
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            content_types = await client.get_content_types()
+
+            # Should exclude plugin content types by default
+            assert len(content_types) == 2
+            assert all(isinstance(ct, ContentTypeListItem) for ct in content_types)
+
+            # Check normalization worked
+            article = content_types[0]
+            assert article.uid == "api::article.article"
+            assert article.info.display_name == "Article"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_components_v5(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_components_response: dict,
+    ) -> None:
+        """Test listing components with v5 nested schema format."""
+        respx.get("http://localhost:1337/api/content-type-builder/components").mock(
+            return_value=Response(200, json=mock_v5_components_response)
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            components = await client.get_components()
+
+            assert len(components) == 2
+            assert all(isinstance(c, ComponentListItem) for c in components)
+
+            # Check normalization worked
+            seo = components[0]
+            assert seo.uid == "shared.seo"
+            assert seo.category == "shared"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_content_type_schema_v5(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_content_type_response: dict,
+    ) -> None:
+        """Test getting single content type schema with v5 format."""
+        uid = "api::article.article"
+        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+            return_value=Response(200, json=mock_v5_single_content_type_response)
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            schema = await client.get_content_type_schema(uid)
+
+            assert isinstance(schema, CTBContentTypeSchema)
+            assert schema.uid == uid
+            assert schema.display_name == "Article"
+
+
+class TestV5NormalizationHelpers:
+    """Tests for v5 normalization helper methods."""
+
+    def test_normalize_content_type_item_v5_format(self, strapi_config: StrapiConfig) -> None:
+        """Test normalizing v5 content type item with nested schema."""
+        with SyncClient(strapi_config) as client:
+            v5_item = {
+                "uid": "api::article.article",
+                "apiID": "article",
+                "schema": {
+                    "kind": "collectionType",
+                    "info": {"displayName": "Article"},
+                    "attributes": {"title": {"type": "string"}},
+                    "pluginOptions": {"i18n": {"localized": True}},
+                },
+            }
+
+            normalized = client._normalize_content_type_item(v5_item)
+
+            assert normalized["uid"] == "api::article.article"
+            assert normalized["kind"] == "collectionType"
+            assert normalized["info"] == {"displayName": "Article"}
+            assert normalized["attributes"] == {"title": {"type": "string"}}
+            assert normalized["pluginOptions"] == {"i18n": {"localized": True}}
+            # apiID should not be in normalized output
+            assert "apiID" not in normalized
+            assert "schema" not in normalized
+
+    def test_normalize_content_type_item_v4_format(self, strapi_config: StrapiConfig) -> None:
+        """Test normalizing v4 content type item (passthrough)."""
+        with SyncClient(strapi_config) as client:
+            v4_item = {
+                "uid": "api::article.article",
+                "kind": "collectionType",
+                "info": {"displayName": "Article"},
+                "attributes": {"title": {"type": "string"}},
+            }
+
+            normalized = client._normalize_content_type_item(v4_item)
+
+            # Should be unchanged
+            assert normalized == v4_item
+
+    def test_normalize_component_item_v5_format(self, strapi_config: StrapiConfig) -> None:
+        """Test normalizing v5 component item with nested schema."""
+        with SyncClient(strapi_config) as client:
+            v5_item = {
+                "uid": "shared.seo",
+                "category": "shared",
+                "schema": {
+                    "info": {"displayName": "SEO"},
+                    "attributes": {"metaTitle": {"type": "string"}},
+                },
+            }
+
+            normalized = client._normalize_component_item(v5_item)
+
+            assert normalized["uid"] == "shared.seo"
+            assert normalized["category"] == "shared"
+            assert normalized["info"] == {"displayName": "SEO"}
+            assert normalized["attributes"] == {"metaTitle": {"type": "string"}}
+            assert "schema" not in normalized
+
+    def test_normalize_component_item_v4_format(self, strapi_config: StrapiConfig) -> None:
+        """Test normalizing v4 component item (passthrough)."""
+        with SyncClient(strapi_config) as client:
+            v4_item = {
+                "uid": "shared.seo",
+                "category": "shared",
+                "info": {"displayName": "SEO"},
+                "attributes": {"metaTitle": {"type": "string"}},
+            }
+
+            normalized = client._normalize_component_item(v4_item)
+
+            # Should be unchanged
+            assert normalized == v4_item
