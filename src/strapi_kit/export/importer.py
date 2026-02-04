@@ -616,7 +616,7 @@ class StrapiImporter:
 
             if response.data:
                 return response.data[0].id
-        except Exception:  # noqa: S110 - Intentionally ignore lookup failures
+        except Exception:  # noqa: BLE001, S110 - Intentionally ignore lookup failures
             pass
         return None
 
@@ -974,7 +974,7 @@ class StrapiImporter:
                         # Get schema from cache
                         try:
                             schema = self._schema_cache.get_schema(content_type)
-                        except Exception:  # noqa: S112 - Skip content types without schema
+                        except Exception:  # noqa: BLE001, S112 - Skip content types without schema
                             continue
 
                         try:
