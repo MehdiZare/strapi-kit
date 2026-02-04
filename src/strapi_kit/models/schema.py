@@ -1,11 +1,11 @@
 """Content type schema models."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class FieldType(str, Enum):
+class FieldType(StrEnum):
     """Field types in Strapi."""
 
     STRING = "string"
@@ -31,7 +31,7 @@ class FieldType(str, Enum):
     UID = "uid"
 
 
-class RelationType(str, Enum):
+class RelationType(StrEnum):
     """Relation types in Strapi."""
 
     ONE_TO_ONE = "oneToOne"
