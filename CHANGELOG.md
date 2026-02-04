@@ -7,17 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-02-03
+
 ### Fixed
 
-- **Exception handling improvements** ([#23](https://github.com/MehdiZare/strapi-kit/pull/23))
+- **StrapiConfig extra env vars** ([#25](https://github.com/MehdiZare/strapi-kit/issues/25), [#26](https://github.com/MehdiZare/strapi-kit/pull/26))
+  - Added `extra="ignore"` to `StrapiConfig` and `RetryConfig` model_config
+  - Prevents `ValidationError: Extra inputs are not permitted` when unrelated `STRAPI_*` environment variables exist
+
+- **Content type v5 parsing** ([#25](https://github.com/MehdiZare/strapi-kit/issues/25), [#26](https://github.com/MehdiZare/strapi-kit/pull/26))
+  - Added `_normalize_content_type_item()` and `_normalize_content_types_list()` helpers
+  - Flattens nested `schema` structure returned by Strapi v5 Content-Type Builder API
+  - `get_content_types()`, `get_components()`, and `get_content_type_schema()` now work with both v4 and v5
+
+- **Exception handling improvements** ([#23](https://github.com/MehdiZare/strapi-kit/pull/23), [#24](https://github.com/MehdiZare/strapi-kit/pull/24))
   - Use `StrapiError` instead of bare `Exception` in examples for precise error handling
   - Catch `PydanticValidationError` specifically in Content-Type Builder parsing
   - Add proper exception chaining when re-raising validation errors
   - Fix docstring to document `ConfigurationError` instead of `ValueError`
 
-- **Singularization bug fix** ([#23](https://github.com/MehdiZare/strapi-kit/pull/23))
+- **Singularization bug fix** ([#23](https://github.com/MehdiZare/strapi-kit/pull/23), [#24](https://github.com/MehdiZare/strapi-kit/pull/24))
   - Fix `api_id_to_singular()` for `-zzes` endings: `quizzes` → `quiz`, `buzzes` → `buzz`
   - Use length-based heuristic to distinguish single-z doubled vs double-z base words
+
+### Changed
+
+- **StrEnum migration** ([#26](https://github.com/MehdiZare/strapi-kit/pull/26))
+  - Refactored 6 enum classes from `(str, Enum)` to `StrEnum` (Python 3.11+)
+  - Affected: `FilterOperator`, `SortDirection`, `PublicationState`, `ConflictResolution`, `FieldType`, `RelationType`
+  - Fixes UP042 linting errors in ruff preview mode
+
+- Test coverage maintained at 86% (542 passing tests)
+- Added 14 new tests for config extra env vars and v5 content type parsing
 
 ### Added
 
@@ -42,10 +63,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Support for flat SEO fields (metaTitle, meta_description, ogTitle, etc.)
   - Case-insensitive matching for field names and component UIDs
 
-### Changed
+## [0.0.5] - 2025-01-XX
 
-- Test coverage increased from 85% to 86% (528 passing tests)
-- Added 68 new tests for Content-Type Builder, UID utilities, and SEO detection
+### Added
+
+- Retry logic with exponential backoff
+- Rate limit handling with Retry-After support
+- Bulk operations (create, update, delete)
+- Progress callbacks for long operations
+
+## [0.0.4] - 2025-01-XX
+
+### Added
+
+- Media upload/download operations
+- Streaming support for large files
+
+## [0.0.3] - 2025-01-XX
+
+### Added
+
+- Type-safe query builder
+- Response normalization for v4/v5
 
 ## [0.0.2] - 2025-01-XX
 
@@ -76,6 +115,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependency injection support with protocols
 - Full type hints and mypy strict mode compliance
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.6...HEAD
+[0.0.6]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.5...v0.0.6
+[0.0.5]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.4...v0.0.5
+[0.0.4]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.3...v0.0.4
+[0.0.3]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/MehdiZare/strapi-kit/releases/tag/v0.0.1

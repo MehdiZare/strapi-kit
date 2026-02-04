@@ -6,7 +6,7 @@ This module defines core enums used throughout the models package:
 - PublicationState: Draft, published, preview content states
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 # Type aliases for common Strapi types
@@ -14,7 +14,7 @@ StrapiVersion = Literal["v4", "v5", "auto"]
 LocaleCode = str  # ISO 639-1 language codes (e.g., "en", "fr", "de")
 
 
-class FilterOperator(str, Enum):
+class FilterOperator(StrEnum):
     """Filter operators supported by Strapi REST API.
 
     Strapi supports 24 filter operators for querying content.
@@ -66,7 +66,7 @@ class FilterOperator(str, Enum):
     NOT = "$not"  # Logical NOT
 
 
-class SortDirection(str, Enum):
+class SortDirection(StrEnum):
     """Sort direction for query results.
 
     Examples:
@@ -80,7 +80,7 @@ class SortDirection(str, Enum):
     DESC = "desc"  # Descending order (Z-A, 9-0, newest-oldest)
 
 
-class PublicationState(str, Enum):
+class PublicationState(StrEnum):
     """Content publication state filter.
 
     Only applicable to content types with draft & publish enabled.

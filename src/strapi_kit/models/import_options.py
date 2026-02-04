@@ -4,12 +4,12 @@ Defines how imported data should be processed and validated.
 """
 
 from collections.abc import Callable
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class ConflictResolution(str, Enum):
+class ConflictResolution(StrEnum):
     """Strategy for handling conflicts during import.
 
     Attributes:
