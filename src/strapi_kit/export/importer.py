@@ -723,10 +723,14 @@ class StrapiImporter:
         options: ImportOptions | None = None,
         media_dir: Path | str | None = None,
     ) -> ImportResult:
-        """Import data from JSONL file with streaming.
+        """Import data from JSONL file with two-pass streaming.
 
-        This method reads entities one at a time from a JSONL file,
-        providing O(1) memory usage regardless of file size.
+        This method uses two-pass streaming for true O(1) memory usage:
+        - Pass 1: Create entities, store only ID mappings (old_id -> new_id)
+        - Pass 2: Re-read file to resolve relations using ID mappings
+
+        Memory profile: O(entity_count × 2 ints) for ID mappings only,
+        not O(entities) for full entity objects.
 
         Args:
             jsonl_path: Path to input JSONL file
@@ -748,14 +752,18 @@ class StrapiImporter:
             ...     print(f"Imported {result.entities_imported} entities")
         """
         from strapi_kit.export.jsonl_reader import JSONLImportReader
-        from strapi_kit.models.export_format import ExportedEntity
 
         if options is None:
             options = ImportOptions()
 
         result = ImportResult(success=False, dry_run=options.dry_run)
+        jsonl_path = Path(jsonl_path)
 
         try:
+            # ============================================================
+            # Pass 1: Read metadata, import media, create entities
+            # Store only ID mappings (O(entity_count × 2 ints))
+            # ============================================================
             with JSONLImportReader(jsonl_path) as reader:
                 # Step 1: Read metadata
                 if options.progress_callback:
@@ -794,8 +802,18 @@ class StrapiImporter:
                                         result.media_skipped += 1
                                         continue
 
-                                # Upload media file
-                                local_path = media_dir_path / media.local_path
+                                # Upload media file with path traversal protection
+                                local_path = (media_dir_path / media.local_path).resolve()
+
+                                # Security: Ensure resolved path stays within media_dir_path
+                                if not local_path.is_relative_to(media_dir_path.resolve()):
+                                    result.add_error(
+                                        f"Security: Invalid media path {media.local_path} - "
+                                        "path traversal detected"
+                                    )
+                                    result.media_skipped += 1
+                                    continue
+
                                 if local_path.exists():
                                     uploaded = self.client.upload_file(str(local_path))
                                     media_id_mapping[media.id] = uploaded.id
@@ -805,26 +823,21 @@ class StrapiImporter:
                             except Exception as e:
                                 result.add_error(f"Failed to import media {media.id}: {e}")
 
-                # Step 3: Import entities - streaming!
+                # Step 3: Create entities - streaming with ID mapping only
                 if options.progress_callback:
-                    options.progress_callback(30, 100, "Importing entities")
+                    options.progress_callback(30, 100, "Creating entities (pass 1)")
 
-                # Group entities by content type for relation resolution
+                # Store only ID mappings: old_id -> new_id (O(entity_count × 2 ints))
                 id_mappings: dict[str, dict[int, int]] = {}
-                entities_by_type: dict[str, list[ExportedEntity]] = {}
 
-                # First pass: create entities
                 for entity in reader.iter_entities():
                     # Filter by content types if specified
                     if options.content_types and entity.content_type not in options.content_types:
                         continue
 
                     content_type = entity.content_type
-                    if content_type not in entities_by_type:
-                        entities_by_type[content_type] = []
+                    if content_type not in id_mappings:
                         id_mappings[content_type] = {}
-
-                    entities_by_type[content_type].append(entity)
 
                     try:
                         # Update media references
@@ -858,8 +871,10 @@ class StrapiImporter:
                                 result.entities_failed += 1
                                 continue
                             elif options.conflict_resolution == ConflictResolution.UPDATE:
-                                # Update existing entity
-                                self.client.update(f"{endpoint}/{existing_id}", data=entity_data)
+                                # Update existing entity (use document_id for v5 endpoint)
+                                self.client.update(
+                                    f"{endpoint}/{entity.document_id}", data=entity_data
+                                )
                                 id_mappings[content_type][entity.id] = existing_id
                                 result.entities_updated += 1
                                 continue
@@ -874,49 +889,64 @@ class StrapiImporter:
                         result.add_error(f"Failed to import {content_type} {entity.id}: {e}")
                         result.entities_failed += 1
 
-                # Step 4: Import relations
-                if not options.skip_relations and not options.dry_run:
-                    if options.progress_callback:
-                        options.progress_callback(70, 100, "Importing relations")
+            # ============================================================
+            # Pass 2: Re-read file to resolve relations using ID mappings
+            # True O(1) memory - entities processed one at a time
+            # ============================================================
+            if not options.skip_relations and not options.dry_run:
+                if options.progress_callback:
+                    options.progress_callback(70, 100, "Resolving relations (pass 2)")
 
-                    for content_type, entities in entities_by_type.items():
+                with JSONLImportReader(jsonl_path) as reader2:
+                    # Skip metadata (already loaded)
+                    reader2.read_metadata()
+
+                    for entity in reader2.iter_entities():
+                        # Filter by content types if specified
+                        if (
+                            options.content_types
+                            and entity.content_type not in options.content_types
+                        ):
+                            continue
+
+                        # Skip entities without relations
+                        if not entity.relations:
+                            continue
+
+                        content_type = entity.content_type
                         endpoint = self._get_endpoint(content_type)
 
-                        # Get schema from cache or metadata
+                        # Get new ID for this entity
+                        new_id = id_mappings.get(content_type, {}).get(entity.id)
+                        if not new_id:
+                            continue
+
+                        # Get schema from cache
                         try:
                             schema = self._schema_cache.get_schema(content_type)
                         except Exception:  # noqa: S112 - Skip content types without schema
                             continue
 
-                        for entity in entities:
-                            if not entity.relations:
-                                continue
+                        try:
+                            # Resolve relations using ID mappings
+                            resolved = self._resolve_relations_with_schema(
+                                entity.relations, schema, id_mappings
+                            )
 
-                            # Get new ID for this entity
-                            new_id = id_mappings.get(content_type, {}).get(entity.id)
-                            if not new_id:
-                                continue
+                            if resolved:
+                                payload = RelationResolver.build_relation_payload(resolved)
+                                self.client.update(f"{endpoint}/{new_id}", data=payload)
+                                result.relations_imported += 1
+                        except Exception as e:
+                            result.add_warning(
+                                f"Failed to import relations for {content_type} {entity.id}: {e}"
+                            )
 
-                            try:
-                                # Resolve relations
-                                resolved = self._resolve_relations_with_schema(
-                                    entity.relations, schema, id_mappings
-                                )
+            if options.progress_callback:
+                options.progress_callback(100, 100, "Import complete")
 
-                                if resolved:
-                                    payload = RelationResolver.build_relation_payload(resolved)
-                                    self.client.update(f"{endpoint}/{new_id}", data=payload)
-                                    result.relations_imported += 1
-                            except Exception as e:
-                                result.add_warning(
-                                    f"Failed to import relations for {content_type} {entity.id}: {e}"
-                                )
-
-                if options.progress_callback:
-                    options.progress_callback(100, 100, "Import complete")
-
-                result.success = result.entities_failed == 0
-                return result
+            result.success = result.entities_failed == 0
+            return result
 
         except Exception as e:
             result.add_error(f"JSONL import failed: {e}")

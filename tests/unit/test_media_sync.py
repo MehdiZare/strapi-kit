@@ -416,9 +416,7 @@ class TestUpdateMedia:
             assert media.caption == "New caption"
 
     @respx.mock
-    def test_update_media_not_found(
-        self, strapi_config: StrapiConfig, mock_media_response: dict
-    ) -> None:
+    def test_update_media_not_found(self, strapi_config: StrapiConfig) -> None:
         """Test updating non-existent media raises NotFoundError."""
         # Version detection: get_media is called first and returns 404
         respx.get("http://localhost:1337/api/upload/files/999").mock(
