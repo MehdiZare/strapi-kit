@@ -995,6 +995,10 @@ class StrapiImporter:
             if options.progress_callback:
                 options.progress_callback(100, 100, "Import complete")
 
+            # Copy local mappings to result for caller access
+            result.id_mapping = id_mappings
+            result.doc_id_mapping = doc_id_mappings
+
             result.success = result.entities_failed == 0
             return result
 

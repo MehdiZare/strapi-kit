@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Pass 1: Create entities, store only ID mappings (old_id → new_id)
   - Pass 2: Re-read file to resolve relations using ID mappings
   - Memory profile reduced from O(entities) to O(entity_count × 2 ints)
+  - Fixed: ID mappings now properly copied to `ImportResult` for caller access
 
 - **Strapi v5 update endpoint consistency** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
   - Fixed UPDATE conflict resolution to use `document_id` instead of numeric ID for endpoint path
