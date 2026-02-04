@@ -53,6 +53,11 @@ class FieldSchema(BaseModel):
     mapped_by: str | None = None
     inversed_by: str | None = None
 
+    # Component-specific
+    component: str | None = None  # Component UID for COMPONENT type
+    components: list[str] | None = None  # Allowed UIDs for DYNAMIC_ZONE
+    repeatable: bool = False  # True for repeatable components
+
 
 class ContentTypeSchema(BaseModel):
     """Complete schema for a content type."""

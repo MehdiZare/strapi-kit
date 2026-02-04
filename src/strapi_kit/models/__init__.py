@@ -9,7 +9,13 @@ from .content_type import ComponentListItem, ContentTypeListItem
 from .content_type import ContentTypeInfo as CTBContentTypeInfo
 from .content_type import ContentTypeSchema as CTBContentTypeSchema
 from .enums import FilterOperator, PublicationState, SortDirection
-from .export_format import ExportData, ExportedEntity, ExportedMediaFile, ExportMetadata
+from .export_format import (
+    ExportData,
+    ExportedEntity,
+    ExportedMediaFile,
+    ExportFormat,
+    ExportMetadata,
+)
 from .import_options import ConflictResolution, ImportOptions, ImportResult
 from .request.fields import FieldSelection
 from .request.filters import FilterBuilder, FilterCondition, FilterGroup
@@ -47,6 +53,7 @@ __all__ = [
     "ExportMetadata",
     "ExportedEntity",
     "ExportedMediaFile",
+    "ExportFormat",
     "ImportOptions",
     "ImportResult",
     "ConflictResolution",

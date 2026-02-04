@@ -5,6 +5,7 @@ and version compatibility.
 """
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import PureWindowsPath
 from typing import Any
 
@@ -13,6 +14,18 @@ from pydantic import BaseModel, Field, field_validator
 from strapi_kit.exceptions import FormatError
 
 from .schema import ContentTypeSchema
+
+
+class ExportFormat(StrEnum):
+    """Export file format options.
+
+    Attributes:
+        JSON: Standard JSON format (default). Loads entire file into memory.
+        JSONL: JSON Lines format. Streams entities one per line for O(1) memory.
+    """
+
+    JSON = "json"
+    JSONL = "jsonl"
 
 
 class ExportMetadata(BaseModel):

@@ -111,6 +111,12 @@ class StrapiImporter:
             # Step 1.5: Load schemas from export metadata
             self._load_schemas_from_export(export_data)
 
+            # Step 1.6: Validate relations if requested
+            if options.validate_relations:
+                if options.progress_callback:
+                    options.progress_callback(10, 100, "Validating relations")
+                self._validate_relations(export_data, result)
+
             # Step 2: Filter content types if specified
             content_types_to_import = self._get_content_types_to_import(export_data, options)
 
@@ -189,6 +195,48 @@ class StrapiImporter:
         if export_data.get_entity_count() == 0:
             result.add_warning("No entities to import")
 
+    def _validate_relations(self, export_data: ExportData, result: ImportResult) -> None:
+        """Validate that all relation targets exist in export data.
+
+        This pre-import validation ensures all referenced entities are present
+        in the export, warning about any missing targets.
+
+        Args:
+            export_data: Export data to validate
+            result: Result object to add warnings to
+        """
+        # Build set of available IDs per content type
+        available_ids: dict[str, set[int]] = {}
+        for ct, entities in export_data.entities.items():
+            available_ids[ct] = {e.id for e in entities}
+
+        # Check all relations
+        for ct, entities in export_data.entities.items():
+            # Get schema for this content type
+            schema = export_data.metadata.schemas.get(ct)
+            if not schema:
+                continue
+
+            for entity in entities:
+                for field_name, target_ids in entity.relations.items():
+                    target_ct = schema.get_field_target(field_name)
+                    if not target_ct:
+                        continue
+
+                    if target_ct not in available_ids:
+                        result.add_warning(
+                            f"{ct}#{entity.id}.{field_name} -> target type '{target_ct}' "
+                            "not in export"
+                        )
+                        continue
+
+                    missing = set(target_ids) - available_ids.get(target_ct, set())
+                    if missing:
+                        result.add_warning(
+                            f"{ct}#{entity.id}.{field_name} -> missing IDs in {target_ct}: "
+                            f"{sorted(missing)}"
+                        )
+
     def _get_content_types_to_import(
         self, export_data: ExportData, options: ImportOptions
     ) -> list[str]:
@@ -231,83 +279,102 @@ class StrapiImporter:
             options: Import options
             result: Result object to update
         """
+        total_entities = sum(len(export_data.entities.get(ct, [])) for ct in content_types)
+        processed = 0
+
         for content_type in content_types:
             entities = export_data.entities.get(content_type, [])
 
             # Get endpoint from schema (prefers plural_name) or fallback to UID
             endpoint = self._get_endpoint(content_type)
 
-            for entity in entities:
-                try:
-                    # Update media references if we have mappings
-                    entity_data = entity.data
-                    if media_id_mapping:
-                        entity_data = MediaHandler.update_media_references(
-                            entity.data, media_id_mapping
-                        )
+            # Process entities in batches for progress reporting
+            for batch_start in range(0, len(entities), options.batch_size):
+                batch = entities[batch_start : batch_start + options.batch_size]
 
-                    if options.dry_run:
-                        # Just validate, don't actually create
-                        result.entities_imported += 1
-                        continue
+                for entity in batch:
+                    try:
+                        # Update media references if we have mappings
+                        entity_data = entity.data
+                        if media_id_mapping:
+                            entity_data = MediaHandler.update_media_references(
+                                entity.data, media_id_mapping
+                            )
 
-                    # Check for existing entity if document_id is available (for conflict handling)
-                    existing_id: int | None = None
-                    if entity.document_id:
-                        existing_id = self._check_entity_exists(endpoint, entity.document_id)
-
-                    if existing_id is not None:
-                        # Entity already exists - handle according to conflict resolution
-                        if options.conflict_resolution == ConflictResolution.SKIP:
-                            result.entities_skipped += 1
-                            # Still track the ID mapping for relations
-                            if content_type not in result.id_mapping:
-                                result.id_mapping[content_type] = {}
-                            result.id_mapping[content_type][entity.id] = existing_id
+                        if options.dry_run:
+                            # Just validate, don't actually create
+                            result.entities_imported += 1
                             continue
 
-                        elif options.conflict_resolution == ConflictResolution.FAIL:
-                            raise ImportExportError(
-                                f"Entity already exists: {content_type} with documentId "
-                                f"{entity.document_id}. Use conflict_resolution=SKIP or UPDATE."
-                            )
+                        # Check for existing entity if document_id is available (for conflict handling)
+                        existing_id: int | None = None
+                        if entity.document_id:
+                            existing_id = self._check_entity_exists(endpoint, entity.document_id)
 
-                        elif options.conflict_resolution == ConflictResolution.UPDATE:
-                            # Update existing entity
-                            response = self.client.update(
-                                f"{endpoint}/{entity.document_id}",
-                                entity_data,
-                            )
-                            if response.data:
+                        if existing_id is not None:
+                            # Entity already exists - handle according to conflict resolution
+                            if options.conflict_resolution == ConflictResolution.SKIP:
+                                result.entities_skipped += 1
+                                # Still track the ID mapping for relations
                                 if content_type not in result.id_mapping:
                                     result.id_mapping[content_type] = {}
-                                result.id_mapping[content_type][entity.id] = response.data.id
-                                result.entities_updated += 1
-                            continue
+                                result.id_mapping[content_type][entity.id] = existing_id
+                                continue
 
-                    # Create new entity
-                    response = self.client.create(endpoint, entity_data)
+                            elif options.conflict_resolution == ConflictResolution.FAIL:
+                                raise ImportExportError(
+                                    f"Entity already exists: {content_type} with documentId "
+                                    f"{entity.document_id}. Use conflict_resolution=SKIP or UPDATE."
+                                )
 
-                    if response.data:
-                        # Track ID mapping for relation resolution
-                        if content_type not in result.id_mapping:
-                            result.id_mapping[content_type] = {}
+                            elif options.conflict_resolution == ConflictResolution.UPDATE:
+                                # Update existing entity
+                                response = self.client.update(
+                                    f"{endpoint}/{entity.document_id}",
+                                    entity_data,
+                                )
+                                if response.data:
+                                    if content_type not in result.id_mapping:
+                                        result.id_mapping[content_type] = {}
+                                    result.id_mapping[content_type][entity.id] = response.data.id
+                                    result.entities_updated += 1
+                                continue
 
-                        result.id_mapping[content_type][entity.id] = response.data.id
-                        result.entities_imported += 1
+                        # Create new entity
+                        response = self.client.create(endpoint, entity_data)
 
-                except ValidationError as e:
-                    result.add_error(f"Validation error importing {content_type} #{entity.id}: {e}")
-                    result.entities_failed += 1
+                        if response.data:
+                            # Track ID mapping for relation resolution
+                            if content_type not in result.id_mapping:
+                                result.id_mapping[content_type] = {}
 
-                except ImportExportError:
-                    # Re-raise ImportExportError (e.g., from FAIL conflict resolution)
-                    raise
+                            result.id_mapping[content_type][entity.id] = response.data.id
+                            result.entities_imported += 1
 
-                except StrapiError as e:
-                    # Catch Strapi-specific errors (API errors, network issues, etc.)
-                    result.add_error(f"Failed to import {content_type} #{entity.id}: {e}")
-                    result.entities_failed += 1
+                    except ValidationError as e:
+                        result.add_error(
+                            f"Validation error importing {content_type} #{entity.id}: {e}"
+                        )
+                        result.entities_failed += 1
+
+                    except ImportExportError:
+                        # Re-raise ImportExportError (e.g., from FAIL conflict resolution)
+                        raise
+
+                    except StrapiError as e:
+                        # Catch Strapi-specific errors (API errors, network issues, etc.)
+                        result.add_error(f"Failed to import {content_type} #{entity.id}: {e}")
+                        result.entities_failed += 1
+
+                    finally:
+                        processed += 1
+
+                # Batch progress callback
+                if options.progress_callback and total_entities > 0:
+                    progress = 40 + int((processed / total_entities) * 20)
+                    options.progress_callback(
+                        progress, 100, f"Importing entities ({processed}/{total_entities})"
+                    )
 
     def _check_entity_exists(self, endpoint: str, document_id: str) -> int | None:
         """Check if an entity exists by document ID.
@@ -446,6 +513,16 @@ class StrapiImporter:
                     result.media_imported += 1
                     continue
 
+                # Check for existing media with same hash (if not overwriting)
+                if not options.overwrite_media:
+                    existing_id = self._find_media_by_hash(exported_media.hash)
+                    if existing_id is not None:
+                        # Use existing media - no need to upload
+                        media_id_mapping[exported_media.id] = existing_id
+                        result.media_skipped += 1
+                        logger.debug(f"Media {exported_media.name} already exists (hash match)")
+                        continue
+
                 # Find local file with path traversal protection
                 file_path = (media_path / exported_media.local_path).resolve()
 
@@ -490,6 +567,28 @@ class StrapiImporter:
             self._schema_cache.cache_schema(content_type, schema)
 
         logger.info(f"Loaded {self._schema_cache.cache_size} schemas from export")
+
+    def _find_media_by_hash(self, file_hash: str) -> int | None:
+        """Find existing media file by hash.
+
+        Args:
+            file_hash: File hash to search for
+
+        Returns:
+            Media ID if found, None otherwise
+        """
+        try:
+            from strapi_kit.models.request.filters import FilterBuilder
+            from strapi_kit.models.request.query import StrapiQuery
+
+            query = StrapiQuery().filter(FilterBuilder().eq("hash", file_hash))
+            response = self.client.list_media(query)
+
+            if response.data:
+                return response.data[0].id
+        except Exception:  # nosec B110 - Intentionally ignore lookup failures
+            pass
+        return None
 
     def _resolve_relations_with_schema(
         self,
@@ -617,3 +716,208 @@ class StrapiImporter:
             API endpoint (e.g., "articles")
         """
         return StrapiImporter._uid_to_endpoint_fallback(uid)
+
+    def import_from_jsonl(
+        self,
+        jsonl_path: str | Path,
+        options: ImportOptions | None = None,
+        media_dir: Path | str | None = None,
+    ) -> ImportResult:
+        """Import data from JSONL file with streaming.
+
+        This method reads entities one at a time from a JSONL file,
+        providing O(1) memory usage regardless of file size.
+
+        Args:
+            jsonl_path: Path to input JSONL file
+            options: Import options (uses defaults if None)
+            media_dir: Directory containing media files from export
+
+        Returns:
+            ImportResult with statistics and any errors
+
+        Raises:
+            ImportExportError: If import fails critically
+
+        Example:
+            >>> result = importer.import_from_jsonl(
+            ...     "export.jsonl",
+            ...     media_dir="media/"
+            ... )
+            >>> if result.success:
+            ...     print(f"Imported {result.entities_imported} entities")
+        """
+        from strapi_kit.export.jsonl_reader import JSONLImportReader
+        from strapi_kit.models.export_format import ExportedEntity
+
+        if options is None:
+            options = ImportOptions()
+
+        result = ImportResult(success=False, dry_run=options.dry_run)
+
+        try:
+            with JSONLImportReader(jsonl_path) as reader:
+                # Step 1: Read metadata
+                if options.progress_callback:
+                    options.progress_callback(0, 100, "Reading metadata")
+
+                metadata = reader.read_metadata()
+
+                # Load schemas from metadata
+                for ct, schema in metadata.schemas.items():
+                    self._schema_cache.cache_schema(ct, schema)
+
+                # Step 2: Import media first (if requested)
+                media_id_mapping: dict[int, int] = {}
+                if options.import_media:
+                    if options.progress_callback:
+                        options.progress_callback(10, 100, "Importing media files")
+
+                    media_files = reader.read_media_manifest()
+                    if media_files and media_dir:
+                        media_dir_path = Path(media_dir)
+                        for media in media_files:
+                            try:
+                                if options.dry_run:
+                                    result.media_imported += 1
+                                    continue
+
+                                # Check for existing media (overwrite_media option)
+                                if (
+                                    hasattr(options, "overwrite_media")
+                                    and not options.overwrite_media
+                                ):
+                                    # Try to find by hash
+                                    existing = self._find_media_by_hash(media.hash)
+                                    if existing:
+                                        media_id_mapping[media.id] = existing
+                                        result.media_skipped += 1
+                                        continue
+
+                                # Upload media file
+                                local_path = media_dir_path / media.local_path
+                                if local_path.exists():
+                                    uploaded = self.client.upload_file(str(local_path))
+                                    media_id_mapping[media.id] = uploaded.id
+                                    result.media_imported += 1
+                                else:
+                                    result.add_warning(f"Media file not found: {local_path}")
+                            except Exception as e:
+                                result.add_error(f"Failed to import media {media.id}: {e}")
+
+                # Step 3: Import entities - streaming!
+                if options.progress_callback:
+                    options.progress_callback(30, 100, "Importing entities")
+
+                # Group entities by content type for relation resolution
+                id_mappings: dict[str, dict[int, int]] = {}
+                entities_by_type: dict[str, list[ExportedEntity]] = {}
+
+                # First pass: create entities
+                for entity in reader.iter_entities():
+                    # Filter by content types if specified
+                    if options.content_types and entity.content_type not in options.content_types:
+                        continue
+
+                    content_type = entity.content_type
+                    if content_type not in entities_by_type:
+                        entities_by_type[content_type] = []
+                        id_mappings[content_type] = {}
+
+                    entities_by_type[content_type].append(entity)
+
+                    try:
+                        # Update media references
+                        entity_data = entity.data
+                        if media_id_mapping:
+                            entity_data = MediaHandler.update_media_references(
+                                entity.data, media_id_mapping
+                            )
+
+                        if options.dry_run:
+                            result.entities_imported += 1
+                            continue
+
+                        # Get endpoint
+                        endpoint = self._get_endpoint(content_type)
+
+                        # Check for existing entity
+                        existing_id = None
+                        if entity.document_id:
+                            existing_id = self._check_entity_exists(endpoint, entity.document_id)
+
+                        if existing_id:
+                            if options.conflict_resolution == ConflictResolution.SKIP:
+                                id_mappings[content_type][entity.id] = existing_id
+                                result.entities_skipped += 1
+                                continue
+                            elif options.conflict_resolution == ConflictResolution.FAIL:
+                                result.add_error(
+                                    f"Entity already exists: {content_type} {entity.document_id}"
+                                )
+                                result.entities_failed += 1
+                                continue
+                            elif options.conflict_resolution == ConflictResolution.UPDATE:
+                                # Update existing entity
+                                self.client.update(f"{endpoint}/{existing_id}", data=entity_data)
+                                id_mappings[content_type][entity.id] = existing_id
+                                result.entities_updated += 1
+                                continue
+
+                        # Create new entity
+                        response = self.client.create(endpoint, data=entity_data)
+                        if response.data:
+                            id_mappings[content_type][entity.id] = response.data.id
+                        result.entities_imported += 1
+
+                    except Exception as e:
+                        result.add_error(f"Failed to import {content_type} {entity.id}: {e}")
+                        result.entities_failed += 1
+
+                # Step 4: Import relations
+                if not options.skip_relations and not options.dry_run:
+                    if options.progress_callback:
+                        options.progress_callback(70, 100, "Importing relations")
+
+                    for content_type, entities in entities_by_type.items():
+                        endpoint = self._get_endpoint(content_type)
+
+                        # Get schema from cache or metadata
+                        try:
+                            schema = self._schema_cache.get_schema(content_type)
+                        except Exception:  # nosec B112 - Skip content types without schema
+                            continue
+
+                        for entity in entities:
+                            if not entity.relations:
+                                continue
+
+                            # Get new ID for this entity
+                            new_id = id_mappings.get(content_type, {}).get(entity.id)
+                            if not new_id:
+                                continue
+
+                            try:
+                                # Resolve relations
+                                resolved = self._resolve_relations_with_schema(
+                                    entity.relations, schema, id_mappings
+                                )
+
+                                if resolved:
+                                    payload = RelationResolver.build_relation_payload(resolved)
+                                    self.client.update(f"{endpoint}/{new_id}", data=payload)
+                                    result.relations_imported += 1
+                            except Exception as e:
+                                result.add_warning(
+                                    f"Failed to import relations for {content_type} {entity.id}: {e}"
+                                )
+
+                if options.progress_callback:
+                    options.progress_callback(100, 100, "Import complete")
+
+                result.success = result.entities_failed == 0
+                return result
+
+        except Exception as e:
+            result.add_error(f"JSONL import failed: {e}")
+            raise ImportExportError(f"JSONL import failed: {e}") from e
