@@ -12,7 +12,7 @@ class FieldType(StrEnum):
     TEXT = "text"
     RICH_TEXT = "richtext"
     EMAIL = "email"
-    PASSWORD = "password"  # nosec B105 - This is a field type enum, not a hardcoded password
+    PASSWORD = "password"  # noqa: S105 - Field type enum, not a hardcoded password
     INTEGER = "integer"
     BIG_INTEGER = "biginteger"
     FLOAT = "float"
@@ -52,6 +52,11 @@ class FieldSchema(BaseModel):
     target: str | None = None  # Target content type UID
     mapped_by: str | None = None
     inversed_by: str | None = None
+
+    # Component-specific
+    component: str | None = None  # Component UID for COMPONENT type
+    components: list[str] | None = None  # Allowed UIDs for DYNAMIC_ZONE
+    repeatable: bool = False  # True for repeatable components
 
 
 class ContentTypeSchema(BaseModel):

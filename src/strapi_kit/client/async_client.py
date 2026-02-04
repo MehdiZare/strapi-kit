@@ -585,7 +585,7 @@ class AsyncClient(BaseClient):
         self,
         media_url: str,
         save_path: str | Path | None = None,
-    ) -> bytes:
+    ) -> bytes | Path:
         """Download a media file from Strapi.
 
         Args:
@@ -593,7 +593,7 @@ class AsyncClient(BaseClient):
             save_path: Optional path to save file (if None, returns bytes only)
 
         Returns:
-            File content as bytes
+            File content as bytes when save_path is None, or Path when save_path is provided
 
         Raises:
             MediaError: On download failure
@@ -604,11 +604,13 @@ class AsyncClient(BaseClient):
             >>> len(content)
             102400
 
-            >>> # Download and save to file
-            >>> content = await client.download_file(
+            >>> # Download and save to file (returns Path, not bytes)
+            >>> path = await client.download_file(
             ...     "/uploads/image.jpg",
             ...     save_path="downloaded_image.jpg"
             ... )
+            >>> path.exists()
+            True
         """
         try:
             # Build full URL
@@ -619,19 +621,25 @@ class AsyncClient(BaseClient):
                 if not response.is_success:
                     self._handle_error_response(response)
 
-                # Read content asynchronously
-                chunks = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
-                content = b"".join(chunks)
-
-                # Save to file if path provided
                 if save_path:
+                    # Stream directly to disk for memory efficiency
+                    # Note: Using sync file I/O here as aiofiles is not a dependency
+                    # The streaming download itself is async which is the main benefit
                     path = Path(save_path)
-                    path.write_bytes(content)
-                    logger.info(f"Downloaded {len(content)} bytes to {save_path}")
-
-                return content
+                    total_bytes = 0
+                    with open(path, "wb") as f:
+                        async for chunk in response.aiter_bytes():
+                            f.write(chunk)
+                            total_bytes += len(chunk)
+                    logger.info(f"Downloaded {total_bytes} bytes to {save_path}")
+                    # Return path instead of reading back to avoid memory overhead
+                    return path
+                else:
+                    # Buffer in memory (original behavior for in-memory use)
+                    chunks = []
+                    async for chunk in response.aiter_bytes():
+                        chunks.append(chunk)
+                    return b"".join(chunks)
 
         except StrapiError:
             raise  # Preserve specific error types (NotFoundError, etc.)
@@ -751,6 +759,11 @@ class AsyncClient(BaseClient):
         import json as json_module
 
         try:
+            # Ensure API version is detected before choosing endpoint
+            # When api_version="auto" and no prior API call, _api_version is None
+            if self._api_version is None:
+                await self.get_media(media_id)  # Triggers version detection
+
             # Build update payload
             file_info: dict[str, Any] = {}
             if alternative_text is not None:
@@ -814,8 +827,9 @@ class AsyncClient(BaseClient):
         Args:
             endpoint: API endpoint (e.g., "articles")
             items: List of entity data dicts
-            batch_size: Items per batch (default: 10, currently unused - for API compatibility)
-            max_concurrency: Max concurrent requests (default: 5)
+            batch_size: Items per batch wave (default: 10). Controls memory usage
+                by limiting how many tasks are active at once.
+            max_concurrency: Max parallel requests within each batch (default: 5)
             query: Optional query
             progress_callback: Optional callback(completed, total)
 
@@ -827,16 +841,15 @@ class AsyncClient(BaseClient):
             ...     {"title": "Article 1", "content": "..."},
             ...     {"title": "Article 2", "content": "..."},
             ... ]
-            >>> result = await client.bulk_create("articles", items, max_concurrency=10)
+            >>> result = await client.bulk_create("articles", items, batch_size=20, max_concurrency=10)
             >>> print(f"Created {result.succeeded}/{result.total}")
         """
         successes: list[NormalizedEntity] = []
         failures: list[BulkOperationFailure] = []
-        semaphore = asyncio.Semaphore(max_concurrency)
-        lock = asyncio.Lock()
         completed = 0
+        lock = asyncio.Lock()
 
-        async def create_one(idx: int, item: dict[str, Any]) -> None:
+        async def create_one(idx: int, item: dict[str, Any], semaphore: asyncio.Semaphore) -> None:
             nonlocal completed
 
             async with semaphore:
@@ -864,11 +877,16 @@ class AsyncClient(BaseClient):
                         if progress_callback:
                             progress_callback(completed, len(items))
 
-        # Create all tasks
-        tasks = [create_one(i, item) for i, item in enumerate(items)]
+        # Process items in batches to control memory usage
+        for batch_start in range(0, len(items), batch_size):
+            batch = items[batch_start : batch_start + batch_size]
+            semaphore = asyncio.Semaphore(max_concurrency)
 
-        # Execute with gather (doesn't stop on first error)
-        await asyncio.gather(*tasks, return_exceptions=False)
+            # Create tasks for this batch only
+            tasks = [create_one(batch_start + i, item, semaphore) for i, item in enumerate(batch)]
+
+            # Execute batch with gather
+            await asyncio.gather(*tasks, return_exceptions=False)
 
         return BulkOperationResult(
             successes=successes,
@@ -893,8 +911,9 @@ class AsyncClient(BaseClient):
         Args:
             endpoint: API endpoint (e.g., "articles")
             updates: List of (id, data) tuples
-            batch_size: Items per batch (default: 10, currently unused - for API compatibility)
-            max_concurrency: Max concurrent requests (default: 5)
+            batch_size: Items per batch wave (default: 10). Controls memory usage
+                by limiting how many tasks are active at once.
+            max_concurrency: Max parallel requests within each batch (default: 5)
             query: Optional query
             progress_callback: Optional callback(completed, total)
 
@@ -906,16 +925,17 @@ class AsyncClient(BaseClient):
             ...     (1, {"title": "Updated Title 1"}),
             ...     (2, {"title": "Updated Title 2"}),
             ... ]
-            >>> result = await client.bulk_update("articles", updates)
+            >>> result = await client.bulk_update("articles", updates, batch_size=20)
             >>> print(f"Updated {result.succeeded}/{result.total}")
         """
         successes: list[NormalizedEntity] = []
         failures: list[BulkOperationFailure] = []
-        semaphore = asyncio.Semaphore(max_concurrency)
-        lock = asyncio.Lock()
         completed = 0
+        lock = asyncio.Lock()
 
-        async def update_one(idx: int, entity_id: str | int, data: dict[str, Any]) -> None:
+        async def update_one(
+            idx: int, entity_id: str | int, data: dict[str, Any], semaphore: asyncio.Semaphore
+        ) -> None:
             nonlocal completed
 
             async with semaphore:
@@ -943,11 +963,19 @@ class AsyncClient(BaseClient):
                         if progress_callback:
                             progress_callback(completed, len(updates))
 
-        # Create all tasks
-        tasks = [update_one(i, entity_id, data) for i, (entity_id, data) in enumerate(updates)]
+        # Process updates in batches to control memory usage
+        for batch_start in range(0, len(updates), batch_size):
+            batch = updates[batch_start : batch_start + batch_size]
+            semaphore = asyncio.Semaphore(max_concurrency)
 
-        # Execute with gather
-        await asyncio.gather(*tasks, return_exceptions=False)
+            # Create tasks for this batch only
+            tasks = [
+                update_one(batch_start + i, entity_id, data, semaphore)
+                for i, (entity_id, data) in enumerate(batch)
+            ]
+
+            # Execute batch with gather
+            await asyncio.gather(*tasks, return_exceptions=False)
 
         return BulkOperationResult(
             successes=successes,
@@ -971,8 +999,9 @@ class AsyncClient(BaseClient):
         Args:
             endpoint: API endpoint (e.g., "articles")
             ids: List of entity IDs (numeric or documentId)
-            batch_size: Items per batch (default: 10, currently unused - for API compatibility)
-            max_concurrency: Max concurrent requests (default: 5)
+            batch_size: Items per batch wave (default: 10). Controls memory usage
+                by limiting how many tasks are active at once.
+            max_concurrency: Max parallel requests within each batch (default: 5)
             progress_callback: Optional callback(completed, total)
 
         Returns:
@@ -980,26 +1009,25 @@ class AsyncClient(BaseClient):
 
         Example:
             >>> ids = [1, 2, 3, 4, 5]
-            >>> result = await client.bulk_delete("articles", ids)
+            >>> result = await client.bulk_delete("articles", ids, batch_size=20)
             >>> print(f"Deleted {result.succeeded} articles")
         """
         successes: list[NormalizedEntity] = []
         failures: list[BulkOperationFailure] = []
-        semaphore = asyncio.Semaphore(max_concurrency)
-        lock = asyncio.Lock()
         completed = 0
         success_count = 0
+        lock = asyncio.Lock()
 
-        async def delete_one(idx: int, entity_id: str | int) -> None:
+        async def delete_one(idx: int, entity_id: str | int, semaphore: asyncio.Semaphore) -> None:
             nonlocal completed, success_count
 
             async with semaphore:
                 try:
                     response = await self.remove(f"{endpoint}/{entity_id}")
 
+                    # DELETE may return 204 No Content with no data
+                    # Count as success when no exception is raised
                     async with lock:
-                        # DELETE may return 204 No Content with no data
-                        # Count as success when no exception is raised
                         success_count += 1
                         if response.data:
                             successes.append(response.data)
@@ -1021,11 +1049,19 @@ class AsyncClient(BaseClient):
                         if progress_callback:
                             progress_callback(completed, len(ids))
 
-        # Create all tasks
-        tasks = [delete_one(i, entity_id) for i, entity_id in enumerate(ids)]
+        # Process deletes in batches to control memory usage
+        for batch_start in range(0, len(ids), batch_size):
+            batch = ids[batch_start : batch_start + batch_size]
+            semaphore = asyncio.Semaphore(max_concurrency)
 
-        # Execute with gather
-        await asyncio.gather(*tasks, return_exceptions=False)
+            # Create tasks for this batch only
+            tasks = [
+                delete_one(batch_start + i, entity_id, semaphore)
+                for i, entity_id in enumerate(batch)
+            ]
+
+            # Execute batch with gather
+            await asyncio.gather(*tasks, return_exceptions=False)
 
         return BulkOperationResult(
             successes=successes,

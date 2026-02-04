@@ -221,9 +221,10 @@ class TestDownloadFile:
         save_path = tmp_path / "downloaded.jpg"
 
         async with AsyncClient(strapi_config) as client:
-            content = await client.download_file("/uploads/test.jpg", save_path=save_path)
+            result = await client.download_file("/uploads/test.jpg", save_path=save_path)
 
-            assert content == file_content
+            # When save_path is provided, returns Path (not bytes)
+            assert result == save_path
             assert save_path.exists()
             assert save_path.read_bytes() == file_content
 
@@ -372,6 +373,10 @@ class TestUpdateMedia:
     ) -> None:
         """Test updating media alt text."""
         updated_response = {**mock_media_response, "alternativeText": "Updated alt text"}
+        # Version detection: get_media is called first when _api_version is None
+        respx.get("http://localhost:1337/api/upload/files/1").mock(
+            return_value=httpx.Response(200, json=mock_media_response)
+        )
         # Strapi v5 uses POST /api/upload?id=x for updates
         respx.post(url__regex=r".*/api/upload\?id=1$").mock(
             return_value=httpx.Response(200, json=updated_response)
@@ -393,6 +398,10 @@ class TestUpdateMedia:
             "caption": "New caption",
             "name": "new-name.jpg",
         }
+        # Version detection: get_media is called first when _api_version is None
+        respx.get("http://localhost:1337/api/upload/files/1").mock(
+            return_value=httpx.Response(200, json=mock_media_response)
+        )
         # Strapi v5 uses POST /api/upload?id=x for updates
         respx.post(url__regex=r".*/api/upload\?id=1$").mock(
             return_value=httpx.Response(200, json=updated_response)
@@ -412,8 +421,8 @@ class TestUpdateMedia:
     @respx.mock
     async def test_update_media_not_found(self, strapi_config: StrapiConfig) -> None:
         """Test updating non-existent media raises NotFoundError."""
-        # Strapi v5 uses POST /api/upload?id=x for updates
-        respx.post(url__regex=r".*/api/upload\?id=999$").mock(
+        # Version detection: get_media is called first and returns 404
+        respx.get("http://localhost:1337/api/upload/files/999").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 

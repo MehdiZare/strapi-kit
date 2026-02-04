@@ -59,12 +59,38 @@ def sample_export_data() -> ExportData:
     return ExportData(metadata=metadata, entities=entities)
 
 
+@pytest.fixture
+def mock_article_schema_response() -> dict:
+    """Create mock schema response for articles."""
+    return {
+        "data": {
+            "schema": {
+                "displayName": "Article",
+                "singularName": "article",
+                "pluralName": "articles",
+                "kind": "collectionType",
+                "attributes": {
+                    "title": {"type": "string", "required": True},
+                    "content": {"type": "richtext"},
+                },
+            }
+        }
+    }
+
+
 # Export Tests
 
 
 @respx.mock
-def test_export_content_types(strapi_config: StrapiConfig) -> None:
+def test_export_content_types(
+    strapi_config: StrapiConfig, mock_article_schema_response: dict
+) -> None:
     """Test exporting content types."""
+    # Mock schema fetch (required for schema-aware relation extraction)
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
+
     # Mock paginated response
     respx.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
@@ -98,8 +124,15 @@ def test_export_content_types(strapi_config: StrapiConfig) -> None:
 
 
 @respx.mock
-def test_export_with_progress_callback(strapi_config: StrapiConfig) -> None:
+def test_export_with_progress_callback(
+    strapi_config: StrapiConfig, mock_article_schema_response: dict
+) -> None:
     """Test export with progress callback."""
+    # Mock schema fetch
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
+
     respx.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
@@ -128,8 +161,30 @@ def test_export_with_progress_callback(strapi_config: StrapiConfig) -> None:
 
 
 @respx.mock
-def test_export_multiple_content_types(strapi_config: StrapiConfig) -> None:
+def test_export_multiple_content_types(
+    strapi_config: StrapiConfig, mock_article_schema_response: dict
+) -> None:
     """Test exporting multiple content types."""
+    # Mock schema fetches
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
+
+    mock_author_schema = {
+        "data": {
+            "schema": {
+                "displayName": "Author",
+                "singularName": "author",
+                "pluralName": "authors",
+                "kind": "collectionType",
+                "attributes": {"name": {"type": "string", "required": True}},
+            }
+        }
+    }
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::author.author"
+    ).mock(return_value=httpx.Response(200, json=mock_author_schema))
+
     respx.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,

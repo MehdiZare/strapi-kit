@@ -7,6 +7,7 @@ This package contains helper utilities including:
 """
 
 from strapi_kit.utils.rate_limiter import AsyncTokenBucketRateLimiter, TokenBucketRateLimiter
+from strapi_kit.utils.schema import extract_info_from_schema
 from strapi_kit.utils.seo import SEOConfiguration, detect_seo_configuration
 from strapi_kit.utils.uid import (
     api_id_to_singular,
@@ -31,4 +32,6 @@ __all__ = [
     # SEO utilities
     "detect_seo_configuration",
     "SEOConfiguration",
+    # Schema utilities
+    "extract_info_from_schema",
 ]

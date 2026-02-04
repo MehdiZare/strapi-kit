@@ -7,10 +7,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.0.6] - 2026-02-03
+## [0.1.0] - 2026-02-04
 
 ### Fixed
 
+- **Race conditions in async bulk operations** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Added `asyncio.Lock()` to protect shared state mutations in `bulk_create()`, `bulk_update()`, `bulk_delete()`
+  - Ensures thread-safe updates to `completed`, `successes`, `failures` counters
+
+- **JSONL media manifest stream consumption** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Fixed critical bug where `read_media_manifest()` consumed entity stream
+  - Now uses separate reader for media manifest to preserve entity iteration
+
+- **V5 string relation ID support** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Updated `_extract_ids_from_field()` to accept both `int` and `str` for v5 documentId relations
+  - Added `doc_id_to_new_id` mapping to `ImportResult` for v5 string relation resolution
+  - `_validate_relations()` now tracks both numeric IDs and documentIds
+
+- **JSONL media import metadata preservation** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Use `MediaHandler.upload_media_file()` instead of `client.upload_file()` to preserve alt text and captions
+
+- **Strict mypy compliance** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Changed `self._file: Any` to `IO[str] | None` in `JSONLImportReader` and `JSONLExportWriter`
+  - Added type guard for non-dict `info` payloads in `extract_info_from_schema()`
+  - Narrowed broad `except Exception` catches to `except StrapiError` in JSONL loops
+
+- **Code quality improvements** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Created shared `extract_info_from_schema()` utility in `utils/schema.py`
+  - Added parent directory creation in `JSONLExportWriter.__enter__()`
+  - Use explicit `is not None` checks instead of truthy checks for ID lookups
+  - Replaced Unicode multiplication symbol with plain `x` in docstrings
+
+- **JSONL import path traversal protection** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
+  - Added path traversal validation to JSONL media import matching standard import security pattern
+  - Uses `resolve()` and `is_relative_to()` to prevent directory traversal attacks
+
+- **JSONL import two-pass streaming** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
+  - Refactored `import_from_jsonl()` to use true O(1) memory with two-pass streaming
+  - Pass 1: Create entities, store only ID mappings (old_id → new_id)
+  - Pass 2: Re-read file to resolve relations using ID mappings
+  - Memory profile reduced from O(entities) to O(entity_count x 2 ints)
+  - Fixed: ID mappings now properly copied to `ImportResult` for caller access
+
+- **Strapi v5 update endpoint consistency** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
+  - Fixed UPDATE conflict resolution to use `document_id` instead of numeric ID for endpoint path
+  - Added `doc_id_mapping` field to `ImportResult` to track document_ids for v5 endpoints
+  - Relation updates now use `document_id` when available (v5) with fallback to numeric ID (v4)
+  - Applies to both standard import and JSONL streaming import
+
+- **Removed unused test fixtures** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
+  - Removed unused `mock_media_response` parameter from `test_update_media_not_found` in sync and async tests
+
+- **`update_media` version detection** ([#28](https://github.com/MehdiZare/strapi-kit/issues/28))
+  - Fixed bug where `update_media()` used wrong endpoint when `api_version="auto"` and no prior API calls
+  - Now calls `get_media()` first to trigger version detection before choosing v4 vs v5 endpoint
+
+- **Media download streaming** ([#28](https://github.com/MehdiZare/strapi-kit/issues/28))
+  - Fixed `download_file()` to stream directly to disk when `save_path` is provided
+  - Previously buffered entire file in memory before writing, causing issues with large files
+
+- **Async bulk `batch_size` parameter** ([#28](https://github.com/MehdiZare/strapi-kit/issues/28))
+  - Fixed `batch_size` parameter in async `bulk_create()`, `bulk_update()`, `bulk_delete()`
+  - Now properly processes items in batches to control memory usage
+  - `batch_size` controls items per processing wave, `max_concurrency` controls parallel requests within each wave
+
+### Added
+
+- **Schema-driven relation extraction** ([#28](https://github.com/MehdiZare/strapi-kit/issues/28))
+  - `extract_relations_with_schema()` - Extract relations using content type schema for accuracy
+  - `strip_relations_with_schema()` - Remove only actual relation fields, preserving non-relation fields
+  - Recursive extraction from components and dynamic zones
+  - Extended `FieldSchema` with `component`, `components`, and `repeatable` fields
+  - Added `get_component_schema()` to schema cache for component schema lookups
+  - Exporter now uses schema-aware extraction to avoid false positives
+
+- **JSONL streaming export/import** ([#28](https://github.com/MehdiZare/strapi-kit/issues/28))
+  - `ExportFormat.JSONL` enum for selecting export format
+  - `JSONLExportWriter` - O(1) memory streaming export writer
+  - `JSONLImportReader` - O(1) memory streaming import reader
+  - `exporter.export_to_jsonl()` - Stream entities to JSONL file as they're fetched
+  - `importer.import_from_jsonl()` - Stream import from JSONL file
+  - Enables processing exports larger than available RAM
+
+- **Import options implementation** ([#28](https://github.com/MehdiZare/strapi-kit/issues/28))
+  - `validate_relations` - Pre-import validation that all relation targets exist in export data
+  - `overwrite_media` - Check for existing media by hash before uploading (skip duplicates)
+  - `batch_size` - Batch-based progress reporting during entity import
+  - Added `relations_imported` field to `ImportResult`
+
+### Changed
+
+- Removed empty leftover directories (`import_export/`, `importexport/`)
+- **Consolidated linting tools into ruff**
+  - Replaced bandit with ruff's `S` (flake8-bandit) rules for security checks
+  - Removed bandit dependency from dev requirements
+  - Updated pre-commit hooks, CI workflow, and Makefile
+
+## [0.0.6] - 2026-02-03
+
+### Fixed
 - **StrapiConfig extra env vars** ([#25](https://github.com/MehdiZare/strapi-kit/issues/25), [#26](https://github.com/MehdiZare/strapi-kit/pull/26))
   - Added `extra="ignore"` to `StrapiConfig` and `RetryConfig` model_config
   - Prevents `ValidationError: Extra inputs are not permitted` when unrelated `STRAPI_*` environment variables exist
@@ -115,7 +210,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependency injection support with protocols
 - Full type hints and mypy strict mode compliance
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.6...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.6...v0.1.0
 [0.0.6]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.3...v0.0.4

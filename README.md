@@ -1129,7 +1129,7 @@ pre-commit autoupdate
 - ✅ Code formatting (ruff format)
 - ✅ Linting (ruff check)
 - ✅ Type checking (mypy strict mode)
-- ✅ Security issues (bandit)
+- ✅ Security issues (ruff S rules)
 - ✅ Secrets detection (detect-secrets)
 - ✅ File consistency (trailing whitespace, EOF, etc.)
 

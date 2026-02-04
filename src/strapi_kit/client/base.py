@@ -44,6 +44,7 @@ from ..models.response.normalized import (
 from ..operations.media import normalize_media_response
 from ..parsers import VersionDetectingParser
 from ..protocols import AuthProvider, ConfigProvider, ResponseParser
+from ..utils.schema import extract_info_from_schema
 
 logger = logging.getLogger(__name__)
 
@@ -471,6 +472,9 @@ class BaseClient:
         Strapi v5 returns content types with a nested 'schema' structure:
         {"uid": "...", "apiID": "...", "schema": {"kind": "...", "info": {...}, ...}}
 
+        Or with flat schema properties (actual v5 API - Issue #28):
+        {"uid": "...", "apiID": "...", "schema": {"kind": "...", "displayName": "...", ...}}
+
         This method flattens it to v4 format:
         {"uid": "...", "kind": "...", "info": {...}, "attributes": {...}}
 
@@ -485,7 +489,7 @@ class BaseClient:
             return {
                 "uid": item.get("uid", ""),
                 "kind": schema.get("kind", "collectionType"),
-                "info": schema.get("info", {}),
+                "info": extract_info_from_schema(schema),
                 "attributes": schema.get("attributes", {}),
                 "pluginOptions": schema.get("pluginOptions"),
             }
@@ -496,6 +500,9 @@ class BaseClient:
 
         Strapi v5 returns components with a nested 'schema' structure:
         {"uid": "...", "category": "...", "schema": {"info": {...}, "attributes": {...}}}
+
+        Or with flat schema properties (actual v5 API - Issue #28):
+        {"uid": "...", "category": "...", "schema": {"displayName": "...", "attributes": {...}}}
 
         This method flattens it to v4 format:
         {"uid": "...", "category": "...", "info": {...}, "attributes": {...}}
@@ -511,7 +518,7 @@ class BaseClient:
             return {
                 "uid": item.get("uid", ""),
                 "category": item.get("category", schema.get("category", "")),
-                "info": schema.get("info", {}),
+                "info": extract_info_from_schema(schema),
                 "attributes": schema.get("attributes", {}),
             }
         return item

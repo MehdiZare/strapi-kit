@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..exceptions import StrapiError
 from ..models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
+from ..utils.schema import extract_info_from_schema
 
 if TYPE_CHECKING:
     from ..client.sync_client import SyncClient
@@ -36,6 +37,7 @@ class InMemorySchemaCache:
         """
         self.client = client
         self._cache: dict[str, ContentTypeSchema] = {}
+        self._component_cache: dict[str, ContentTypeSchema] = {}
         self._fetch_count = 0
 
     def get_schema(self, content_type: str) -> ContentTypeSchema:
@@ -88,8 +90,79 @@ class InMemorySchemaCache:
     def clear_cache(self) -> None:
         """Clear all cached schemas."""
         self._cache.clear()
+        self._component_cache.clear()
         self._fetch_count = 0
         logger.debug("Schema cache cleared")
+
+    def get_component_schema(self, component_uid: str) -> ContentTypeSchema:
+        """Get component schema (cached or fetch from API).
+
+        Lazy loading: only fetches on first access.
+
+        Args:
+            component_uid: Component UID (e.g., "blog.author-bio")
+
+        Returns:
+            Component schema
+
+        Raises:
+            StrapiError: If schema fetch fails
+        """
+        # Check cache first
+        if component_uid in self._component_cache:
+            logger.debug(f"Component schema cache hit: {component_uid}")
+            return self._component_cache[component_uid]
+
+        # Cache miss - fetch from API
+        logger.debug(f"Component schema cache miss: {component_uid}")
+        schema = self._fetch_component_schema(component_uid)
+        self._component_cache[component_uid] = schema
+        self._fetch_count += 1
+        return schema
+
+    def has_component_schema(self, component_uid: str) -> bool:
+        """Check if component schema is cached.
+
+        Args:
+            component_uid: Component UID
+
+        Returns:
+            True if schema is cached, False otherwise
+        """
+        return component_uid in self._component_cache
+
+    def _fetch_component_schema(self, component_uid: str) -> ContentTypeSchema:
+        """Fetch component schema from Strapi API.
+
+        Endpoint: GET /api/content-type-builder/components/{uid}
+
+        Args:
+            component_uid: Component UID
+
+        Returns:
+            Parsed component schema
+
+        Raises:
+            StrapiError: If fetch fails
+        """
+        endpoint = f"content-type-builder/components/{component_uid}"
+
+        try:
+            response = self.client.get(endpoint)
+        except Exception as e:
+            raise StrapiError(
+                f"Failed to fetch component schema for {component_uid}",
+                details={"component_uid": component_uid, "error": str(e)},
+            ) from e
+
+        schema_data = response.get("data")
+        if not schema_data:
+            raise StrapiError(
+                f"Invalid component schema response for {component_uid}",
+                details={"response": response},
+            )
+
+        return self._parse_schema_response(component_uid, schema_data)
 
     def _fetch_schema(self, content_type: str) -> ContentTypeSchema:
         """Fetch schema from Strapi API.
@@ -134,8 +207,14 @@ class InMemorySchemaCache:
         Returns:
             Parsed content type schema
         """
-        info = schema_data.get("info", {})
-        attributes = schema_data.get("attributes", {})
+        # Handle v5 nested schema format (Issue #28)
+        if "schema" in schema_data and isinstance(schema_data["schema"], dict):
+            schema = schema_data["schema"]
+        else:
+            schema = schema_data
+
+        info = extract_info_from_schema(schema)
+        attributes = schema.get("attributes", {})
 
         fields: dict[str, FieldSchema] = {}
         for field_name, field_data in attributes.items():
@@ -147,7 +226,7 @@ class InMemorySchemaCache:
         return ContentTypeSchema(
             uid=uid,
             display_name=info.get("displayName", uid),
-            kind=schema_data.get("kind", "collectionType"),
+            kind=schema.get("kind", "collectionType"),
             singular_name=info.get("singularName"),
             plural_name=info.get("pluralName"),
             fields=fields,
@@ -189,6 +268,15 @@ class InMemorySchemaCache:
             schema.target = field_data.get("target")
             schema.mapped_by = field_data.get("mappedBy")
             schema.inversed_by = field_data.get("inversedBy")
+
+        # Component-specific
+        if field_type == FieldType.COMPONENT:
+            schema.component = field_data.get("component")
+            schema.repeatable = field_data.get("repeatable", False)
+
+        # Dynamic zone-specific
+        if field_type == FieldType.DYNAMIC_ZONE:
+            schema.components = field_data.get("components", [])
 
         return schema
 
