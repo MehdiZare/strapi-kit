@@ -870,7 +870,7 @@ class StrapiImporter:
                                 ):
                                     # Try to find by hash
                                     existing = self._find_media_by_hash(media.hash)
-                                    if existing:
+                                    if existing is not None:
                                         media_id_mapping[media.id] = existing
                                         result.media_skipped += 1
                                         continue
@@ -1021,7 +1021,7 @@ class StrapiImporter:
 
                         # Get new ID for this entity
                         new_id = id_mappings.get(content_type, {}).get(entity.id)
-                        if not new_id:
+                        if new_id is None:
                             continue
 
                         # Get document_id for v5 endpoint (falls back to numeric ID for v4)
@@ -1062,6 +1062,7 @@ class StrapiImporter:
             # Copy local mappings to result for caller access
             result.id_mapping = id_mappings
             result.doc_id_mapping = doc_id_mappings
+            result.doc_id_to_new_id = doc_id_to_new_id_mappings
 
             result.success = result.entities_failed == 0
             return result
