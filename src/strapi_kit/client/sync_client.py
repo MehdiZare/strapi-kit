@@ -612,16 +612,20 @@ class SyncClient(BaseClient):
                 if not response.is_success:
                     self._handle_error_response(response)
 
-                # Read content
-                content = b"".join(response.iter_bytes())
-
-                # Save to file if path provided
                 if save_path:
+                    # Stream directly to disk for memory efficiency
                     path = Path(save_path)
-                    path.write_bytes(content)
-                    logger.info(f"Downloaded {len(content)} bytes to {save_path}")
-
-                return content
+                    total_bytes = 0
+                    with open(path, "wb") as f:
+                        for chunk in response.iter_bytes():
+                            f.write(chunk)
+                            total_bytes += len(chunk)
+                    logger.info(f"Downloaded {total_bytes} bytes to {save_path}")
+                    # Read back for API compatibility
+                    return path.read_bytes()
+                else:
+                    # Buffer in memory (original behavior for in-memory use)
+                    return b"".join(response.iter_bytes())
 
         except StrapiError:
             raise  # Preserve specific error types (NotFoundError, etc.)
@@ -741,6 +745,11 @@ class SyncClient(BaseClient):
         import json as json_module
 
         try:
+            # Ensure API version is detected before choosing endpoint
+            # When api_version="auto" and no prior API call, _api_version is None
+            if self._api_version is None:
+                self.get_media(media_id)  # Triggers version detection
+
             # Build update payload
             file_info: dict[str, Any] = {}
             if alternative_text is not None:

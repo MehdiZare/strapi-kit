@@ -17,9 +17,11 @@ from strapi_kit.export.relation_resolver import RelationResolver
 from strapi_kit.models.export_format import (
     ExportData,
     ExportedEntity,
+    ExportedMediaFile,
     ExportMetadata,
 )
 from strapi_kit.models.request.query import StrapiQuery
+from strapi_kit.models.schema import ContentTypeSchema
 from strapi_kit.operations.streaming import stream_entities
 
 if TYPE_CHECKING:
@@ -123,6 +125,9 @@ class StrapiExporter:
                 # Build query with populate_all to ensure relations/media are included
                 export_query = StrapiQuery().populate_all()
 
+                # Get schema for this content type (already cached from _fetch_schemas)
+                schema = self._schema_cache.get_schema(content_type)
+
                 # Stream entities for memory efficiency
                 entities = []
                 for entity in stream_entities(self.client, endpoint, query=export_query):
@@ -132,11 +137,16 @@ class StrapiExporter:
                         media_ids = MediaHandler.extract_media_references(entity.attributes)
                         all_media_ids.update(media_ids)
 
-                    # Extract relations from entity data
-                    relations = RelationResolver.extract_relations(entity.attributes)
+                    # Extract relations using schema for accuracy
+                    # This avoids false positives from fields that look like relations
+                    relations = RelationResolver.extract_relations_with_schema(
+                        entity.attributes, schema, self._schema_cache
+                    )
 
-                    # Strip relations from data to store separately
-                    clean_data = RelationResolver.strip_relations(entity.attributes)
+                    # Strip relations using schema to preserve non-relation fields
+                    clean_data = RelationResolver.strip_relations_with_schema(
+                        entity.attributes, schema
+                    )
 
                     exported_entity = ExportedEntity(
                         id=entity.id,
@@ -383,3 +393,149 @@ class StrapiExporter:
             API endpoint (e.g., "articles")
         """
         return StrapiExporter._uid_to_endpoint_fallback(uid)
+
+    def export_to_jsonl(
+        self,
+        content_types: list[str],
+        output_path: str | Path,
+        *,
+        include_media: bool = True,
+        media_dir: Path | str | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+    ) -> int:
+        """Export content types to JSONL format with streaming.
+
+        This method writes entities directly to disk as they're fetched,
+        providing O(1) memory usage regardless of export size.
+
+        Args:
+            content_types: List of content type UIDs to export
+            output_path: Path to output JSONL file
+            include_media: Whether to include media file references
+            media_dir: Directory to download media files to (if include_media=True)
+            progress_callback: Optional callback(current, total, message)
+
+        Returns:
+            Total number of entities exported
+
+        Raises:
+            ValidationError: If include_media=True but media_dir is not provided
+            ImportExportError: If export fails
+
+        Example:
+            >>> count = exporter.export_to_jsonl(
+            ...     ["api::article.article"],
+            ...     "export.jsonl",
+            ...     media_dir="media/"
+            ... )
+            >>> print(f"Exported {count} entities")
+        """
+        from strapi_kit.export.jsonl_writer import JSONLExportWriter
+
+        if include_media and media_dir is None:
+            raise ValidationError("media_dir must be provided when include_media=True")
+
+        try:
+            # Create initial metadata
+            metadata = ExportMetadata(
+                strapi_version=self.client.api_version or "auto",
+                source_url=self.client.base_url,
+                content_types=content_types,
+            )
+
+            # Fetch schemas upfront
+            schemas: dict[str, ContentTypeSchema] = {}
+            for content_type in content_types:
+                try:
+                    ct_schema = self._schema_cache.get_schema(content_type)
+                    schemas[content_type] = ct_schema
+                    metadata.schemas[content_type] = ct_schema
+                except Exception as e:
+                    logger.warning(f"Failed to fetch schema for {content_type}: {e}")
+
+            all_media_ids: set[int] = set()
+
+            with JSONLExportWriter(output_path) as writer:
+                # Write metadata first
+                writer.write_metadata(metadata)
+
+                total_content_types = len(content_types)
+
+                # Stream entities
+                for idx, content_type in enumerate(content_types):
+                    if progress_callback:
+                        progress_callback(idx, total_content_types, f"Exporting {content_type}")
+
+                    endpoint = self._get_endpoint(content_type)
+                    schema: ContentTypeSchema | None = schemas.get(content_type)
+                    export_query = StrapiQuery().populate_all()
+
+                    for entity in stream_entities(self.client, endpoint, query=export_query):
+                        # Extract media references before stripping
+                        if include_media:
+                            media_ids = MediaHandler.extract_media_references(entity.attributes)
+                            all_media_ids.update(media_ids)
+
+                        # Extract relations using schema if available
+                        if schema:
+                            relations = RelationResolver.extract_relations_with_schema(
+                                entity.attributes, schema, self._schema_cache
+                            )
+                            clean_data = RelationResolver.strip_relations_with_schema(
+                                entity.attributes, schema
+                            )
+                        else:
+                            relations = RelationResolver.extract_relations(entity.attributes)
+                            clean_data = RelationResolver.strip_relations(entity.attributes)
+
+                        exported_entity = ExportedEntity(
+                            id=entity.id,
+                            document_id=entity.document_id,
+                            content_type=content_type,
+                            data=clean_data,
+                            relations=relations,
+                        )
+
+                        # Write immediately - no accumulation in memory
+                        writer.write_entity(exported_entity)
+
+                # Export media if requested
+                media_files: list[ExportedMediaFile] = []
+                if include_media and all_media_ids:
+                    if progress_callback:
+                        progress_callback(
+                            total_content_types,
+                            total_content_types + 1,
+                            "Exporting media files",
+                        )
+
+                    # Type guard: validated at method start
+                    assert media_dir is not None  # noqa: S101
+                    output_dir = Path(media_dir)
+                    output_dir.mkdir(parents=True, exist_ok=True)
+
+                    for media_id in sorted(all_media_ids):
+                        try:
+                            media = self.client.get_media(media_id)
+                            local_path = MediaHandler.download_media_file(
+                                self.client, media, output_dir
+                            )
+                            exported_media = MediaHandler.create_media_export(media, local_path)
+                            media_files.append(exported_media)
+                        except Exception as e:
+                            logger.warning(f"Failed to download media {media_id}: {e}")
+
+                # Write media manifest
+                writer.write_media_manifest(media_files)
+
+                if progress_callback:
+                    progress_callback(
+                        total_content_types,
+                        total_content_types,
+                        "Export complete",
+                    )
+
+                return writer.entity_count
+
+        except Exception as e:
+            raise ImportExportError(f"JSONL export failed: {e}") from e

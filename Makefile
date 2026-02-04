@@ -80,9 +80,9 @@ type-check: ## Run type checking with mypy
 quality: lint type-check ## Run all quality checks (lint + type-check)
 	@echo "$(GREEN)✓ All quality checks passed$(NC)"
 
-security: ## Run security checks (bandit)
+security: ## Run security checks (ruff S rules)
 	@echo "$(BLUE)Running security checks...$(NC)"
-	bandit -c pyproject.toml -r src/
+	ruff check src/ --select S
 	@echo "$(GREEN)✓ Security checks complete$(NC)"
 
 security-baseline: ## Create baseline for detect-secrets

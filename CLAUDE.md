@@ -530,7 +530,7 @@ make install-hooks
 # 1. Format code (ruff format)
 # 2. Fix linting issues (ruff check --fix)
 # 3. Run type checking (mypy)
-# 4. Check for security issues (bandit)
+# 4. Check for security issues (ruff S rules)
 # 5. Prevent committing secrets (detect-secrets)
 
 # Run hooks manually on all files
@@ -544,7 +544,7 @@ make update-hooks
 - ✅ Code formatting (ruff format)
 - ✅ Linting (ruff check with auto-fix)
 - ✅ Type checking (mypy strict mode on src/ only)
-- ✅ Security issues (bandit on src/ only)
+- ✅ Security issues (ruff S rules on src/ only)
 - ✅ Secrets detection (detect-secrets)
 - ✅ File consistency (trailing whitespace, EOF, YAML/TOML syntax, etc.)
 
@@ -555,7 +555,7 @@ git commit --no-verify
 
 **Important notes:**
 - Hooks only run on staged files by default (fast)
-- Type checking and bandit only scan `src/` directory (not tests or examples)
+- Type checking and security checks only scan `src/` directory (not tests or examples)
 - mkdocs.yml is excluded from YAML checks (uses custom tags)
 - Hooks are configured in `.pre-commit-config.yaml`
 - Secrets baseline is stored in `.secrets.baseline`

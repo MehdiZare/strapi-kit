@@ -6,5 +6,7 @@ entities, and media files in a portable format.
 
 from strapi_kit.export.exporter import StrapiExporter
 from strapi_kit.export.importer import StrapiImporter
+from strapi_kit.export.jsonl_reader import JSONLImportReader
+from strapi_kit.export.jsonl_writer import JSONLExportWriter
 
-__all__ = ["StrapiExporter", "StrapiImporter"]
+__all__ = ["StrapiExporter", "StrapiImporter", "JSONLExportWriter", "JSONLImportReader"]
