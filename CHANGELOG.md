@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Race conditions in async bulk operations** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Added `asyncio.Lock()` to protect shared state mutations in `bulk_create()`, `bulk_update()`, `bulk_delete()`
+  - Ensures thread-safe updates to `completed`, `successes`, `failures` counters
+
+- **JSONL media manifest stream consumption** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Fixed critical bug where `read_media_manifest()` consumed entity stream
+  - Now uses separate reader for media manifest to preserve entity iteration
+
+- **V5 string relation ID support** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Updated `_extract_ids_from_field()` to accept both `int` and `str` for v5 documentId relations
+  - Added `doc_id_to_new_id` mapping to `ImportResult` for v5 string relation resolution
+  - `_validate_relations()` now tracks both numeric IDs and documentIds
+
+- **JSONL media import metadata preservation** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Use `MediaHandler.upload_media_file()` instead of `client.upload_file()` to preserve alt text and captions
+
+- **Strict mypy compliance** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Changed `self._file: Any` to `IO[str] | None` in `JSONLImportReader` and `JSONLExportWriter`
+  - Added type guard for non-dict `info` payloads in `extract_info_from_schema()`
+  - Narrowed broad `except Exception` catches to `except StrapiError` in JSONL loops
+
+- **Code quality improvements** ([#30](https://github.com/MehdiZare/strapi-kit/pull/30))
+  - Created shared `extract_info_from_schema()` utility in `utils/schema.py`
+  - Added parent directory creation in `JSONLExportWriter.__enter__()`
+  - Use explicit `is not None` checks instead of truthy checks for ID lookups
+  - Replaced Unicode multiplication symbol with plain `x` in docstrings
+
 - **JSONL import path traversal protection** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
   - Added path traversal validation to JSONL media import matching standard import security pattern
   - Uses `resolve()` and `is_relative_to()` to prevent directory traversal attacks
