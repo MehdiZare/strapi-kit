@@ -888,13 +888,17 @@ class StrapiImporter:
                                     continue
 
                                 if local_path.exists():
-                                    uploaded = self.client.upload_file(str(local_path))
+                                    uploaded = MediaHandler.upload_media_file(
+                                        self.client, local_path, media
+                                    )
                                     media_id_mapping[media.id] = uploaded.id
                                     result.media_imported += 1
                                 else:
                                     result.add_warning(f"Media file not found: {local_path}")
-                            except Exception as e:
+                                    result.media_skipped += 1
+                            except StrapiError as e:
                                 result.add_error(f"Failed to import media {media.id}: {e}")
+                                result.media_skipped += 1
 
                 # Step 3: Create entities - streaming with ID mapping only
                 if options.progress_callback:
@@ -938,7 +942,7 @@ class StrapiImporter:
                         if entity.document_id:
                             existing_id = self._check_entity_exists(endpoint, entity.document_id)
 
-                        if existing_id:
+                        if existing_id is not None:
                             if options.conflict_resolution == ConflictResolution.SKIP:
                                 id_mappings[content_type][entity.id] = existing_id
                                 # Track document_id mappings for v5
@@ -984,7 +988,7 @@ class StrapiImporter:
                                 )
                         result.entities_imported += 1
 
-                    except Exception as e:
+                    except StrapiError as e:
                         result.add_error(f"Failed to import {content_type} {entity.id}: {e}")
                         result.entities_failed += 1
 
@@ -1047,7 +1051,7 @@ class StrapiImporter:
                                 payload = RelationResolver.build_relation_payload(resolved)
                                 self.client.update(f"{endpoint}/{entity_endpoint_id}", data=payload)
                                 result.relations_imported += 1
-                        except Exception as e:
+                        except StrapiError as e:
                             result.add_warning(
                                 f"Failed to import relations for {content_type} {entity.id}: {e}"
                             )
