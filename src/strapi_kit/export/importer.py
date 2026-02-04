@@ -608,8 +608,7 @@ class StrapiImporter:
             Media ID if found, None otherwise
         """
         try:
-            from strapi_kit.models.request.filters import FilterBuilder
-            from strapi_kit.models.request.query import StrapiQuery
+            from strapi_kit.models import FilterBuilder, StrapiQuery
 
             query = StrapiQuery().filter(FilterBuilder().eq("hash", file_hash))
             response = self.client.list_media(query)
@@ -806,13 +805,18 @@ class StrapiImporter:
                     self._schema_cache.cache_schema(ct, schema)
 
                 # Step 2: Import media first (if requested)
+                # Use separate reader to avoid consuming entity stream (Issue #30)
                 media_id_mapping: dict[int, int] = {}
-                if options.import_media:
+                if options.import_media and media_dir:
                     if options.progress_callback:
                         options.progress_callback(10, 100, "Importing media files")
 
-                    media_files = reader.read_media_manifest()
-                    if media_files and media_dir:
+                    # Read media manifest with separate reader to preserve entity stream
+                    with JSONLImportReader(jsonl_path) as media_reader:
+                        media_reader.read_metadata()  # Skip metadata
+                        media_files = media_reader.read_media_manifest()
+
+                    if media_files:
                         media_dir_path = Path(media_dir)
                         for media in media_files:
                             try:

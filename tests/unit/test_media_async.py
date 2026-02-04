@@ -221,9 +221,10 @@ class TestDownloadFile:
         save_path = tmp_path / "downloaded.jpg"
 
         async with AsyncClient(strapi_config) as client:
-            content = await client.download_file("/uploads/test.jpg", save_path=save_path)
+            result = await client.download_file("/uploads/test.jpg", save_path=save_path)
 
-            assert content == file_content
+            # When save_path is provided, returns Path (not bytes)
+            assert result == save_path
             assert save_path.exists()
             assert save_path.read_bytes() == file_content
 

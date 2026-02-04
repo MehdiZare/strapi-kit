@@ -378,45 +378,43 @@ def test_parse_schema_response_actual_v5_format(strapi_config, mock_actual_v5_sc
 
 @respx.mock
 def test_extract_info_from_schema_flat(strapi_config):
-    """Test _extract_info_from_schema with flat v5 format."""
-    with SyncClient(strapi_config) as client:
-        cache = InMemorySchemaCache(client)
+    """Test extract_info_from_schema with flat v5 format."""
+    from strapi_kit.utils.schema import extract_info_from_schema
 
-        flat_schema = {
-            "displayName": "Article",
-            "singularName": "article",
-            "pluralName": "articles",
-            "description": "Blog articles",
-        }
+    flat_schema = {
+        "displayName": "Article",
+        "singularName": "article",
+        "pluralName": "articles",
+        "description": "Blog articles",
+    }
 
-        info = cache._extract_info_from_schema(flat_schema)
+    info = extract_info_from_schema(flat_schema)
 
-        assert info["displayName"] == "Article"
-        assert info["singularName"] == "article"
-        assert info["pluralName"] == "articles"
-        assert info["description"] == "Blog articles"
+    assert info["displayName"] == "Article"
+    assert info["singularName"] == "article"
+    assert info["pluralName"] == "articles"
+    assert info["description"] == "Blog articles"
 
 
 @respx.mock
 def test_extract_info_from_schema_nested(strapi_config):
-    """Test _extract_info_from_schema with nested format (should still work)."""
-    with SyncClient(strapi_config) as client:
-        cache = InMemorySchemaCache(client)
+    """Test extract_info_from_schema with nested format (should still work)."""
+    from strapi_kit.utils.schema import extract_info_from_schema
 
-        nested_schema = {
-            "info": {
-                "displayName": "Article",
-                "singularName": "article",
-                "pluralName": "articles",
-            }
+    nested_schema = {
+        "info": {
+            "displayName": "Article",
+            "singularName": "article",
+            "pluralName": "articles",
         }
+    }
 
-        info = cache._extract_info_from_schema(nested_schema)
+    info = extract_info_from_schema(nested_schema)
 
-        # Should use nested info when present
-        assert info["displayName"] == "Article"
-        assert info["singularName"] == "article"
-        assert info["pluralName"] == "articles"
+    # Should use nested info when present
+    assert info["displayName"] == "Article"
+    assert info["singularName"] == "article"
+    assert info["pluralName"] == "articles"
 
 
 @respx.mock

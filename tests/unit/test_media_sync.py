@@ -223,9 +223,10 @@ class TestDownloadFile:
         save_path = tmp_path / "downloaded.jpg"
 
         with SyncClient(strapi_config) as client:
-            content = client.download_file("/uploads/test.jpg", save_path=save_path)
+            result = client.download_file("/uploads/test.jpg", save_path=save_path)
 
-            assert content == file_content
+            # When save_path is provided, returns Path (not bytes)
+            assert result == save_path
             assert save_path.exists()
             assert save_path.read_bytes() == file_content
 

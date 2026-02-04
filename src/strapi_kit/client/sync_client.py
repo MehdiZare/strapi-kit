@@ -578,7 +578,7 @@ class SyncClient(BaseClient):
         self,
         media_url: str,
         save_path: str | Path | None = None,
-    ) -> bytes:
+    ) -> bytes | Path:
         """Download a media file from Strapi.
 
         Args:
@@ -586,7 +586,7 @@ class SyncClient(BaseClient):
             save_path: Optional path to save file (if None, returns bytes only)
 
         Returns:
-            File content as bytes
+            File content as bytes when save_path is None, or Path when save_path is provided
 
         Raises:
             MediaError: On download failure
@@ -597,11 +597,13 @@ class SyncClient(BaseClient):
             >>> len(content)
             102400
 
-            >>> # Download and save to file
-            >>> content = client.download_file(
+            >>> # Download and save to file (returns Path, not bytes)
+            >>> path = client.download_file(
             ...     "/uploads/image.jpg",
             ...     save_path="downloaded_image.jpg"
             ... )
+            >>> path.exists()
+            True
         """
         try:
             # Build full URL
@@ -621,8 +623,8 @@ class SyncClient(BaseClient):
                             f.write(chunk)
                             total_bytes += len(chunk)
                     logger.info(f"Downloaded {total_bytes} bytes to {save_path}")
-                    # Read back for API compatibility
-                    return path.read_bytes()
+                    # Return path instead of reading back to avoid memory overhead
+                    return path
                 else:
                     # Buffer in memory (original behavior for in-memory use)
                     return b"".join(response.iter_bytes())

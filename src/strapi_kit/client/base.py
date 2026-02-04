@@ -44,6 +44,7 @@ from ..models.response.normalized import (
 from ..operations.media import normalize_media_response
 from ..parsers import VersionDetectingParser
 from ..protocols import AuthProvider, ConfigProvider, ResponseParser
+from ..utils.schema import extract_info_from_schema
 
 logger = logging.getLogger(__name__)
 
@@ -465,32 +466,6 @@ class BaseClient:
         # Media list follows standard collection format
         return self._parse_collection_response(response_data)
 
-    def _extract_info_from_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
-        """Extract info dict from schema, handling both v5 formats.
-
-        Strapi v5 may return info in two formats:
-        1. Nested: schema.info.displayName (alternative format)
-        2. Flat: schema.displayName (actual v5 API format from Issue #28)
-
-        Args:
-            schema: Schema dict from API response
-
-        Returns:
-            Info dict with displayName, singularName, pluralName, description
-        """
-        # Check for nested info object first
-        nested_info: dict[str, Any] = schema.get("info", {})
-        if nested_info.get("displayName"):
-            return nested_info
-
-        # Extract from top-level schema properties (actual v5 format)
-        return {
-            "displayName": schema.get("displayName", ""),
-            "singularName": schema.get("singularName"),
-            "pluralName": schema.get("pluralName"),
-            "description": schema.get("description"),
-        }
-
     def _normalize_content_type_item(self, item: dict[str, Any]) -> dict[str, Any]:
         """Normalize content type item - flatten v5 schema to v4 format.
 
@@ -514,7 +489,7 @@ class BaseClient:
             return {
                 "uid": item.get("uid", ""),
                 "kind": schema.get("kind", "collectionType"),
-                "info": self._extract_info_from_schema(schema),
+                "info": extract_info_from_schema(schema),
                 "attributes": schema.get("attributes", {}),
                 "pluginOptions": schema.get("pluginOptions"),
             }
@@ -543,7 +518,7 @@ class BaseClient:
             return {
                 "uid": item.get("uid", ""),
                 "category": item.get("category", schema.get("category", "")),
-                "info": self._extract_info_from_schema(schema),
+                "info": extract_info_from_schema(schema),
                 "attributes": schema.get("attributes", {}),
             }
         return item

@@ -585,7 +585,7 @@ class AsyncClient(BaseClient):
         self,
         media_url: str,
         save_path: str | Path | None = None,
-    ) -> bytes:
+    ) -> bytes | Path:
         """Download a media file from Strapi.
 
         Args:
@@ -593,7 +593,7 @@ class AsyncClient(BaseClient):
             save_path: Optional path to save file (if None, returns bytes only)
 
         Returns:
-            File content as bytes
+            File content as bytes when save_path is None, or Path when save_path is provided
 
         Raises:
             MediaError: On download failure
@@ -604,11 +604,13 @@ class AsyncClient(BaseClient):
             >>> len(content)
             102400
 
-            >>> # Download and save to file
-            >>> content = await client.download_file(
+            >>> # Download and save to file (returns Path, not bytes)
+            >>> path = await client.download_file(
             ...     "/uploads/image.jpg",
             ...     save_path="downloaded_image.jpg"
             ... )
+            >>> path.exists()
+            True
         """
         try:
             # Build full URL
@@ -630,8 +632,8 @@ class AsyncClient(BaseClient):
                             f.write(chunk)
                             total_bytes += len(chunk)
                     logger.info(f"Downloaded {total_bytes} bytes to {save_path}")
-                    # Read back for API compatibility
-                    return path.read_bytes()
+                    # Return path instead of reading back to avoid memory overhead
+                    return path
                 else:
                     # Buffer in memory (original behavior for in-memory use)
                     chunks = []
@@ -845,6 +847,7 @@ class AsyncClient(BaseClient):
         successes: list[NormalizedEntity] = []
         failures: list[BulkOperationFailure] = []
         completed = 0
+        lock = asyncio.Lock()
 
         async def create_one(idx: int, item: dict[str, Any], semaphore: asyncio.Semaphore) -> None:
             nonlocal completed
@@ -853,24 +856,26 @@ class AsyncClient(BaseClient):
                 try:
                     response = await self.create(endpoint, item, query=query)
 
-                    if response.data:
-                        successes.append(response.data)
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(items))
+                    async with lock:
+                        if response.data:
+                            successes.append(response.data)
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(items))
 
                 except StrapiError as e:
-                    failures.append(
-                        BulkOperationFailure(
-                            index=idx,
-                            item=item,
-                            error=str(e),
-                            exception=e,
+                    async with lock:
+                        failures.append(
+                            BulkOperationFailure(
+                                index=idx,
+                                item=item,
+                                error=str(e),
+                                exception=e,
+                            )
                         )
-                    )
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(items))
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(items))
 
         # Process items in batches to control memory usage
         for batch_start in range(0, len(items), batch_size):
@@ -926,6 +931,7 @@ class AsyncClient(BaseClient):
         successes: list[NormalizedEntity] = []
         failures: list[BulkOperationFailure] = []
         completed = 0
+        lock = asyncio.Lock()
 
         async def update_one(
             idx: int, entity_id: str | int, data: dict[str, Any], semaphore: asyncio.Semaphore
@@ -936,24 +942,26 @@ class AsyncClient(BaseClient):
                 try:
                     response = await self.update(f"{endpoint}/{entity_id}", data, query=query)
 
-                    if response.data:
-                        successes.append(response.data)
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(updates))
+                    async with lock:
+                        if response.data:
+                            successes.append(response.data)
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(updates))
 
                 except StrapiError as e:
-                    failures.append(
-                        BulkOperationFailure(
-                            index=idx,
-                            item={"id": entity_id, "data": data},
-                            error=str(e),
-                            exception=e,
+                    async with lock:
+                        failures.append(
+                            BulkOperationFailure(
+                                index=idx,
+                                item={"id": entity_id, "data": data},
+                                error=str(e),
+                                exception=e,
+                            )
                         )
-                    )
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(updates))
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(updates))
 
         # Process updates in batches to control memory usage
         for batch_start in range(0, len(updates), batch_size):
@@ -1008,6 +1016,7 @@ class AsyncClient(BaseClient):
         failures: list[BulkOperationFailure] = []
         completed = 0
         success_count = 0
+        lock = asyncio.Lock()
 
         async def delete_one(idx: int, entity_id: str | int, semaphore: asyncio.Semaphore) -> None:
             nonlocal completed, success_count
@@ -1018,25 +1027,27 @@ class AsyncClient(BaseClient):
 
                     # DELETE may return 204 No Content with no data
                     # Count as success when no exception is raised
-                    success_count += 1
-                    if response.data:
-                        successes.append(response.data)
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(ids))
+                    async with lock:
+                        success_count += 1
+                        if response.data:
+                            successes.append(response.data)
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(ids))
 
                 except StrapiError as e:
-                    failures.append(
-                        BulkOperationFailure(
-                            index=idx,
-                            item={"id": entity_id},
-                            error=str(e),
-                            exception=e,
+                    async with lock:
+                        failures.append(
+                            BulkOperationFailure(
+                                index=idx,
+                                item={"id": entity_id},
+                                error=str(e),
+                                exception=e,
+                            )
                         )
-                    )
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(ids))
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(ids))
 
         # Process deletes in batches to control memory usage
         for batch_start in range(0, len(ids), batch_size):

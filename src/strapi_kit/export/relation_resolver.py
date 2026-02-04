@@ -352,11 +352,11 @@ class RelationResolver:
                     item["id"] for item in relation_data if isinstance(item, dict) and "id" in item
                 ]
 
-        # v5 format: direct ID or list of IDs
-        if isinstance(field_value, int):
+        # v5 format: direct ID or list of IDs (can be int or str)
+        if isinstance(field_value, (int, str)):
             return [field_value]
         elif isinstance(field_value, list):
-            ids: list[int | str] = [item for item in field_value if isinstance(item, int)]
+            ids: list[int | str] = [item for item in field_value if isinstance(item, (int, str))]
             if ids:
                 return ids
 

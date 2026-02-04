@@ -7,9 +7,9 @@ import json
 import logging
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
-from strapi_kit.exceptions import FormatError
+from strapi_kit.exceptions import FormatError, ImportExportError
 from strapi_kit.models.export_format import (
     ExportedEntity,
     ExportedMediaFile,
@@ -46,7 +46,7 @@ class JSONLImportReader:
         if not self.file_path.exists():
             raise FormatError(f"JSONL file not found: {file_path}")
 
-        self._file: Any = None
+        self._file: IO[str] | None = None
         self._metadata: ExportMetadata | None = None
         self._media_manifest: list[ExportedMediaFile] | None = None
         self._current_line = 0
@@ -72,7 +72,7 @@ class JSONLImportReader:
             FormatError: If first line is not metadata
         """
         if not self._file:
-            raise RuntimeError("Reader not opened - use context manager")
+            raise ImportExportError("Reader not opened - use context manager")
 
         if self._metadata is not None:
             return self._metadata
@@ -108,7 +108,7 @@ class JSONLImportReader:
             FormatError: If entity parsing fails
         """
         if not self._file:
-            raise RuntimeError("Reader not opened - use context manager")
+            raise ImportExportError("Reader not opened - use context manager")
 
         # Ensure metadata is read first
         if self._metadata is None:
@@ -161,7 +161,7 @@ class JSONLImportReader:
 
         # If we haven't read through entities yet, do so now
         if not self._file:
-            raise RuntimeError("Reader not opened - use context manager")
+            raise ImportExportError("Reader not opened - use context manager")
 
         # Consume remaining lines to find media manifest
         for _ in self.iter_entities():

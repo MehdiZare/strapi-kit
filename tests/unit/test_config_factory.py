@@ -504,8 +504,6 @@ class TestExtraEnvVarsIgnored:
 
     def test_retry_config_ignores_extra_env_vars(self, monkeypatch):
         """Test RetryConfig ignores unrelated environment variables."""
-        from strapi_kit import RetryConfig
-
         monkeypatch.setenv("STRAPI_RETRY_MAX_ATTEMPTS", "5")
         monkeypatch.setenv("STRAPI_RETRY_UNRELATED", "should-be-ignored")
         monkeypatch.setenv("STRAPI_RETRY_CUSTOM_VAR", "also-ignored")

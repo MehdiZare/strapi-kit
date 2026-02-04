@@ -7,8 +7,9 @@ one JSON object per line.
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
+from strapi_kit.exceptions import ImportExportError
 from strapi_kit.models.export_format import (
     ExportedEntity,
     ExportedMediaFile,
@@ -44,12 +45,13 @@ class JSONLExportWriter:
             file_path: Path to output JSONL file
         """
         self.file_path = Path(file_path)
-        self._file: Any = None
+        self._file: IO[str] | None = None
         self._entity_count = 0
         self._content_type_counts: dict[str, int] = {}
 
     def __enter__(self) -> "JSONLExportWriter":
         """Open file for writing."""
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self._file = open(self.file_path, "w", encoding="utf-8")
         return self
 
@@ -66,7 +68,7 @@ class JSONLExportWriter:
             metadata: Export metadata
         """
         if not self._file:
-            raise RuntimeError("Writer not opened - use context manager")
+            raise ImportExportError("Writer not opened - use context manager")
 
         record = {
             "_type": "metadata",
@@ -82,7 +84,7 @@ class JSONLExportWriter:
             entity: Entity to write
         """
         if not self._file:
-            raise RuntimeError("Writer not opened - use context manager")
+            raise ImportExportError("Writer not opened - use context manager")
 
         record = {
             "_type": "entity",
@@ -101,7 +103,7 @@ class JSONLExportWriter:
             media_files: List of media file references
         """
         if not self._file:
-            raise RuntimeError("Writer not opened - use context manager")
+            raise ImportExportError("Writer not opened - use context manager")
 
         record = {
             "_type": "media_manifest",
@@ -116,6 +118,8 @@ class JSONLExportWriter:
         Args:
             record: Dictionary to serialize as JSON line
         """
+        if self._file is None:
+            raise ImportExportError("Writer not opened - use context manager")
         line = json.dumps(record, ensure_ascii=False, default=str)
         self._file.write(line + "\n")
 

@@ -589,7 +589,6 @@ class TestAsyncContentTypeBuilder:
     """Tests for AsyncClient Content-Type Builder methods."""
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_content_types(
         self,
         strapi_config: StrapiConfig,
@@ -608,7 +607,6 @@ class TestAsyncContentTypeBuilder:
             assert all(isinstance(ct, ContentTypeListItem) for ct in content_types)
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_content_types_include_plugins(
         self,
         strapi_config: StrapiConfig,
@@ -625,7 +623,6 @@ class TestAsyncContentTypeBuilder:
             assert len(content_types) == 3
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_components(
         self,
         strapi_config: StrapiConfig,
@@ -643,7 +640,6 @@ class TestAsyncContentTypeBuilder:
             assert all(isinstance(c, ComponentListItem) for c in components)
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_content_type_schema(
         self,
         strapi_config: StrapiConfig,
@@ -663,7 +659,6 @@ class TestAsyncContentTypeBuilder:
             assert schema.display_name == "Article"
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_content_type_schema_not_found(
         self,
         strapi_config: StrapiConfig,
@@ -916,7 +911,6 @@ class TestAsyncContentTypeBuilderV5:
     """Tests for AsyncClient Content-Type Builder methods with Strapi v5 responses (Issue #25)."""
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_content_types_v5(
         self,
         strapi_config: StrapiConfig,
@@ -940,7 +934,6 @@ class TestAsyncContentTypeBuilderV5:
             assert article.info.display_name == "Article"
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_components_v5(
         self,
         strapi_config: StrapiConfig,
@@ -963,7 +956,6 @@ class TestAsyncContentTypeBuilderV5:
             assert seo.category == "shared"
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_content_type_schema_v5(
         self,
         strapi_config: StrapiConfig,
@@ -1226,62 +1218,64 @@ class TestActualV5Format:
             assert normalized["attributes"] == {"metaTitle": {"type": "string"}}
             assert "schema" not in normalized
 
-    def test_extract_info_from_schema_flat_format(self, strapi_config: StrapiConfig) -> None:
-        """Test _extract_info_from_schema with flat v5 format."""
-        with SyncClient(strapi_config) as client:
-            flat_schema = {
+    def test_extract_info_from_schema_flat_format(self) -> None:
+        """Test extract_info_from_schema with flat v5 format."""
+        from strapi_kit.utils.schema import extract_info_from_schema
+
+        flat_schema = {
+            "displayName": "Article",
+            "singularName": "article",
+            "pluralName": "articles",
+            "description": "Blog articles",
+            "kind": "collectionType",
+            "attributes": {},
+        }
+
+        info = extract_info_from_schema(flat_schema)
+
+        assert info["displayName"] == "Article"
+        assert info["singularName"] == "article"
+        assert info["pluralName"] == "articles"
+        assert info["description"] == "Blog articles"
+
+    def test_extract_info_from_schema_nested_format(self) -> None:
+        """Test extract_info_from_schema with nested v5 format (should still work)."""
+        from strapi_kit.utils.schema import extract_info_from_schema
+
+        nested_schema = {
+            "info": {
                 "displayName": "Article",
                 "singularName": "article",
                 "pluralName": "articles",
-                "description": "Blog articles",
-                "kind": "collectionType",
-                "attributes": {},
-            }
+            },
+            "kind": "collectionType",
+            "attributes": {},
+        }
 
-            info = client._extract_info_from_schema(flat_schema)
+        info = extract_info_from_schema(nested_schema)
 
-            assert info["displayName"] == "Article"
-            assert info["singularName"] == "article"
-            assert info["pluralName"] == "articles"
-            assert info["description"] == "Blog articles"
+        # Should use nested info when present
+        assert info["displayName"] == "Article"
+        assert info["singularName"] == "article"
+        assert info["pluralName"] == "articles"
 
-    def test_extract_info_from_schema_nested_format(self, strapi_config: StrapiConfig) -> None:
-        """Test _extract_info_from_schema with nested v5 format (should still work)."""
-        with SyncClient(strapi_config) as client:
-            nested_schema = {
-                "info": {
-                    "displayName": "Article",
-                    "singularName": "article",
-                    "pluralName": "articles",
-                },
-                "kind": "collectionType",
-                "attributes": {},
-            }
+    def test_extract_info_from_schema_empty(self) -> None:
+        """Test extract_info_from_schema with empty schema."""
+        from strapi_kit.utils.schema import extract_info_from_schema
 
-            info = client._extract_info_from_schema(nested_schema)
+        empty_schema: dict = {}
 
-            # Should use nested info when present
-            assert info["displayName"] == "Article"
-            assert info["singularName"] == "article"
-            assert info["pluralName"] == "articles"
+        info = extract_info_from_schema(empty_schema)
 
-    def test_extract_info_from_schema_empty(self, strapi_config: StrapiConfig) -> None:
-        """Test _extract_info_from_schema with empty schema."""
-        with SyncClient(strapi_config) as client:
-            empty_schema: dict = {}
-
-            info = client._extract_info_from_schema(empty_schema)
-
-            assert info["displayName"] == ""
-            assert info["singularName"] is None
-            assert info["pluralName"] is None
+        assert info["displayName"] == ""
+        assert info["singularName"] is None
+        assert info["pluralName"] is None
 
 
 class TestActualV5FormatAsync:
     """Async tests for ACTUAL Strapi v5 API format (Issue #28)."""
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_content_types_actual_v5(
         self,
         strapi_config: StrapiConfig,
@@ -1302,7 +1296,6 @@ class TestActualV5FormatAsync:
             assert article.info.plural_name == "articles"
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_components_actual_v5(
         self,
         strapi_config: StrapiConfig,
@@ -1321,7 +1314,6 @@ class TestActualV5FormatAsync:
             assert seo.info.display_name == "SEO"
 
     @respx.mock
-    @pytest.mark.asyncio
     async def test_get_content_type_schema_actual_v5(
         self,
         strapi_config: StrapiConfig,
