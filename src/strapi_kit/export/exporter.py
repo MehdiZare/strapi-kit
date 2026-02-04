@@ -510,7 +510,7 @@ class StrapiExporter:
                         )
 
                     # Type guard: validated at method start
-                    assert media_dir is not None
+                    assert media_dir is not None  # noqa: S101
                     output_dir = Path(media_dir)
                     output_dir.mkdir(parents=True, exist_ok=True)
 

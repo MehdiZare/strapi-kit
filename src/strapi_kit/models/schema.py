@@ -12,7 +12,7 @@ class FieldType(StrEnum):
     TEXT = "text"
     RICH_TEXT = "richtext"
     EMAIL = "email"
-    PASSWORD = "password"  # nosec B105 - This is a field type enum, not a hardcoded password
+    PASSWORD = "password"  # noqa: S105 - Field type enum, not a hardcoded password
     INTEGER = "integer"
     BIG_INTEGER = "biginteger"
     FLOAT = "float"
