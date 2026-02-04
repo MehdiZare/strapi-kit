@@ -21,7 +21,8 @@ def extract_info_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
         Info dict with displayName, singularName, pluralName, description
     """
     # Check for nested info object first
-    nested_info: dict[str, Any] = schema.get("info", {})
+    nested_info_raw = schema.get("info")
+    nested_info: dict[str, Any] = nested_info_raw if isinstance(nested_info_raw, dict) else {}
     if nested_info.get("displayName"):
         return nested_info
 

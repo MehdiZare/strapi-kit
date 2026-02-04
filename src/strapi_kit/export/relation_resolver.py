@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ..exceptions import StrapiError
 from ..models.schema import FieldType
 
 if TYPE_CHECKING:
@@ -276,8 +277,8 @@ class RelationResolver:
         """
         try:
             component_schema = schema_cache.get_component_schema(component_uid)
-        except Exception:
-            logger.warning(f"Could not fetch component schema: {component_uid}")
+        except StrapiError:
+            logger.warning(f"Could not fetch component schema: {component_uid}", exc_info=True)
             return {}
 
         relations: dict[str, list[int | str]] = {}

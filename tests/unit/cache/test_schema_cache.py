@@ -376,8 +376,7 @@ def test_parse_schema_response_actual_v5_format(strapi_config, mock_actual_v5_sc
         assert schema.kind == "collectionType"
 
 
-@respx.mock
-def test_extract_info_from_schema_flat(strapi_config):
+def test_extract_info_from_schema_flat():
     """Test extract_info_from_schema with flat v5 format."""
     from strapi_kit.utils.schema import extract_info_from_schema
 
@@ -396,8 +395,7 @@ def test_extract_info_from_schema_flat(strapi_config):
     assert info["description"] == "Blog articles"
 
 
-@respx.mock
-def test_extract_info_from_schema_nested(strapi_config):
+def test_extract_info_from_schema_nested():
     """Test extract_info_from_schema with nested format (should still work)."""
     from strapi_kit.utils.schema import extract_info_from_schema
 
