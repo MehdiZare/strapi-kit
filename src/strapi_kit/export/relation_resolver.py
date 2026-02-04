@@ -4,8 +4,16 @@ This module handles extracting relations from entities during export
 and resolving them during import using ID mappings.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from ..models.schema import FieldType
+
+if TYPE_CHECKING:
+    from ..cache.schema_cache import InMemorySchemaCache
+    from ..models.schema import ContentTypeSchema
 
 logger = logging.getLogger(__name__)
 
@@ -170,3 +178,223 @@ class RelationResolver:
                 payload[field_name] = ids
 
         return payload
+
+    # Schema-aware extraction methods
+
+    @staticmethod
+    def extract_relations_with_schema(
+        data: dict[str, Any],
+        schema: ContentTypeSchema,
+        schema_cache: InMemorySchemaCache | None = None,
+    ) -> dict[str, list[int | str]]:
+        """Extract relations using schema - only actual relation fields.
+
+        This method uses the content type schema to identify relation fields,
+        avoiding false positives from fields that happen to contain {"data": ...}.
+        It also recursively extracts relations from components and dynamic zones.
+
+        Args:
+            data: Entity attributes dictionary
+            schema: Content type schema with field definitions
+            schema_cache: Optional schema cache for component lookups
+
+        Returns:
+            Dictionary mapping relation field paths to lists of IDs
+
+        Example:
+            >>> # Only extracts from actual relation fields defined in schema
+            >>> data = {
+            ...     "title": "Article",
+            ...     "author": {"data": {"id": 5}},
+            ...     "metadata": {"data": "not a relation"}  # Won't be extracted
+            ... }
+            >>> relations = RelationResolver.extract_relations_with_schema(data, schema)
+            {'author': [5]}  # metadata excluded because not a relation in schema
+        """
+        relations: dict[str, list[int | str]] = {}
+
+        for field_name, field_value in data.items():
+            field_schema = schema.fields.get(field_name)
+            if not field_schema:
+                continue
+
+            if field_schema.type == FieldType.RELATION:
+                # Extract IDs from relation field
+                ids = RelationResolver._extract_ids_from_field(field_value)
+                if ids is not None:
+                    relations[field_name] = ids
+
+            elif field_schema.type == FieldType.COMPONENT and schema_cache:
+                # Recursively extract from component
+                component_uid = field_schema.component
+                if component_uid and field_value:
+                    if field_schema.repeatable and isinstance(field_value, list):
+                        # Repeatable component - list of components
+                        for idx, item in enumerate(field_value):
+                            if isinstance(item, dict):
+                                nested = RelationResolver._extract_from_component(
+                                    item, component_uid, schema_cache, f"{field_name}[{idx}]."
+                                )
+                                relations.update(nested)
+                    elif isinstance(field_value, dict):
+                        # Single component
+                        nested = RelationResolver._extract_from_component(
+                            field_value, component_uid, schema_cache, f"{field_name}."
+                        )
+                        relations.update(nested)
+
+            elif field_schema.type == FieldType.DYNAMIC_ZONE and schema_cache:
+                # Recursively extract from dynamic zone components
+                if isinstance(field_value, list):
+                    for idx, item in enumerate(field_value):
+                        if isinstance(item, dict) and "__component" in item:
+                            component_uid = item["__component"]
+                            nested = RelationResolver._extract_from_component(
+                                item, component_uid, schema_cache, f"{field_name}[{idx}]."
+                            )
+                            relations.update(nested)
+
+        return relations
+
+    @staticmethod
+    def _extract_from_component(
+        component_data: dict[str, Any],
+        component_uid: str,
+        schema_cache: InMemorySchemaCache,
+        prefix: str = "",
+    ) -> dict[str, list[int | str]]:
+        """Recursively extract relations from a component.
+
+        Args:
+            component_data: Component data dictionary
+            component_uid: Component UID for schema lookup
+            schema_cache: Schema cache for component lookups
+            prefix: Field path prefix for nested fields
+
+        Returns:
+            Dictionary mapping prefixed field paths to lists of IDs
+        """
+        try:
+            component_schema = schema_cache.get_component_schema(component_uid)
+        except Exception:
+            logger.warning(f"Could not fetch component schema: {component_uid}")
+            return {}
+
+        relations: dict[str, list[int | str]] = {}
+
+        for field_name, field_value in component_data.items():
+            if field_name == "__component":
+                continue  # Skip component type marker
+
+            field_schema = component_schema.fields.get(field_name)
+            if not field_schema:
+                continue
+
+            full_key = f"{prefix}{field_name}"
+
+            if field_schema.type == FieldType.RELATION:
+                ids = RelationResolver._extract_ids_from_field(field_value)
+                if ids is not None:
+                    relations[full_key] = ids
+
+            elif field_schema.type == FieldType.COMPONENT:
+                nested_uid = field_schema.component
+                if nested_uid and field_value:
+                    if field_schema.repeatable and isinstance(field_value, list):
+                        for idx, item in enumerate(field_value):
+                            if isinstance(item, dict):
+                                nested = RelationResolver._extract_from_component(
+                                    item, nested_uid, schema_cache, f"{full_key}[{idx}]."
+                                )
+                                relations.update(nested)
+                    elif isinstance(field_value, dict):
+                        nested = RelationResolver._extract_from_component(
+                            field_value, nested_uid, schema_cache, f"{full_key}."
+                        )
+                        relations.update(nested)
+
+            elif field_schema.type == FieldType.DYNAMIC_ZONE:
+                if isinstance(field_value, list):
+                    for idx, item in enumerate(field_value):
+                        if isinstance(item, dict) and "__component" in item:
+                            dz_uid = item["__component"]
+                            nested = RelationResolver._extract_from_component(
+                                item, dz_uid, schema_cache, f"{full_key}[{idx}]."
+                            )
+                            relations.update(nested)
+
+        return relations
+
+    @staticmethod
+    def _extract_ids_from_field(field_value: Any) -> list[int | str] | None:
+        """Extract IDs from a relation field value.
+
+        Handles both v4 nested format and v5 flat format.
+
+        Args:
+            field_value: Field value from entity data
+
+        Returns:
+            List of IDs if this looks like a relation, None otherwise
+        """
+        if field_value is None:
+            return []
+
+        # v4 format: {"data": ...}
+        if isinstance(field_value, dict) and "data" in field_value:
+            relation_data = field_value["data"]
+            if relation_data is None:
+                return []
+            elif isinstance(relation_data, dict) and "id" in relation_data:
+                return [relation_data["id"]]
+            elif isinstance(relation_data, list):
+                return [
+                    item["id"] for item in relation_data if isinstance(item, dict) and "id" in item
+                ]
+
+        # v5 format: direct ID or list of IDs
+        if isinstance(field_value, int):
+            return [field_value]
+        elif isinstance(field_value, list):
+            ids: list[int | str] = [item for item in field_value if isinstance(item, int)]
+            if ids:
+                return ids
+
+        return None
+
+    @staticmethod
+    def strip_relations_with_schema(
+        data: dict[str, Any],
+        schema: ContentTypeSchema,
+    ) -> dict[str, Any]:
+        """Remove only actual relation fields from entity data.
+
+        Uses schema to identify relation fields, preserving non-relation
+        fields that happen to contain {"data": ...}.
+
+        Args:
+            data: Entity attributes dictionary
+            schema: Content type schema with field definitions
+
+        Returns:
+            Copy of data with relation fields removed
+
+        Example:
+            >>> data = {
+            ...     "title": "Article",
+            ...     "author": {"data": {"id": 5}},  # Relation - removed
+            ...     "metadata": {"data": "custom"}   # Not relation - kept
+            ... }
+            >>> stripped = RelationResolver.strip_relations_with_schema(data, schema)
+            {'title': 'Article', 'metadata': {'data': 'custom'}}
+        """
+        cleaned_data = {}
+
+        for field_name, field_value in data.items():
+            field_schema = schema.fields.get(field_name)
+
+            # Keep field if it's not in schema or not a relation
+            if not field_schema or field_schema.type != FieldType.RELATION:
+                cleaned_data[field_name] = field_value
+
+        return cleaned_data

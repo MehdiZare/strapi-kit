@@ -90,6 +90,7 @@ class ImportResult(BaseModel):
         entities_skipped: Number of entities skipped
         entities_updated: Number of entities updated
         entities_failed: Number of entities that failed
+        relations_imported: Number of relation updates performed
         media_imported: Number of media files imported
         media_skipped: Number of media files skipped
         errors: List of error messages
@@ -103,6 +104,7 @@ class ImportResult(BaseModel):
     entities_skipped: int = Field(default=0, description="Entities skipped")
     entities_updated: int = Field(default=0, description="Entities updated")
     entities_failed: int = Field(default=0, description="Entities failed")
+    relations_imported: int = Field(default=0, description="Relation updates performed")
     media_imported: int = Field(default=0, description="Media files imported")
     media_skipped: int = Field(default=0, description="Media files skipped")
     errors: list[str] = Field(default_factory=list, description="Error messages")
@@ -110,6 +112,10 @@ class ImportResult(BaseModel):
     id_mapping: dict[str, dict[int, int]] = Field(
         default_factory=dict,
         description="Mapping of old IDs to new IDs per content type",
+    )
+    doc_id_mapping: dict[str, dict[int, str]] = Field(
+        default_factory=dict,
+        description="Mapping of old IDs to document_ids per content type (for v5 endpoints)",
     )
 
     def add_error(self, error: str) -> None:
