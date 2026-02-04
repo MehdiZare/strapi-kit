@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Removed empty leftover directories (`import_export/`, `importexport/`)
+- **Consolidated linting tools into ruff**
+  - Replaced bandit with ruff's `S` (flake8-bandit) rules for security checks
+  - Removed bandit dependency from dev requirements
+  - Updated pre-commit hooks, CI workflow, and Makefile
 
 ## [0.0.6] - 2026-02-03
 
