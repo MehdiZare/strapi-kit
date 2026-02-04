@@ -293,3 +293,147 @@ def test_parse_unknown_field_type(strapi_config):
 
         # Unknown types should fallback to STRING
         assert schema.fields["custom_field"].type == FieldType.STRING
+
+
+# Tests for ACTUAL Strapi v5 format (Issue #28)
+
+
+@pytest.fixture
+def mock_actual_v5_schema_response():
+    """Mock ACTUAL Strapi v5 schema response (Issue #28).
+
+    This is the real format Strapi v5 returns, with displayName/singularName/pluralName
+    at the schema top level, not nested in schema.info.
+    """
+    return {
+        "data": {
+            "uid": "api::article.article",
+            "apiID": "article",
+            "schema": {
+                "displayName": "Article",  # At top level, NOT in info!
+                "singularName": "article",
+                "pluralName": "articles",
+                "kind": "collectionType",
+                "attributes": {
+                    "title": {
+                        "type": "string",
+                        "required": True,
+                    },
+                    "author": {
+                        "type": "relation",
+                        "relation": "manyToOne",
+                        "target": "api::author.author",
+                    },
+                },
+            },
+        }
+    }
+
+
+@respx.mock
+def test_fetch_schema_actual_v5_format(strapi_config, mock_actual_v5_schema_response):
+    """Test fetching schema with actual v5 format (Issue #28)."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_actual_v5_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        schema = cache.get_schema("api::article.article")
+
+        # Should correctly extract info from flat schema
+        assert schema.uid == "api::article.article"
+        assert schema.display_name == "Article"
+        assert schema.singular_name == "article"
+        assert schema.plural_name == "articles"
+        assert schema.kind == "collectionType"
+
+        # Fields should be parsed correctly
+        assert "title" in schema.fields
+        assert "author" in schema.fields
+        assert schema.fields["title"].type == FieldType.STRING
+        assert schema.fields["title"].required is True
+        assert schema.fields["author"].type == FieldType.RELATION
+        assert schema.fields["author"].target == "api::author.author"
+
+
+@respx.mock
+def test_parse_schema_response_actual_v5_format(strapi_config, mock_actual_v5_schema_response):
+    """Test _parse_schema_response with actual v5 format (Issue #28)."""
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        # Simulate the data structure as it comes from the API
+        schema_data = mock_actual_v5_schema_response["data"]
+
+        schema = cache._parse_schema_response("api::article.article", schema_data)
+
+        # Should correctly handle nested schema and extract flat info
+        assert schema.display_name == "Article"
+        assert schema.singular_name == "article"
+        assert schema.plural_name == "articles"
+        assert schema.kind == "collectionType"
+
+
+@respx.mock
+def test_extract_info_from_schema_flat(strapi_config):
+    """Test _extract_info_from_schema with flat v5 format."""
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        flat_schema = {
+            "displayName": "Article",
+            "singularName": "article",
+            "pluralName": "articles",
+            "description": "Blog articles",
+        }
+
+        info = cache._extract_info_from_schema(flat_schema)
+
+        assert info["displayName"] == "Article"
+        assert info["singularName"] == "article"
+        assert info["pluralName"] == "articles"
+        assert info["description"] == "Blog articles"
+
+
+@respx.mock
+def test_extract_info_from_schema_nested(strapi_config):
+    """Test _extract_info_from_schema with nested format (should still work)."""
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+
+        nested_schema = {
+            "info": {
+                "displayName": "Article",
+                "singularName": "article",
+                "pluralName": "articles",
+            }
+        }
+
+        info = cache._extract_info_from_schema(nested_schema)
+
+        # Should use nested info when present
+        assert info["displayName"] == "Article"
+        assert info["singularName"] == "article"
+        assert info["pluralName"] == "articles"
+
+
+@respx.mock
+def test_schema_cache_v5_relation_methods(strapi_config, mock_actual_v5_schema_response):
+    """Test schema helper methods work correctly with v5 format."""
+    respx.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_actual_v5_schema_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+        schema = cache.get_schema("api::article.article")
+
+        # Test relation field detection
+        assert schema.is_relation_field("author") is True
+        assert schema.is_relation_field("title") is False
+
+        # Test get_field_target
+        assert schema.get_field_target("author") == "api::author.author"
+        assert schema.get_field_target("title") is None
