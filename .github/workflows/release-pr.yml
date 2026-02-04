@@ -1,0 +1,43 @@
+name: Release PR
+
+on:
+  push:
+    branches: [dev]
+
+concurrency:
+  group: release-pr-dev-to-main
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dev
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: dev
+
+      - name: Create or update release PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main
+          branch: release/dev-to-main
+          title: "Release: dev → main"
+          body: |
+            Automated release PR. Review and merge when ready to deploy.
+
+            **Checklist:**
+            - [ ] All tests passing
+            - [ ] QA approved
+            - [ ] Release notes updated
+            - [ ] Team approved
+
+            **After merging:** Add a release label (`release:major`, `release:minor`, or `release:patch`) before merging to trigger auto-tagging and PyPI publish.
+          labels: release
+          delete-branch: false
