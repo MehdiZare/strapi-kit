@@ -148,13 +148,11 @@ class JSONLImportReader:
     def read_media_manifest(self) -> list[ExportedMediaFile]:
         """Read media manifest from file.
 
-        Must be called after iter_entities() has completed.
+        Must be called after iter_entities() has completed, or will consume
+        remaining entities to find the manifest.
 
         Returns:
-            List of media file references
-
-        Raises:
-            FormatError: If media manifest not found
+            List of media file references, or empty list if no manifest found
         """
         if self._media_manifest is not None:
             return self._media_manifest

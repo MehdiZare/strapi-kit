@@ -758,7 +758,7 @@ class StrapiImporter:
         - Pass 1: Create entities, store only ID mappings (old_id -> new_id)
         - Pass 2: Re-read file to resolve relations using ID mappings
 
-        Memory profile: O(entity_count × 2 ints) for ID mappings only,
+        Memory profile: O(entity_count x 2 ints) for ID mappings only,
         not O(entities) for full entity objects.
 
         Args:
@@ -791,7 +791,7 @@ class StrapiImporter:
         try:
             # ============================================================
             # Pass 1: Read metadata, import media, create entities
-            # Store only ID mappings (O(entity_count × 2 ints))
+            # Store only ID mappings (O(entity_count x 2 ints))
             # ============================================================
             with JSONLImportReader(jsonl_path) as reader:
                 # Step 1: Read metadata
@@ -861,7 +861,7 @@ class StrapiImporter:
                 if options.progress_callback:
                     options.progress_callback(30, 100, "Creating entities (pass 1)")
 
-                # Store only ID mappings: old_id -> new_id (O(entity_count × 2 ints))
+                # Store only ID mappings: old_id -> new_id (O(entity_count x 2 ints))
                 id_mappings: dict[str, dict[int, int]] = {}
                 # Store document_id mappings for v5 endpoint updates
                 doc_id_mappings: dict[str, dict[int, str]] = {}
