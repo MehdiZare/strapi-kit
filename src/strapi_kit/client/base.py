@@ -465,12 +465,65 @@ class BaseClient:
         # Media list follows standard collection format
         return self._parse_collection_response(response_data)
 
+    def _normalize_content_type_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Normalize content type item - flatten v5 schema to v4 format.
+
+        Strapi v5 returns content types with a nested 'schema' structure:
+        {"uid": "...", "apiID": "...", "schema": {"kind": "...", "info": {...}, ...}}
+
+        This method flattens it to v4 format:
+        {"uid": "...", "kind": "...", "info": {...}, "attributes": {...}}
+
+        Args:
+            item: Raw content type item from API response
+
+        Returns:
+            Normalized content type item in v4-compatible format
+        """
+        if "schema" in item and isinstance(item["schema"], dict):
+            schema = item["schema"]
+            return {
+                "uid": item.get("uid", ""),
+                "kind": schema.get("kind", "collectionType"),
+                "info": schema.get("info", {}),
+                "attributes": schema.get("attributes", {}),
+                "pluginOptions": schema.get("pluginOptions"),
+            }
+        return item
+
+    def _normalize_component_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Normalize component item - flatten v5 schema to v4 format.
+
+        Strapi v5 returns components with a nested 'schema' structure:
+        {"uid": "...", "category": "...", "schema": {"info": {...}, "attributes": {...}}}
+
+        This method flattens it to v4 format:
+        {"uid": "...", "category": "...", "info": {...}, "attributes": {...}}
+
+        Args:
+            item: Raw component item from API response
+
+        Returns:
+            Normalized component item in v4-compatible format
+        """
+        if "schema" in item and isinstance(item["schema"], dict):
+            schema = item["schema"]
+            return {
+                "uid": item.get("uid", ""),
+                "category": item.get("category", schema.get("category", "")),
+                "info": schema.get("info", {}),
+                "attributes": schema.get("attributes", {}),
+            }
+        return item
+
     def _parse_content_types_response(
         self,
         response_data: dict[str, Any],
         include_plugins: bool = False,
     ) -> list["ContentTypeListItem"]:
         """Parse content-type-builder content types response.
+
+        Automatically normalizes v5 nested schema format to v4 flat format.
 
         Args:
             response_data: Raw JSON response from content-type-builder
@@ -491,7 +544,8 @@ class BaseClient:
                 continue
 
             try:
-                content_type = ContentTypeListItem.model_validate(item)
+                normalized_item = self._normalize_content_type_item(item)
+                content_type = ContentTypeListItem.model_validate(normalized_item)
                 result.append(content_type)
             except PydanticValidationError as e:
                 # Skip malformed items
@@ -505,6 +559,8 @@ class BaseClient:
         response_data: dict[str, Any],
     ) -> list["ComponentListItem"]:
         """Parse content-type-builder components response.
+
+        Automatically normalizes v5 nested schema format to v4 flat format.
 
         Args:
             response_data: Raw JSON response from content-type-builder
@@ -520,7 +576,8 @@ class BaseClient:
         for item in data:
             uid = item.get("uid", "")
             try:
-                component = ComponentListItem.model_validate(item)
+                normalized_item = self._normalize_component_item(item)
+                component = ComponentListItem.model_validate(normalized_item)
                 result.append(component)
             except PydanticValidationError as e:
                 # Skip malformed items
@@ -535,6 +592,8 @@ class BaseClient:
     ) -> "CTBContentTypeSchema":
         """Parse content-type-builder single content type schema response.
 
+        Automatically normalizes v5 nested schema format to v4 flat format.
+
         Args:
             response_data: Raw JSON response from content-type-builder
 
@@ -548,7 +607,8 @@ class BaseClient:
 
         data = response_data.get("data", response_data)
         try:
-            return CTBContentTypeSchema.model_validate(data)
+            normalized_data = self._normalize_content_type_item(data)
+            return CTBContentTypeSchema.model_validate(normalized_data)
         except PydanticValidationError as e:
             raise ValidationError(
                 "Invalid content type schema response",

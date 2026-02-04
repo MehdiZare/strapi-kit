@@ -17,7 +17,10 @@ class RetryConfig(BaseSettings):
     Controls how the client handles failed requests with exponential backoff.
     """
 
-    model_config = SettingsConfigDict(env_prefix="STRAPI_RETRY_")
+    model_config = SettingsConfigDict(
+        env_prefix="STRAPI_RETRY_",
+        extra="ignore",
+    )
 
     max_attempts: int = Field(
         default=3,
@@ -77,6 +80,7 @@ class StrapiConfig(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     base_url: str = Field(
