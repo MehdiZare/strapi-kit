@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **JSONL import path traversal protection** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
+  - Added path traversal validation to JSONL media import matching standard import security pattern
+  - Uses `resolve()` and `is_relative_to()` to prevent directory traversal attacks
+
+- **JSONL import two-pass streaming** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
+  - Refactored `import_from_jsonl()` to use true O(1) memory with two-pass streaming
+  - Pass 1: Create entities, store only ID mappings (old_id → new_id)
+  - Pass 2: Re-read file to resolve relations using ID mappings
+  - Memory profile reduced from O(entities) to O(entity_count × 2 ints)
+
+- **Strapi v5 update endpoint consistency** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
+  - Fixed UPDATE conflict resolution to use `document_id` instead of numeric ID for endpoint path
+  - Added `doc_id_mapping` field to `ImportResult` to track document_ids for v5 endpoints
+  - Relation updates now use `document_id` when available (v5) with fallback to numeric ID (v4)
+  - Applies to both standard import and JSONL streaming import
+
+- **Removed unused test fixtures** ([#29](https://github.com/MehdiZare/strapi-kit/pull/29))
+  - Removed unused `mock_media_response` parameter from `test_update_media_not_found` in sync and async tests
+
 ## [0.1.0] - 2026-02-04
 
 ### Fixed

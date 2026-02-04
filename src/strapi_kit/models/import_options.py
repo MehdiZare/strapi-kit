@@ -113,6 +113,10 @@ class ImportResult(BaseModel):
         default_factory=dict,
         description="Mapping of old IDs to new IDs per content type",
     )
+    doc_id_mapping: dict[str, dict[int, str]] = Field(
+        default_factory=dict,
+        description="Mapping of old IDs to document_ids per content type (for v5 endpoints)",
+    )
 
     def add_error(self, error: str) -> None:
         """Add an error message.

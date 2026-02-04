@@ -319,6 +319,13 @@ class StrapiImporter:
                                 if content_type not in result.id_mapping:
                                     result.id_mapping[content_type] = {}
                                 result.id_mapping[content_type][entity.id] = existing_id
+                                # Track document_id for v5 endpoint updates
+                                if entity.document_id:
+                                    if content_type not in result.doc_id_mapping:
+                                        result.doc_id_mapping[content_type] = {}
+                                    result.doc_id_mapping[content_type][entity.id] = (
+                                        entity.document_id
+                                    )
                                 continue
 
                             elif options.conflict_resolution == ConflictResolution.FAIL:
@@ -337,6 +344,13 @@ class StrapiImporter:
                                     if content_type not in result.id_mapping:
                                         result.id_mapping[content_type] = {}
                                     result.id_mapping[content_type][entity.id] = response.data.id
+                                    # Track document_id for v5 endpoint updates
+                                    if entity.document_id:
+                                        if content_type not in result.doc_id_mapping:
+                                            result.doc_id_mapping[content_type] = {}
+                                        result.doc_id_mapping[content_type][entity.id] = (
+                                            entity.document_id
+                                        )
                                     result.entities_updated += 1
                                 continue
 
@@ -347,8 +361,16 @@ class StrapiImporter:
                             # Track ID mapping for relation resolution
                             if content_type not in result.id_mapping:
                                 result.id_mapping[content_type] = {}
-
                             result.id_mapping[content_type][entity.id] = response.data.id
+
+                            # Track document_id for v5 endpoint updates
+                            if response.data.document_id:
+                                if content_type not in result.doc_id_mapping:
+                                    result.doc_id_mapping[content_type] = {}
+                                result.doc_id_mapping[content_type][entity.id] = (
+                                    response.data.document_id
+                                )
+
                             result.entities_imported += 1
 
                     except ValidationError as e:
@@ -437,6 +459,14 @@ class StrapiImporter:
 
                 new_id = result.id_mapping[content_type][old_id]
 
+                # Get document_id for v5 endpoint (falls back to numeric ID for v4)
+                entity_endpoint_id: str | int = new_id
+                if (
+                    content_type in result.doc_id_mapping
+                    and old_id in result.doc_id_mapping[content_type]
+                ):
+                    entity_endpoint_id = result.doc_id_mapping[content_type][old_id]
+
                 # Get schema for this content type
                 try:
                     schema = self._schema_cache.get_schema(content_type)
@@ -460,10 +490,10 @@ class StrapiImporter:
                     relation_payload = RelationResolver.build_relation_payload(resolved_relations)
 
                     if relation_payload:
-                        # Update entity with relations
+                        # Update entity with relations (use document_id for v5)
                         # Note: update() already wraps data in {"data": ...}
                         self.client.update(
-                            f"{endpoint}/{new_id}",
+                            f"{endpoint}/{entity_endpoint_id}",
                             relation_payload,
                         )
 
@@ -829,6 +859,8 @@ class StrapiImporter:
 
                 # Store only ID mappings: old_id -> new_id (O(entity_count × 2 ints))
                 id_mappings: dict[str, dict[int, int]] = {}
+                # Store document_id mappings for v5 endpoint updates
+                doc_id_mappings: dict[str, dict[int, str]] = {}
 
                 for entity in reader.iter_entities():
                     # Filter by content types if specified
@@ -838,6 +870,7 @@ class StrapiImporter:
                     content_type = entity.content_type
                     if content_type not in id_mappings:
                         id_mappings[content_type] = {}
+                        doc_id_mappings[content_type] = {}
 
                     try:
                         # Update media references
@@ -862,6 +895,9 @@ class StrapiImporter:
                         if existing_id:
                             if options.conflict_resolution == ConflictResolution.SKIP:
                                 id_mappings[content_type][entity.id] = existing_id
+                                # Track document_id for v5 endpoint updates
+                                if entity.document_id:
+                                    doc_id_mappings[content_type][entity.id] = entity.document_id
                                 result.entities_skipped += 1
                                 continue
                             elif options.conflict_resolution == ConflictResolution.FAIL:
@@ -876,6 +912,9 @@ class StrapiImporter:
                                     f"{endpoint}/{entity.document_id}", data=entity_data
                                 )
                                 id_mappings[content_type][entity.id] = existing_id
+                                # Track document_id for v5 endpoint updates
+                                if entity.document_id:
+                                    doc_id_mappings[content_type][entity.id] = entity.document_id
                                 result.entities_updated += 1
                                 continue
 
@@ -883,6 +922,9 @@ class StrapiImporter:
                         response = self.client.create(endpoint, data=entity_data)
                         if response.data:
                             id_mappings[content_type][entity.id] = response.data.id
+                            # Track document_id for v5 endpoint updates
+                            if response.data.document_id:
+                                doc_id_mappings[content_type][entity.id] = response.data.document_id
                         result.entities_imported += 1
 
                     except Exception as e:
@@ -921,6 +963,14 @@ class StrapiImporter:
                         if not new_id:
                             continue
 
+                        # Get document_id for v5 endpoint (falls back to numeric ID for v4)
+                        entity_endpoint_id: str | int = new_id
+                        if (
+                            content_type in doc_id_mappings
+                            and entity.id in doc_id_mappings[content_type]
+                        ):
+                            entity_endpoint_id = doc_id_mappings[content_type][entity.id]
+
                         # Get schema from cache
                         try:
                             schema = self._schema_cache.get_schema(content_type)
@@ -935,7 +985,7 @@ class StrapiImporter:
 
                             if resolved:
                                 payload = RelationResolver.build_relation_payload(resolved)
-                                self.client.update(f"{endpoint}/{new_id}", data=payload)
+                                self.client.update(f"{endpoint}/{entity_endpoint_id}", data=payload)
                                 result.relations_imported += 1
                         except Exception as e:
                             result.add_warning(
