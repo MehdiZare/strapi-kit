@@ -10,8 +10,8 @@ strapi_kit/
 ├── models/          # Pydantic models for config & data
 ├── auth/            # Authentication mechanisms
 ├── exceptions/      # Exception hierarchy
-├── operations/      # High-level operations (planned)
-└── importexport/    # Import/export functionality (planned)
+├── operations/      # High-level operations (streaming, media)
+└── export/          # Import/export functionality
 ```
 
 ## Core Components
@@ -238,48 +238,46 @@ def _request_with_retry(self, method: str, url: str) -> httpx.Response:
     return self._client.request(method, url)
 ```
 
-## Future Architecture
+## Import/Export Architecture
 
-### Import/Export (Planned)
+### Module Structure
 
 ```
-Exporter
-├─ ContentCollector
-│  └─ Discovers and fetches all content types
-├─ RelationResolver
-│  └─ Tracks and preserves relationships
-└─ MediaDownloader
-   └─ Downloads media files
-
-Importer
-├─ Validator
-│  └─ Pre-import validation
-├─ ConflictResolver
-│  └─ Handles existing content
-├─ RelationLinker
-│  └─ Recreates relationships
-└─ MediaUploader
-   └─ Uploads media files
+export/
+├─ exporter.py          # StrapiExporter - main export orchestration
+├─ importer.py          # StrapiImporter - main import orchestration
+├─ media_handler.py     # MediaHandler - media download/upload
+├─ relation_resolver.py # RelationResolver - schema-based relation resolution
+├─ jsonl_writer.py      # JSONLExportWriter - streaming JSONL export
+└─ jsonl_reader.py      # JSONLImportReader - streaming JSONL import
 ```
 
-**Design Goals:**
-- Handle large datasets (streaming)
-- Preserve all relationships
-- Idempotent (safe to retry)
-- Progress tracking
-- Dry-run mode
+### Key Components
 
-### Operations Layer (Planned)
+**StrapiExporter:**
+- `export_content_types()`: Export multiple content types with relations
+- `export_to_jsonl()`: Stream to JSONL format (O(1) memory)
+- `save_to_file()` / `load_from_file()`: JSON file operations
 
-High-level operations built on clients:
+**StrapiImporter:**
+- `import_data()`: Import ExportData with conflict resolution
+- `import_from_jsonl()`: Two-pass streaming import
 
-```python
-# Current (low-level)
-response = client.get("articles", params={"filters": {"title": {"$eq": "Hello"}}})
+**RelationResolver:**
+- Schema-driven relation detection
+- Dependency ordering for import
 
-# Future (high-level)
-articles = operations.find_articles(title="Hello")
-```
+**MediaHandler:**
+- Media download with deduplication
+- Media upload with reference mapping
+
+### Features
+
+- **Streaming**: JSONL format for large datasets (O(1) memory)
+- **Conflict Resolution**: SKIP, UPDATE, or FAIL on duplicates
+- **Dry-run Mode**: Validate imports without writing
+- **Progress Callbacks**: Track long-running operations
+- **Media Handling**: Download/upload with deduplication
 
 ## Testing Architecture
 
