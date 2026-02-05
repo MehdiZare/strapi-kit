@@ -483,8 +483,8 @@ def test_something(respx_mock):
 When testing typed client methods, mock responses should match v4 or v5 format:
 
 ```python
-@respx.mock
-def test_get_many_typed(strapi_config):
+@pytest.mark.respx
+def test_get_many_typed(strapi_config, respx_mock: respx.Router):
     # Mock v5 response
     mock_response = {
         "data": [
@@ -494,7 +494,7 @@ def test_get_many_typed(strapi_config):
         "meta": {"pagination": {"page": 1, "pageSize": 25, "total": 2}}
     }
 
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(200, json=mock_response)
     )
 

@@ -197,7 +197,7 @@ class JSONLImportReader:
                     continue
                 try:
                     record = json.loads(line)
-                    if record.get("_type") == "entity":
+                    if isinstance(record, dict) and record.get("_type") == "entity":
                         count += 1
                 except json.JSONDecodeError:
                     continue

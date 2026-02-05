@@ -24,12 +24,12 @@ def strapi_config() -> StrapiConfig:
 # Sync Client Tests
 
 
-@respx.mock
-def test_bulk_create_all_success(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_bulk_create_all_success(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test bulk create with all successes."""
     # Mock create responses
     for i in range(1, 4):
-        respx.post("http://localhost:1337/api/articles").mock(
+        respx_mock.post("http://localhost:1337/api/articles").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -61,11 +61,13 @@ def test_bulk_create_all_success(strapi_config: StrapiConfig) -> None:
         assert result.success_rate() == 1.0
 
 
-@respx.mock
-def test_bulk_create_partial_failures(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_bulk_create_partial_failures(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test bulk create with some failures."""
     # First succeeds
-    respx.post("http://localhost:1337/api/articles").mock(
+    respx_mock.post("http://localhost:1337/api/articles").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -105,11 +107,13 @@ def test_bulk_create_partial_failures(strapi_config: StrapiConfig) -> None:
         assert "Validation" in failure.error
 
 
-@respx.mock
-def test_bulk_create_with_progress_callback(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_bulk_create_with_progress_callback(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test bulk create with progress callback."""
     for i in range(1, 6):
-        respx.post("http://localhost:1337/api/articles").mock(
+        respx_mock.post("http://localhost:1337/api/articles").mock(
             return_value=httpx.Response(
                 200,
                 json={"data": {"id": i, "documentId": f"doc{i}"}},
@@ -130,8 +134,8 @@ def test_bulk_create_with_progress_callback(strapi_config: StrapiConfig) -> None
         assert progress_calls == [(1, 5), (2, 5), (3, 5), (4, 5), (5, 5)]
 
 
-@respx.mock
-def test_bulk_create_empty_list(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_bulk_create_empty_list(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test bulk create with empty list."""
     with SyncClient(strapi_config) as client:
         result = client.bulk_create("articles", [])
@@ -143,11 +147,11 @@ def test_bulk_create_empty_list(strapi_config: StrapiConfig) -> None:
         assert result.success_rate() == 0.0
 
 
-@respx.mock
-def test_bulk_update_all_success(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_bulk_update_all_success(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test bulk update with all successes."""
     for i in range(1, 4):
-        respx.put(f"http://localhost:1337/api/articles/{i}").mock(
+        respx_mock.put(f"http://localhost:1337/api/articles/{i}").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -175,19 +179,21 @@ def test_bulk_update_all_success(strapi_config: StrapiConfig) -> None:
         assert result.is_complete_success()
 
 
-@respx.mock
-def test_bulk_update_partial_failures(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_bulk_update_partial_failures(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test bulk update with some failures."""
-    respx.put("http://localhost:1337/api/articles/1").mock(
+    respx_mock.put("http://localhost:1337/api/articles/1").mock(
         return_value=httpx.Response(
             200,
             json={"data": {"id": 1, "documentId": "doc1", "title": "Updated 1"}},
         )
     )
-    respx.put("http://localhost:1337/api/articles/999").mock(
+    respx_mock.put("http://localhost:1337/api/articles/999").mock(
         return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
     )
-    respx.put("http://localhost:1337/api/articles/3").mock(
+    respx_mock.put("http://localhost:1337/api/articles/3").mock(
         return_value=httpx.Response(
             200,
             json={"data": {"id": 3, "documentId": "doc3", "title": "Updated 3"}},
@@ -210,11 +216,11 @@ def test_bulk_update_partial_failures(strapi_config: StrapiConfig) -> None:
         assert result.failures[0].item["id"] == 999
 
 
-@respx.mock
-def test_bulk_delete_all_success(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_bulk_delete_all_success(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test bulk delete with all successes."""
     for i in range(1, 4):
-        respx.delete(f"http://localhost:1337/api/articles/{i}").mock(
+        respx_mock.delete(f"http://localhost:1337/api/articles/{i}").mock(
             return_value=httpx.Response(
                 200,
                 json={"data": {"id": i, "documentId": f"doc{i}"}},
@@ -232,16 +238,18 @@ def test_bulk_delete_all_success(strapi_config: StrapiConfig) -> None:
         assert result.is_complete_success()
 
 
-@respx.mock
-def test_bulk_delete_partial_failures(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_bulk_delete_partial_failures(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test bulk delete with some failures."""
-    respx.delete("http://localhost:1337/api/articles/1").mock(
+    respx_mock.delete("http://localhost:1337/api/articles/1").mock(
         return_value=httpx.Response(
             200,
             json={"data": {"id": 1, "documentId": "doc1"}},
         )
     )
-    respx.delete("http://localhost:1337/api/articles/999").mock(
+    respx_mock.delete("http://localhost:1337/api/articles/999").mock(
         return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
     )
 
@@ -259,12 +267,13 @@ def test_bulk_delete_partial_failures(strapi_config: StrapiConfig) -> None:
 # Async Client Tests
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_bulk_create_all_success(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_bulk_create_all_success(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async bulk create with all successes."""
     for i in range(1, 6):
-        respx.post("http://localhost:1337/api/articles").mock(
+        respx_mock.post("http://localhost:1337/api/articles").mock(
             return_value=httpx.Response(
                 200,
                 json={"data": {"id": i, "documentId": f"doc{i}"}},
@@ -282,11 +291,12 @@ async def test_async_bulk_create_all_success(strapi_config: StrapiConfig) -> Non
         assert result.is_complete_success()
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_bulk_create_partial_failures(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_bulk_create_partial_failures(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async bulk create with some failures."""
-    respx.post("http://localhost:1337/api/articles").mock(
+    respx_mock.post("http://localhost:1337/api/articles").mock(
         side_effect=[
             httpx.Response(200, json={"data": {"id": 1, "documentId": "doc1"}}),
             httpx.Response(400, json={"error": {"message": "Validation failed"}}),
@@ -308,12 +318,13 @@ async def test_async_bulk_create_partial_failures(strapi_config: StrapiConfig) -
         assert result.failed == 1
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_bulk_update_all_success(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_bulk_update_all_success(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async bulk update with all successes."""
     for i in range(1, 4):
-        respx.put(f"http://localhost:1337/api/articles/{i}").mock(
+        respx_mock.put(f"http://localhost:1337/api/articles/{i}").mock(
             return_value=httpx.Response(
                 200,
                 json={"data": {"id": i, "documentId": f"doc{i}"}},
@@ -330,12 +341,13 @@ async def test_async_bulk_update_all_success(strapi_config: StrapiConfig) -> Non
         assert result.failed == 0
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_bulk_delete_all_success(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_bulk_delete_all_success(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async bulk delete with all successes."""
     for i in range(1, 4):
-        respx.delete(f"http://localhost:1337/api/articles/{i}").mock(
+        respx_mock.delete(f"http://localhost:1337/api/articles/{i}").mock(
             return_value=httpx.Response(
                 200,
                 json={"data": {"id": i, "documentId": f"doc{i}"}},

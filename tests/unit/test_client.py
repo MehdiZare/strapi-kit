@@ -28,10 +28,12 @@ class TestSyncClient:
             assert client is not None
         # Client should be closed after context
 
-    @respx.mock
-    def test_get_request_success(self, strapi_config: StrapiConfig, mock_v4_response: dict) -> None:
+    @pytest.mark.respx
+    def test_get_request_success(
+        self, strapi_config: StrapiConfig, mock_v4_response: dict, respx_mock: respx.Router
+    ) -> None:
         """Test successful GET request."""
-        respx.get("http://localhost:1337/api/articles/1").mock(
+        respx_mock.get("http://localhost:1337/api/articles/1").mock(
             return_value=Response(200, json=mock_v4_response)
         )
 
@@ -40,12 +42,12 @@ class TestSyncClient:
             assert response == mock_v4_response
             assert client.api_version == "v4"
 
-    @respx.mock
+    @pytest.mark.respx
     def test_post_request_success(
-        self, strapi_config: StrapiConfig, mock_v4_response: dict
+        self, strapi_config: StrapiConfig, mock_v4_response: dict, respx_mock: respx.Router
     ) -> None:
         """Test successful POST request."""
-        respx.post("http://localhost:1337/api/articles").mock(
+        respx_mock.post("http://localhost:1337/api/articles").mock(
             return_value=Response(200, json=mock_v4_response)
         )
 
@@ -54,8 +56,10 @@ class TestSyncClient:
             response = client.post("articles", json=data)
             assert response == mock_v4_response
 
-    @respx.mock
-    def test_authentication_error(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_authentication_error(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test authentication error handling."""
         error_response = {
             "error": {
@@ -64,7 +68,7 @@ class TestSyncClient:
                 "message": "Invalid token",
             }
         }
-        respx.get("http://localhost:1337/api/articles").mock(
+        respx_mock.get("http://localhost:1337/api/articles").mock(
             return_value=Response(401, json=error_response)
         )
 
@@ -73,8 +77,8 @@ class TestSyncClient:
                 client.get("articles")
             assert "Invalid token" in str(exc_info.value)
 
-    @respx.mock
-    def test_not_found_error(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_not_found_error(self, strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
         """Test not found error handling."""
         error_response = {
             "error": {
@@ -83,7 +87,7 @@ class TestSyncClient:
                 "message": "Not found",
             }
         }
-        respx.get("http://localhost:1337/api/articles/999").mock(
+        respx_mock.get("http://localhost:1337/api/articles/999").mock(
             return_value=Response(404, json=error_response)
         )
 
@@ -91,8 +95,8 @@ class TestSyncClient:
             with pytest.raises(NotFoundError):
                 client.get("articles/999")
 
-    @respx.mock
-    def test_validation_error(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_validation_error(self, strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
         """Test validation error handling."""
         error_response = {
             "error": {
@@ -102,7 +106,7 @@ class TestSyncClient:
                 "details": {"field": "title is required"},
             }
         }
-        respx.post("http://localhost:1337/api/articles").mock(
+        respx_mock.post("http://localhost:1337/api/articles").mock(
             return_value=Response(400, json=error_response)
         )
 
@@ -110,8 +114,8 @@ class TestSyncClient:
             with pytest.raises(ValidationError):
                 client.post("articles", json={})
 
-    @respx.mock
-    def test_server_error(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_server_error(self, strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
         """Test server error handling."""
         error_response = {
             "error": {
@@ -120,7 +124,7 @@ class TestSyncClient:
                 "message": "Server error",
             }
         }
-        respx.get("http://localhost:1337/api/articles").mock(
+        respx_mock.get("http://localhost:1337/api/articles").mock(
             return_value=Response(500, json=error_response)
         )
 
@@ -129,12 +133,12 @@ class TestSyncClient:
                 client.get("articles")
             assert exc_info.value.status_code == 500
 
-    @respx.mock
+    @pytest.mark.respx
     def test_api_version_detection_v4(
-        self, strapi_config: StrapiConfig, mock_v4_response: dict
+        self, strapi_config: StrapiConfig, mock_v4_response: dict, respx_mock: respx.Router
     ) -> None:
         """Test automatic v4 API detection."""
-        respx.get("http://localhost:1337/api/articles/1").mock(
+        respx_mock.get("http://localhost:1337/api/articles/1").mock(
             return_value=Response(200, json=mock_v4_response)
         )
 
@@ -142,12 +146,12 @@ class TestSyncClient:
             client.get("articles/1")
             assert client.api_version == "v4"
 
-    @respx.mock
+    @pytest.mark.respx
     def test_api_version_detection_v5(
-        self, strapi_config: StrapiConfig, mock_v5_response: dict
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
         """Test automatic v5 API detection."""
-        respx.get("http://localhost:1337/api/articles/1").mock(
+        respx_mock.get("http://localhost:1337/api/articles/1").mock(
             return_value=Response(200, json=mock_v5_response)
         )
 
@@ -172,13 +176,12 @@ class TestAsyncClient:
             assert client is not None
         # Client should be closed after context
 
-    @pytest.mark.asyncio
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_request_success(
-        self, strapi_config: StrapiConfig, mock_v4_response: dict
+        self, strapi_config: StrapiConfig, mock_v4_response: dict, respx_mock: respx.Router
     ) -> None:
         """Test successful async GET request."""
-        respx.get("http://localhost:1337/api/articles/1").mock(
+        respx_mock.get("http://localhost:1337/api/articles/1").mock(
             return_value=Response(200, json=mock_v4_response)
         )
 
@@ -187,13 +190,12 @@ class TestAsyncClient:
             assert response == mock_v4_response
             assert client.api_version == "v4"
 
-    @pytest.mark.asyncio
-    @respx.mock
+    @pytest.mark.respx
     async def test_post_request_success(
-        self, strapi_config: StrapiConfig, mock_v4_response: dict
+        self, strapi_config: StrapiConfig, mock_v4_response: dict, respx_mock: respx.Router
     ) -> None:
         """Test successful async POST request."""
-        respx.post("http://localhost:1337/api/articles").mock(
+        respx_mock.post("http://localhost:1337/api/articles").mock(
             return_value=Response(200, json=mock_v4_response)
         )
 
@@ -202,9 +204,10 @@ class TestAsyncClient:
             response = await client.post("articles", json=data)
             assert response == mock_v4_response
 
-    @pytest.mark.asyncio
-    @respx.mock
-    async def test_authentication_error(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    async def test_authentication_error(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test authentication error handling."""
         error_response = {
             "error": {
@@ -213,7 +216,7 @@ class TestAsyncClient:
                 "message": "Invalid token",
             }
         }
-        respx.get("http://localhost:1337/api/articles").mock(
+        respx_mock.get("http://localhost:1337/api/articles").mock(
             return_value=Response(401, json=error_response)
         )
 
