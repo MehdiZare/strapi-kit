@@ -77,8 +77,8 @@ Currently implemented:
 - ✅ Authentication (API tokens)
 - ✅ Exception hierarchy
 - ✅ API version detection (v4/v5)
-- 🚧 CRUD operations (in progress)
-- 🚧 Import/Export (planned)
+- ✅ CRUD operations
+- ✅ Import/Export with automatic relation resolution
 
 ## Contributing
 

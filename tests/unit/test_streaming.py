@@ -27,10 +27,10 @@ def strapi_config() -> StrapiConfig:
 # Sync Streaming Tests
 
 
-@respx.mock
-def test_stream_entities_single_page(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_stream_entities_single_page(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test streaming with single page of results."""
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -60,11 +60,13 @@ def test_stream_entities_single_page(strapi_config: StrapiConfig) -> None:
         assert entities[2].id == 3
 
 
-@respx.mock
-def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_stream_entities_multiple_pages(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test streaming with multiple pages."""
     # Page 1
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/articles",
         params={"pagination[page]": 1, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
@@ -88,7 +90,7 @@ def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
     )
 
     # Page 2
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/articles",
         params={"pagination[page]": 2, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
@@ -112,7 +114,7 @@ def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
     )
 
     # Page 3
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/articles",
         params={"pagination[page]": 3, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
@@ -142,10 +144,12 @@ def test_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
         assert entities[4].id == 5
 
 
-@respx.mock
-def test_stream_entities_empty_results(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_stream_entities_empty_results(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test streaming with no results."""
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -168,11 +172,13 @@ def test_stream_entities_empty_results(strapi_config: StrapiConfig) -> None:
         assert len(entities) == 0
 
 
-@respx.mock
-def test_stream_entities_with_query_filters(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_stream_entities_with_query_filters(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test streaming with query filters."""
     # Mock any GET to articles endpoint (filters will be in query params)
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -200,10 +206,12 @@ def test_stream_entities_with_query_filters(strapi_config: StrapiConfig) -> None
         assert entities[0].attributes["status"] == "published"
 
 
-@respx.mock
-def test_stream_entities_no_pagination_metadata(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_stream_entities_no_pagination_metadata(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test streaming when response has no pagination metadata."""
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -221,8 +229,10 @@ def test_stream_entities_no_pagination_metadata(strapi_config: StrapiConfig) -> 
         assert len(entities) == 1
 
 
-@respx.mock
-def test_stream_entities_iteration_without_loading_all(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_stream_entities_iteration_without_loading_all(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test that streaming doesn't load all data at once (generator behavior)."""
     call_count = 0
 
@@ -248,7 +258,7 @@ def test_stream_entities_iteration_without_loading_all(strapi_config: StrapiConf
             },
         )
 
-    respx.get("http://localhost:1337/api/articles").mock(side_effect=response_factory)
+    respx_mock.get("http://localhost:1337/api/articles").mock(side_effect=response_factory)
 
     with SyncClient(strapi_config) as client:
         gen = stream_entities(client, "articles", page_size=1)
@@ -272,11 +282,12 @@ def test_stream_entities_iteration_without_loading_all(strapi_config: StrapiConf
 # Async Streaming Tests
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_stream_entities_single_page(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_stream_entities_single_page(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async streaming with single page."""
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -306,12 +317,13 @@ async def test_async_stream_entities_single_page(strapi_config: StrapiConfig) ->
         assert entities[1].id == 2
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_stream_entities_multiple_pages(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_stream_entities_multiple_pages(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async streaming with multiple pages."""
     # Page 1
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/articles",
         params={"pagination[page]": 1, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
@@ -335,7 +347,7 @@ async def test_async_stream_entities_multiple_pages(strapi_config: StrapiConfig)
     )
 
     # Page 2
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/articles",
         params={"pagination[page]": 2, "pagination[pageSize]": 2, "pagination[withCount]": True},
     ).mock(
@@ -368,11 +380,12 @@ async def test_async_stream_entities_multiple_pages(strapi_config: StrapiConfig)
         assert entities[3].id == 4
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_stream_entities_empty_results(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_stream_entities_empty_results(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async streaming with no results."""
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={

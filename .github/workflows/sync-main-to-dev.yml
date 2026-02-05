@@ -1,0 +1,41 @@
+name: Sync Main to Dev
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: sync-main-to-dev
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Create sync PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: dev
+          branch: sync/main-to-dev
+          title: "Sync: main → dev"
+          body: |
+            Automated sync from main to dev.
+
+            This keeps dev up-to-date with releases and hotfixes.
+
+            ⚠️ **Merge using Squash and Merge** to preserve linear history on dev.
+
+            ⚠️ **Merge promptly** to avoid drift.
+          labels: sync
+          delete-branch: false

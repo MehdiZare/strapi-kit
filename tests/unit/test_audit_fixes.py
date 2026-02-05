@@ -310,11 +310,11 @@ class TestUidUtilities:
 class TestVersionDetectionCaching:
     """Tests for version detection caching behavior."""
 
-    @respx.mock
-    def test_ambiguous_response_not_cached(self, strapi_config):
+    @pytest.mark.respx
+    def test_ambiguous_response_not_cached(self, strapi_config, respx_mock: respx.Router):
         """Test that ambiguous responses don't cache version."""
         # Mock response without clear v4/v5 indicators
-        respx.get("http://localhost:1337/api/test").mock(
+        respx_mock.get("http://localhost:1337/api/test").mock(
             return_value=httpx.Response(
                 200,
                 json={"data": {"id": 1, "title": "Test"}},  # No attributes or documentId
@@ -326,10 +326,10 @@ class TestVersionDetectionCaching:
             # Version should not be cached on ambiguous response
             assert client.api_version is None
 
-    @respx.mock
-    def test_v5_response_cached(self, strapi_config):
+    @pytest.mark.respx
+    def test_v5_response_cached(self, strapi_config, respx_mock: respx.Router):
         """Test that v5 responses are cached."""
-        respx.get("http://localhost:1337/api/test").mock(
+        respx_mock.get("http://localhost:1337/api/test").mock(
             return_value=httpx.Response(
                 200,
                 json={"data": {"id": 1, "documentId": "abc123", "title": "Test"}},
@@ -340,10 +340,10 @@ class TestVersionDetectionCaching:
             client.get("test")
             assert client.api_version == "v5"
 
-    @respx.mock
-    def test_v4_response_cached(self, strapi_config):
+    @pytest.mark.respx
+    def test_v4_response_cached(self, strapi_config, respx_mock: respx.Router):
         """Test that v4 responses are cached."""
-        respx.get("http://localhost:1337/api/test").mock(
+        respx_mock.get("http://localhost:1337/api/test").mock(
             return_value=httpx.Response(
                 200,
                 json={"data": {"id": 1, "attributes": {"title": "Test"}}},
@@ -354,10 +354,10 @@ class TestVersionDetectionCaching:
             client.get("test")
             assert client.api_version == "v4"
 
-    @respx.mock
-    def test_reset_version_detection(self, strapi_config):
+    @pytest.mark.respx
+    def test_reset_version_detection(self, strapi_config, respx_mock: respx.Router):
         """Test reset_version_detection clears cached version."""
-        respx.get("http://localhost:1337/api/test").mock(
+        respx_mock.get("http://localhost:1337/api/test").mock(
             return_value=httpx.Response(
                 200,
                 json={"data": {"id": 1, "documentId": "abc123", "title": "Test"}},
@@ -375,10 +375,10 @@ class TestVersionDetectionCaching:
 class TestNonJsonResponseHandling:
     """Tests for non-JSON response handling."""
 
-    @respx.mock
-    def test_html_response_raises_format_error(self, strapi_config):
+    @pytest.mark.respx
+    def test_html_response_raises_format_error(self, strapi_config, respx_mock: respx.Router):
         """Test that HTML responses raise FormatError."""
-        respx.get("http://localhost:1337/api/test").mock(
+        respx_mock.get("http://localhost:1337/api/test").mock(
             return_value=httpx.Response(
                 200,
                 content=b"<html><body>Error</body></html>",
@@ -393,11 +393,11 @@ class TestNonJsonResponseHandling:
             assert "non-JSON response" in str(exc_info.value)
             assert "text/html" in str(exc_info.value)
 
-    @respx.mock
-    def test_format_error_includes_body_preview(self, strapi_config):
+    @pytest.mark.respx
+    def test_format_error_includes_body_preview(self, strapi_config, respx_mock: respx.Router):
         """Test that FormatError includes body preview."""
         html_body = "<html><body>Gateway Error</body></html>"
-        respx.get("http://localhost:1337/api/test").mock(
+        respx_mock.get("http://localhost:1337/api/test").mock(
             return_value=httpx.Response(
                 200,
                 content=html_body.encode(),
@@ -512,10 +512,10 @@ class TestMediaUpdateEndpoint:
 class TestRateLimitingInClient:
     """Tests for rate limiting integration in clients."""
 
-    @respx.mock
-    def test_rate_limiter_applied_when_configured(self, monkeypatch):
+    @pytest.mark.respx
+    def test_rate_limiter_applied_when_configured(self, monkeypatch, respx_mock: respx.Router):
         """Test rate limiter is applied when configured."""
-        respx.get("http://localhost:1337/api/articles").mock(
+        respx_mock.get("http://localhost:1337/api/articles").mock(
             return_value=httpx.Response(200, json={"data": []})
         )
         called = False
@@ -537,10 +537,10 @@ class TestRateLimitingInClient:
 
         assert called is True
 
-    @respx.mock
-    def test_rate_limiter_not_applied_when_disabled(self, monkeypatch):
+    @pytest.mark.respx
+    def test_rate_limiter_not_applied_when_disabled(self, monkeypatch, respx_mock: respx.Router):
         """Test rate limiter is not applied when disabled."""
-        respx.get("http://localhost:1337/api/articles").mock(
+        respx_mock.get("http://localhost:1337/api/articles").mock(
             return_value=httpx.Response(200, json={"data": []})
         )
         called = False

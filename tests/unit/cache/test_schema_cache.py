@@ -1,5 +1,7 @@
 """Tests for InMemorySchemaCache."""
 
+from typing import Any
+
 import pytest
 import respx
 from httpx import Response
@@ -11,7 +13,7 @@ from strapi_kit.models.schema import ContentTypeSchema, FieldType, RelationType
 
 
 @pytest.fixture
-def strapi_config():
+def strapi_config() -> StrapiConfig:
     """Fixture for test Strapi configuration."""
     return StrapiConfig(
         base_url="http://localhost:1337",
@@ -20,7 +22,7 @@ def strapi_config():
 
 
 @pytest.fixture
-def mock_schema_response():
+def mock_schema_response() -> dict[str, Any]:
     """Mock schema response from Strapi API."""
     return {
         "data": {
@@ -55,8 +57,8 @@ def mock_schema_response():
     }
 
 
-@respx.mock
-def test_cache_initialization(strapi_config):
+@pytest.mark.respx
+def test_cache_initialization(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test cache initialization."""
     with SyncClient(strapi_config) as client:
         cache = InMemorySchemaCache(client)
@@ -65,10 +67,12 @@ def test_cache_initialization(strapi_config):
         assert cache.fetch_count == 0
 
 
-@respx.mock
-def test_get_schema_fetches_on_miss(strapi_config, mock_schema_response):
+@pytest.mark.respx
+def test_get_schema_fetches_on_miss(
+    strapi_config: StrapiConfig, mock_schema_response: dict[str, Any], respx_mock: respx.Router
+) -> None:
     """Test that get_schema fetches from API on cache miss."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_schema_response))
 
@@ -84,10 +88,12 @@ def test_get_schema_fetches_on_miss(strapi_config, mock_schema_response):
         assert cache.fetch_count == 1
 
 
-@respx.mock
-def test_get_schema_returns_cached_on_hit(strapi_config, mock_schema_response):
+@pytest.mark.respx
+def test_get_schema_returns_cached_on_hit(
+    strapi_config: StrapiConfig, mock_schema_response: dict[str, Any], respx_mock: respx.Router
+) -> None:
     """Test that get_schema returns cached schema on hit."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_schema_response))
 
@@ -104,10 +110,12 @@ def test_get_schema_returns_cached_on_hit(strapi_config, mock_schema_response):
         assert cache.fetch_count == 1  # Only fetched once
 
 
-@respx.mock
-def test_has_schema(strapi_config, mock_schema_response):
+@pytest.mark.respx
+def test_has_schema(
+    strapi_config: StrapiConfig, mock_schema_response: dict[str, Any], respx_mock: respx.Router
+) -> None:
     """Test has_schema method."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_schema_response))
 
@@ -121,8 +129,8 @@ def test_has_schema(strapi_config, mock_schema_response):
         assert cache.has_schema("api::article.article")
 
 
-@respx.mock
-def test_cache_schema(strapi_config):
+@pytest.mark.respx
+def test_cache_schema(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test manually caching a schema."""
     with SyncClient(strapi_config) as client:
         cache = InMemorySchemaCache(client)
@@ -140,10 +148,12 @@ def test_cache_schema(strapi_config):
         assert cache.fetch_count == 0  # No API fetch
 
 
-@respx.mock
-def test_clear_cache(strapi_config, mock_schema_response):
+@pytest.mark.respx
+def test_clear_cache(
+    strapi_config: StrapiConfig, mock_schema_response: dict[str, Any], respx_mock: respx.Router
+) -> None:
     """Test clearing the cache."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_schema_response))
 
@@ -159,10 +169,12 @@ def test_clear_cache(strapi_config, mock_schema_response):
         assert cache.fetch_count == 0
 
 
-@respx.mock
-def test_parse_schema_response(strapi_config, mock_schema_response):
+@pytest.mark.respx
+def test_parse_schema_response(
+    strapi_config: StrapiConfig, mock_schema_response: dict[str, Any], respx_mock: respx.Router
+) -> None:
     """Test parsing schema response."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_schema_response))
 
@@ -186,10 +198,12 @@ def test_parse_schema_response(strapi_config, mock_schema_response):
         assert content_field.type == FieldType.TEXT
 
 
-@respx.mock
-def test_parse_field_schema_relation(strapi_config, mock_schema_response):
+@pytest.mark.respx
+def test_parse_field_schema_relation(
+    strapi_config: StrapiConfig, mock_schema_response: dict[str, Any], respx_mock: respx.Router
+) -> None:
     """Test parsing relation field schema."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_schema_response))
 
@@ -212,10 +226,12 @@ def test_parse_field_schema_relation(strapi_config, mock_schema_response):
         assert categories_field.mapped_by == "articles"
 
 
-@respx.mock
-def test_get_field_target(strapi_config, mock_schema_response):
+@pytest.mark.respx
+def test_get_field_target(
+    strapi_config: StrapiConfig, mock_schema_response: dict[str, Any], respx_mock: respx.Router
+) -> None:
     """Test getting field target for relation."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_schema_response))
 
@@ -234,10 +250,12 @@ def test_get_field_target(strapi_config, mock_schema_response):
         assert schema.get_field_target("nonexistent") is None
 
 
-@respx.mock
-def test_is_relation_field(strapi_config, mock_schema_response):
+@pytest.mark.respx
+def test_is_relation_field(
+    strapi_config: StrapiConfig, mock_schema_response: dict[str, Any], respx_mock: respx.Router
+) -> None:
     """Test checking if field is a relation."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_schema_response))
 
@@ -251,10 +269,10 @@ def test_is_relation_field(strapi_config, mock_schema_response):
         assert schema.is_relation_field("nonexistent") is False
 
 
-@respx.mock
-def test_fetch_schema_error_handling(strapi_config):
+@pytest.mark.respx
+def test_fetch_schema_error_handling(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test error handling when fetching schema."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(404, json={"error": "Not found"}))
 
@@ -267,8 +285,8 @@ def test_fetch_schema_error_handling(strapi_config):
         assert "Failed to fetch schema" in str(exc_info.value)
 
 
-@respx.mock
-def test_parse_unknown_field_type(strapi_config):
+@pytest.mark.respx
+def test_parse_unknown_field_type(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test parsing schema with unknown field type."""
     mock_response = {
         "data": {
@@ -283,9 +301,9 @@ def test_parse_unknown_field_type(strapi_config):
         }
     }
 
-    respx.get("http://localhost:1337/api/content-type-builder/content-types/api::test.test").mock(
-        return_value=Response(200, json=mock_response)
-    )
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::test.test"
+    ).mock(return_value=Response(200, json=mock_response))
 
     with SyncClient(strapi_config) as client:
         cache = InMemorySchemaCache(client)
@@ -299,7 +317,7 @@ def test_parse_unknown_field_type(strapi_config):
 
 
 @pytest.fixture
-def mock_actual_v5_schema_response():
+def mock_actual_v5_schema_response() -> dict[str, Any]:
     """Mock ACTUAL Strapi v5 schema response (Issue #28).
 
     This is the real format Strapi v5 returns, with displayName/singularName/pluralName
@@ -330,10 +348,14 @@ def mock_actual_v5_schema_response():
     }
 
 
-@respx.mock
-def test_fetch_schema_actual_v5_format(strapi_config, mock_actual_v5_schema_response):
+@pytest.mark.respx
+def test_fetch_schema_actual_v5_format(
+    strapi_config: StrapiConfig,
+    mock_actual_v5_schema_response: dict[str, Any],
+    respx_mock: respx.Router,
+) -> None:
     """Test fetching schema with actual v5 format (Issue #28)."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_actual_v5_schema_response))
 
@@ -358,8 +380,12 @@ def test_fetch_schema_actual_v5_format(strapi_config, mock_actual_v5_schema_resp
         assert schema.fields["author"].target == "api::author.author"
 
 
-@respx.mock
-def test_parse_schema_response_actual_v5_format(strapi_config, mock_actual_v5_schema_response):
+@pytest.mark.respx
+def test_parse_schema_response_actual_v5_format(
+    strapi_config: StrapiConfig,
+    mock_actual_v5_schema_response: dict[str, Any],
+    respx_mock: respx.Router,
+) -> None:
     """Test _parse_schema_response with actual v5 format (Issue #28)."""
     with SyncClient(strapi_config) as client:
         cache = InMemorySchemaCache(client)
@@ -376,7 +402,7 @@ def test_parse_schema_response_actual_v5_format(strapi_config, mock_actual_v5_sc
         assert schema.kind == "collectionType"
 
 
-def test_extract_info_from_schema_flat():
+def test_extract_info_from_schema_flat() -> None:
     """Test extract_info_from_schema with flat v5 format."""
     from strapi_kit.utils.schema import extract_info_from_schema
 
@@ -395,7 +421,7 @@ def test_extract_info_from_schema_flat():
     assert info["description"] == "Blog articles"
 
 
-def test_extract_info_from_schema_nested():
+def test_extract_info_from_schema_nested() -> None:
     """Test extract_info_from_schema with nested format (should still work)."""
     from strapi_kit.utils.schema import extract_info_from_schema
 
@@ -415,10 +441,14 @@ def test_extract_info_from_schema_nested():
     assert info["pluralName"] == "articles"
 
 
-@respx.mock
-def test_schema_cache_v5_relation_methods(strapi_config, mock_actual_v5_schema_response):
+@pytest.mark.respx
+def test_schema_cache_v5_relation_methods(
+    strapi_config: StrapiConfig,
+    mock_actual_v5_schema_response: dict[str, Any],
+    respx_mock: respx.Router,
+) -> None:
     """Test schema helper methods work correctly with v5 format."""
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=Response(200, json=mock_actual_v5_schema_response))
 

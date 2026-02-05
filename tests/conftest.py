@@ -1,8 +1,22 @@
 """Pytest configuration and shared fixtures."""
 
+from collections.abc import Generator
+
 import pytest
+import respx
 
 from strapi_kit import StrapiConfig
+
+
+@pytest.fixture
+def respx_mock() -> Generator[respx.Router, None, None]:
+    """Create a respx mock router for HTTP mocking.
+
+    Yields:
+        respx.Router for registering mock responses
+    """
+    with respx.mock as router:
+        yield router
 
 
 @pytest.fixture

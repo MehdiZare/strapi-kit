@@ -81,18 +81,18 @@ def mock_article_schema_response() -> dict:
 # Export Tests
 
 
-@respx.mock
+@pytest.mark.respx
 def test_export_content_types(
-    strapi_config: StrapiConfig, mock_article_schema_response: dict
+    strapi_config: StrapiConfig, mock_article_schema_response: dict, respx_mock: respx.Router
 ) -> None:
     """Test exporting content types."""
     # Mock schema fetch (required for schema-aware relation extraction)
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
 
     # Mock paginated response
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -123,17 +123,17 @@ def test_export_content_types(
         assert export_data.get_entity_count() == 2
 
 
-@respx.mock
+@pytest.mark.respx
 def test_export_with_progress_callback(
-    strapi_config: StrapiConfig, mock_article_schema_response: dict
+    strapi_config: StrapiConfig, mock_article_schema_response: dict, respx_mock: respx.Router
 ) -> None:
     """Test export with progress callback."""
     # Mock schema fetch
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
 
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -160,13 +160,13 @@ def test_export_with_progress_callback(
         assert len(progress_calls) >= 2  # At least start and end
 
 
-@respx.mock
+@pytest.mark.respx
 def test_export_multiple_content_types(
-    strapi_config: StrapiConfig, mock_article_schema_response: dict
+    strapi_config: StrapiConfig, mock_article_schema_response: dict, respx_mock: respx.Router
 ) -> None:
     """Test exporting multiple content types."""
     # Mock schema fetches
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
 
@@ -181,11 +181,11 @@ def test_export_multiple_content_types(
             }
         }
     }
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::author.author"
     ).mock(return_value=httpx.Response(200, json=mock_author_schema))
 
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -195,7 +195,7 @@ def test_export_multiple_content_types(
         )
     )
 
-    respx.get("http://localhost:1337/api/authors").mock(
+    respx_mock.get("http://localhost:1337/api/authors").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -248,10 +248,11 @@ def test_uid_to_endpoint() -> None:
 # Import Tests
 
 
-@respx.mock
+@pytest.mark.respx
 def test_import_data_dry_run(
     strapi_config: StrapiConfig,
     sample_export_data: ExportData,
+    respx_mock: respx.Router,
 ) -> None:
     """Test import with dry run mode."""
     with SyncClient(strapi_config) as client:
@@ -266,14 +267,15 @@ def test_import_data_dry_run(
         # No actual API calls should be made in dry run
 
 
-@respx.mock
+@pytest.mark.respx
 def test_import_data_creates_entities(
     strapi_config: StrapiConfig,
     sample_export_data: ExportData,
+    respx_mock: respx.Router,
 ) -> None:
     """Test import actually creates entities."""
     # Mock create responses
-    respx.post("http://localhost:1337/api/articles").mock(
+    respx_mock.post("http://localhost:1337/api/articles").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -301,14 +303,15 @@ def test_import_data_creates_entities(
         assert result.id_mapping["api::article.article"][2] == 11
 
 
-@respx.mock
+@pytest.mark.respx
 def test_import_with_validation_error(
     strapi_config: StrapiConfig,
     sample_export_data: ExportData,
+    respx_mock: respx.Router,
 ) -> None:
     """Test import handles validation errors."""
     # First succeeds, second fails
-    respx.post("http://localhost:1337/api/articles").mock(
+    respx_mock.post("http://localhost:1337/api/articles").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -331,13 +334,14 @@ def test_import_with_validation_error(
         assert len(result.errors) > 0
 
 
-@respx.mock
+@pytest.mark.respx
 def test_import_with_progress_callback(
     strapi_config: StrapiConfig,
     sample_export_data: ExportData,
+    respx_mock: respx.Router,
 ) -> None:
     """Test import with progress callback."""
-    respx.post("http://localhost:1337/api/articles").mock(
+    respx_mock.post("http://localhost:1337/api/articles").mock(
         side_effect=[
             httpx.Response(200, json={"data": {"id": 10, "documentId": "doc1"}}),
             httpx.Response(200, json={"data": {"id": 11, "documentId": "doc2"}}),
@@ -534,11 +538,11 @@ def test_import_result_helpers() -> None:
 # Schema Export/Import Tests
 
 
-@respx.mock
-def test_export_includes_schemas(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_export_includes_schemas(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test that export always includes schemas for relation resolution."""
     # Mock entity response
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -549,7 +553,7 @@ def test_export_includes_schemas(strapi_config: StrapiConfig) -> None:
     )
 
     # Mock schema response
-    respx.get(
+    respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(
         return_value=httpx.Response(
@@ -584,8 +588,10 @@ def test_export_includes_schemas(strapi_config: StrapiConfig) -> None:
         assert "author" in schema.fields
 
 
-@respx.mock
-def test_import_resolves_relations_with_schema(strapi_config: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_import_resolves_relations_with_schema(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test that import resolves relations correctly using schemas."""
     from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
 
@@ -646,7 +652,7 @@ def test_import_resolves_relations_with_schema(strapi_config: StrapiConfig) -> N
     export_data = ExportData(metadata=metadata, entities=entities)
 
     # Mock author creation
-    respx.post("http://localhost:1337/api/authors").mock(
+    respx_mock.post("http://localhost:1337/api/authors").mock(
         return_value=httpx.Response(
             200,
             json={"data": {"id": 100, "documentId": "new-author-doc1", "name": "John Doe"}},
@@ -654,7 +660,7 @@ def test_import_resolves_relations_with_schema(strapi_config: StrapiConfig) -> N
     )
 
     # Mock article creation
-    respx.post("http://localhost:1337/api/articles").mock(
+    respx_mock.post("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
             json={"data": {"id": 200, "documentId": "new-article-doc1", "title": "Article 1"}},
@@ -662,7 +668,7 @@ def test_import_resolves_relations_with_schema(strapi_config: StrapiConfig) -> N
     )
 
     # Mock relation update
-    respx.put("http://localhost:1337/api/articles/200").mock(
+    respx_mock.put("http://localhost:1337/api/articles/200").mock(
         return_value=httpx.Response(
             200,
             json={"data": {"id": 200, "documentId": "new-article-doc1", "title": "Article 1"}},

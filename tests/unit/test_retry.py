@@ -41,11 +41,13 @@ def strapi_config_with_retry(retry_config: RetryConfig) -> StrapiConfig:
 # Sync Client Retry Tests
 
 
-@respx.mock
-def test_retry_on_server_error_500(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_retry_on_server_error_500(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test retry on HTTP 500 server error."""
     # First request fails with 500, second succeeds
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.side_effect = [
         httpx.Response(500, json={"error": {"message": "Internal Server Error"}}),
         httpx.Response(200, json={"data": [{"id": 1, "documentId": "abc"}]}),
@@ -60,10 +62,12 @@ def test_retry_on_server_error_500(strapi_config_with_retry: StrapiConfig) -> No
     assert route.call_count == 2
 
 
-@respx.mock
-def test_retry_on_server_error_503(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_retry_on_server_error_503(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test retry on HTTP 503 service unavailable."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.side_effect = [
         httpx.Response(503, json={"error": {"message": "Service Unavailable"}}),
         httpx.Response(503, json={"error": {"message": "Service Unavailable"}}),
@@ -78,10 +82,12 @@ def test_retry_on_server_error_503(strapi_config_with_retry: StrapiConfig) -> No
     assert route.call_count == 3
 
 
-@respx.mock
-def test_retry_exhausted_raises_error(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_retry_exhausted_raises_error(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test that retries are exhausted after max_attempts."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     # Always fail with 500
     route.mock(return_value=httpx.Response(500, json={"error": {"message": "Error"}}))
 
@@ -93,11 +99,13 @@ def test_retry_exhausted_raises_error(strapi_config_with_retry: StrapiConfig) ->
     assert route.call_count == 3
 
 
-@respx.mock
-def test_no_retry_on_client_errors(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_no_retry_on_client_errors(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test that client errors (4xx) are NOT retried."""
     # 400 - Validation error
-    route_400 = respx.get("http://localhost:1337/api/articles")
+    route_400 = respx_mock.get("http://localhost:1337/api/articles")
     route_400.mock(return_value=httpx.Response(400, json={"error": {"message": "Bad Request"}}))
 
     with SyncClient(strapi_config_with_retry) as client:
@@ -108,10 +116,10 @@ def test_no_retry_on_client_errors(strapi_config_with_retry: StrapiConfig) -> No
     assert route_400.call_count == 1
 
 
-@respx.mock
-def test_no_retry_on_401(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_no_retry_on_401(strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test that 401 errors are NOT retried."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.mock(return_value=httpx.Response(401, json={"error": {"message": "Unauthorized"}}))
 
     with SyncClient(strapi_config_with_retry) as client:
@@ -122,10 +130,10 @@ def test_no_retry_on_401(strapi_config_with_retry: StrapiConfig) -> None:
     assert route.call_count == 1
 
 
-@respx.mock
-def test_no_retry_on_404(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_no_retry_on_404(strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router) -> None:
     """Test that 404 errors are NOT retried."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.mock(return_value=httpx.Response(404, json={"error": {"message": "Not Found"}}))
 
     with SyncClient(strapi_config_with_retry) as client:
@@ -135,10 +143,12 @@ def test_no_retry_on_404(strapi_config_with_retry: StrapiConfig) -> None:
     assert route.call_count == 1
 
 
-@respx.mock
-def test_retry_on_rate_limit_with_retry_after(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_retry_on_rate_limit_with_retry_after(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test retry on 429 with Retry-After header."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.side_effect = [
         httpx.Response(
             429,
@@ -156,10 +166,12 @@ def test_retry_on_rate_limit_with_retry_after(strapi_config_with_retry: StrapiCo
     assert route.call_count == 2
 
 
-@respx.mock
-def test_retry_on_connection_error(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_retry_on_connection_error(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test retry on connection failures."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.side_effect = [
         httpx.ConnectError("Connection refused"),
         httpx.Response(200, json={"data": []}),
@@ -172,10 +184,12 @@ def test_retry_on_connection_error(strapi_config_with_retry: StrapiConfig) -> No
     assert route.call_count == 2
 
 
-@respx.mock
-def test_retry_connection_error_exhausted(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_retry_connection_error_exhausted(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test connection error retries exhausted."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     # Always fail with connection error
     route.side_effect = httpx.ConnectError("Connection refused")
 
@@ -187,13 +201,15 @@ def test_retry_connection_error_exhausted(strapi_config_with_retry: StrapiConfig
     assert route.call_count == 3
 
 
-@respx.mock
-def test_custom_retry_on_status(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_custom_retry_on_status(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test custom retry_on_status configuration."""
     # Configure to retry on 502 and 503 only
     strapi_config_with_retry.retry.retry_on_status = {502, 503}
 
-    route_502 = respx.get("http://localhost:1337/api/articles")
+    route_502 = respx_mock.get("http://localhost:1337/api/articles")
     route_502.side_effect = [
         httpx.Response(502, json={"error": {"message": "Bad Gateway"}}),
         httpx.Response(200, json={"data": []}),
@@ -207,13 +223,15 @@ def test_custom_retry_on_status(strapi_config_with_retry: StrapiConfig) -> None:
     assert route_502.call_count == 2
 
 
-@respx.mock
-def test_no_retry_on_excluded_status(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_no_retry_on_excluded_status(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test that status codes NOT in retry_on_status are not retried."""
     # Configure to NOT retry 500
     strapi_config_with_retry.retry.retry_on_status = {502, 503}
 
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.mock(return_value=httpx.Response(500, json={"error": {"message": "Error"}}))
 
     with SyncClient(strapi_config_with_retry) as client:
@@ -227,11 +245,12 @@ def test_no_retry_on_excluded_status(strapi_config_with_retry: StrapiConfig) -> 
 # Async Client Retry Tests
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_retry_on_server_error(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_retry_on_server_error(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async retry on server errors."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.side_effect = [
         httpx.Response(500, json={"error": {"message": "Internal Server Error"}}),
         httpx.Response(200, json={"data": [{"id": 1, "documentId": "abc"}]}),
@@ -244,11 +263,12 @@ async def test_async_retry_on_server_error(strapi_config_with_retry: StrapiConfi
     assert route.call_count == 2
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_retry_exhausted(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_retry_exhausted(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async retry exhaustion."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.mock(return_value=httpx.Response(503, json={"error": {"message": "Unavailable"}}))
 
     async with AsyncClient(strapi_config_with_retry) as client:
@@ -259,11 +279,12 @@ async def test_async_retry_exhausted(strapi_config_with_retry: StrapiConfig) -> 
     assert route.call_count == 3
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_no_retry_on_404(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_no_retry_on_404(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async does not retry 404."""
-    route = respx.get("http://localhost:1337/api/articles/999")
+    route = respx_mock.get("http://localhost:1337/api/articles/999")
     route.mock(return_value=httpx.Response(404, json={"error": {"message": "Not Found"}}))
 
     async with AsyncClient(strapi_config_with_retry) as client:
@@ -274,11 +295,12 @@ async def test_async_no_retry_on_404(strapi_config_with_retry: StrapiConfig) -> 
     assert route.call_count == 1
 
 
-@pytest.mark.asyncio
-@respx.mock
-async def test_async_retry_on_rate_limit(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+async def test_async_retry_on_rate_limit(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test async retry on rate limit."""
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.side_effect = [
         httpx.Response(
             429,
@@ -324,12 +346,14 @@ def test_retry_config_validation() -> None:
         RetryConfig(max_attempts=0)
 
 
-@respx.mock
-def test_retry_disabled_with_max_attempts_1(strapi_config_with_retry: StrapiConfig) -> None:
+@pytest.mark.respx
+def test_retry_disabled_with_max_attempts_1(
+    strapi_config_with_retry: StrapiConfig, respx_mock: respx.Router
+) -> None:
     """Test that max_attempts=1 effectively disables retry."""
     strapi_config_with_retry.retry.max_attempts = 1
 
-    route = respx.get("http://localhost:1337/api/articles")
+    route = respx_mock.get("http://localhost:1337/api/articles")
     route.mock(return_value=httpx.Response(500, json={"error": {"message": "Error"}}))
 
     with SyncClient(strapi_config_with_retry) as client:

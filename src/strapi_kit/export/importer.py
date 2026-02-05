@@ -954,11 +954,10 @@ class StrapiImporter:
                                 result.entities_skipped += 1
                                 continue
                             elif options.conflict_resolution == ConflictResolution.FAIL:
-                                result.add_error(
-                                    f"Entity already exists: {content_type} {entity.document_id}"
+                                raise ImportExportError(
+                                    f"Entity already exists: {content_type} {entity.document_id}. "
+                                    "Use conflict_resolution=SKIP or UPDATE."
                                 )
-                                result.entities_failed += 1
-                                continue
                             elif options.conflict_resolution == ConflictResolution.UPDATE:
                                 # Update existing entity (use document_id for v5 endpoint)
                                 self.client.update(

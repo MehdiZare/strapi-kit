@@ -429,14 +429,15 @@ def mock_single_content_type_response() -> dict:
 class TestSyncContentTypeBuilder:
     """Tests for SyncClient Content-Type Builder methods."""
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_types(
         self,
         strapi_config: StrapiConfig,
         mock_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types without plugins."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_content_types_response)
         )
 
@@ -457,14 +458,15 @@ class TestSyncContentTypeBuilder:
             assert article.info.plural_name == "articles"
             assert "title" in article.attributes
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_types_include_plugins(
         self,
         strapi_config: StrapiConfig,
         mock_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types including plugins."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_content_types_response)
         )
 
@@ -477,14 +479,15 @@ class TestSyncContentTypeBuilder:
             assert len(plugin_types) == 1
             assert plugin_types[0].uid == "plugin::users-permissions.user"
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_components(
         self,
         strapi_config: StrapiConfig,
         mock_components_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing components."""
-        respx.get("http://localhost:1337/api/content-type-builder/components").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
             return_value=Response(200, json=mock_components_response)
         )
 
@@ -501,15 +504,16 @@ class TestSyncContentTypeBuilder:
             assert seo.info.display_name == "SEO"
             assert "metaTitle" in seo.attributes
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_type_schema(
         self,
         strapi_config: StrapiConfig,
         mock_single_content_type_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test getting single content type schema."""
         uid = "api::article.article"
-        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
             return_value=Response(200, json=mock_single_content_type_response)
         )
 
@@ -523,15 +527,16 @@ class TestSyncContentTypeBuilder:
             assert schema.singular_name == "article"
             assert schema.plural_name == "articles"
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_type_schema_helper_methods(
         self,
         strapi_config: StrapiConfig,
         mock_single_content_type_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test schema helper methods."""
         uid = "api::article.article"
-        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
             return_value=Response(200, json=mock_single_content_type_response)
         )
 
@@ -562,10 +567,11 @@ class TestSyncContentTypeBuilder:
             assert schema.get_component_uid("seo") == "shared.seo"
             assert schema.get_component_uid("author") is None
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_type_schema_not_found(
         self,
         strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
     ) -> None:
         """Test handling of non-existent content type."""
         uid = "api::nonexistent.nonexistent"
@@ -576,7 +582,7 @@ class TestSyncContentTypeBuilder:
                 "message": f"Content type not found: {uid}",
             }
         }
-        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
             return_value=Response(404, json=error_response)
         )
 
@@ -588,14 +594,15 @@ class TestSyncContentTypeBuilder:
 class TestAsyncContentTypeBuilder:
     """Tests for AsyncClient Content-Type Builder methods."""
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_content_types(
         self,
         strapi_config: StrapiConfig,
         mock_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types without plugins."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_content_types_response)
         )
 
@@ -606,14 +613,15 @@ class TestAsyncContentTypeBuilder:
             assert len(content_types) == 2
             assert all(isinstance(ct, ContentTypeListItem) for ct in content_types)
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_content_types_include_plugins(
         self,
         strapi_config: StrapiConfig,
         mock_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types including plugins."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_content_types_response)
         )
 
@@ -622,14 +630,15 @@ class TestAsyncContentTypeBuilder:
 
             assert len(content_types) == 3
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_components(
         self,
         strapi_config: StrapiConfig,
         mock_components_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing components."""
-        respx.get("http://localhost:1337/api/content-type-builder/components").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
             return_value=Response(200, json=mock_components_response)
         )
 
@@ -639,15 +648,16 @@ class TestAsyncContentTypeBuilder:
             assert len(components) == 2
             assert all(isinstance(c, ComponentListItem) for c in components)
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_content_type_schema(
         self,
         strapi_config: StrapiConfig,
         mock_single_content_type_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test getting single content type schema."""
         uid = "api::article.article"
-        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
             return_value=Response(200, json=mock_single_content_type_response)
         )
 
@@ -658,10 +668,11 @@ class TestAsyncContentTypeBuilder:
             assert schema.uid == uid
             assert schema.display_name == "Article"
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_content_type_schema_not_found(
         self,
         strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
     ) -> None:
         """Test handling of non-existent content type."""
         uid = "api::nonexistent.nonexistent"
@@ -672,7 +683,7 @@ class TestAsyncContentTypeBuilder:
                 "message": f"Content type not found: {uid}",
             }
         }
-        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
             return_value=Response(404, json=error_response)
         )
 
@@ -778,10 +789,12 @@ class TestContentTypeModels:
 class TestEmptyResponses:
     """Tests for handling empty or minimal responses."""
 
-    @respx.mock
-    def test_empty_content_types(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_empty_content_types(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test handling empty content types response."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json={"data": []})
         )
 
@@ -789,10 +802,10 @@ class TestEmptyResponses:
             content_types = client.get_content_types()
             assert content_types == []
 
-    @respx.mock
-    def test_empty_components(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_empty_components(self, strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
         """Test handling empty components response."""
-        respx.get("http://localhost:1337/api/content-type-builder/components").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
             return_value=Response(200, json={"data": []})
         )
 
@@ -804,14 +817,15 @@ class TestEmptyResponses:
 class TestSyncContentTypeBuilderV5:
     """Tests for SyncClient Content-Type Builder methods with Strapi v5 responses (Issue #25)."""
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_types_v5(
         self,
         strapi_config: StrapiConfig,
         mock_v5_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types with v5 nested schema format."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_v5_content_types_response)
         )
 
@@ -833,14 +847,15 @@ class TestSyncContentTypeBuilderV5:
             assert "title" in article.attributes
             assert article.plugin_options == {"i18n": {"localized": True}}
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_types_v5_include_plugins(
         self,
         strapi_config: StrapiConfig,
         mock_v5_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types including plugins with v5 format."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_v5_content_types_response)
         )
 
@@ -853,14 +868,15 @@ class TestSyncContentTypeBuilderV5:
             assert len(plugin_types) == 1
             assert plugin_types[0].uid == "plugin::users-permissions.user"
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_components_v5(
         self,
         strapi_config: StrapiConfig,
         mock_v5_components_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing components with v5 nested schema format."""
-        respx.get("http://localhost:1337/api/content-type-builder/components").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
             return_value=Response(200, json=mock_v5_components_response)
         )
 
@@ -877,15 +893,16 @@ class TestSyncContentTypeBuilderV5:
             assert seo.info.display_name == "SEO"
             assert "metaTitle" in seo.attributes
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_type_schema_v5(
         self,
         strapi_config: StrapiConfig,
         mock_v5_single_content_type_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test getting single content type schema with v5 format."""
         uid = "api::article.article"
-        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
             return_value=Response(200, json=mock_v5_single_content_type_response)
         )
 
@@ -910,14 +927,15 @@ class TestSyncContentTypeBuilderV5:
 class TestAsyncContentTypeBuilderV5:
     """Tests for AsyncClient Content-Type Builder methods with Strapi v5 responses (Issue #25)."""
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_content_types_v5(
         self,
         strapi_config: StrapiConfig,
         mock_v5_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types with v5 nested schema format."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_v5_content_types_response)
         )
 
@@ -933,14 +951,15 @@ class TestAsyncContentTypeBuilderV5:
             assert article.uid == "api::article.article"
             assert article.info.display_name == "Article"
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_components_v5(
         self,
         strapi_config: StrapiConfig,
         mock_v5_components_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing components with v5 nested schema format."""
-        respx.get("http://localhost:1337/api/content-type-builder/components").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
             return_value=Response(200, json=mock_v5_components_response)
         )
 
@@ -955,15 +974,16 @@ class TestAsyncContentTypeBuilderV5:
             assert seo.uid == "shared.seo"
             assert seo.category == "shared"
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_content_type_schema_v5(
         self,
         strapi_config: StrapiConfig,
         mock_v5_single_content_type_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test getting single content type schema with v5 format."""
         uid = "api::article.article"
-        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
             return_value=Response(200, json=mock_v5_single_content_type_response)
         )
 
@@ -1062,14 +1082,15 @@ class TestActualV5Format:
     this real-world format.
     """
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_types_actual_v5(
         self,
         strapi_config: StrapiConfig,
         mock_actual_v5_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types with actual v5 format (Issue #28)."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_actual_v5_content_types_response)
         )
 
@@ -1091,14 +1112,15 @@ class TestActualV5Format:
             assert article.info.plural_name == "articles"
             assert "title" in article.attributes
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_types_actual_v5_include_plugins(
         self,
         strapi_config: StrapiConfig,
         mock_actual_v5_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types including plugins with actual v5 format."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_actual_v5_content_types_response)
         )
 
@@ -1112,14 +1134,15 @@ class TestActualV5Format:
             # Verify info is correctly extracted
             assert plugin_types[0].info.display_name == "User"
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_components_actual_v5(
         self,
         strapi_config: StrapiConfig,
         mock_actual_v5_components_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing components with actual v5 format (Issue #28)."""
-        respx.get("http://localhost:1337/api/content-type-builder/components").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
             return_value=Response(200, json=mock_actual_v5_components_response)
         )
 
@@ -1136,15 +1159,16 @@ class TestActualV5Format:
             assert seo.info.display_name == "SEO"
             assert "metaTitle" in seo.attributes
 
-    @respx.mock
+    @pytest.mark.respx
     def test_get_content_type_schema_actual_v5(
         self,
         strapi_config: StrapiConfig,
         mock_actual_v5_single_content_type_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test getting single content type schema with actual v5 format (Issue #28)."""
         uid = "api::article.article"
-        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
             return_value=Response(200, json=mock_actual_v5_single_content_type_response)
         )
 
@@ -1275,14 +1299,15 @@ class TestActualV5Format:
 class TestActualV5FormatAsync:
     """Async tests for ACTUAL Strapi v5 API format (Issue #28)."""
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_content_types_actual_v5(
         self,
         strapi_config: StrapiConfig,
         mock_actual_v5_content_types_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing content types with actual v5 format (Issue #28)."""
-        respx.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
             return_value=Response(200, json=mock_actual_v5_content_types_response)
         )
 
@@ -1295,14 +1320,15 @@ class TestActualV5FormatAsync:
             assert article.info.singular_name == "article"
             assert article.info.plural_name == "articles"
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_components_actual_v5(
         self,
         strapi_config: StrapiConfig,
         mock_actual_v5_components_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test listing components with actual v5 format (Issue #28)."""
-        respx.get("http://localhost:1337/api/content-type-builder/components").mock(
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
             return_value=Response(200, json=mock_actual_v5_components_response)
         )
 
@@ -1313,15 +1339,16 @@ class TestActualV5FormatAsync:
             seo = components[0]
             assert seo.info.display_name == "SEO"
 
-    @respx.mock
+    @pytest.mark.respx
     async def test_get_content_type_schema_actual_v5(
         self,
         strapi_config: StrapiConfig,
         mock_actual_v5_single_content_type_response: dict,
+        respx_mock: respx.Router,
     ) -> None:
         """Test getting single content type schema with actual v5 format (Issue #28)."""
         uid = "api::article.article"
-        respx.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
             return_value=Response(200, json=mock_actual_v5_single_content_type_response)
         )
 

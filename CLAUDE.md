@@ -354,40 +354,100 @@ RetryConfig(
 
 ---
 
-## Import/Export Architecture (Planned - Phase 5-6)
+## Import/Export Architecture
 
-While import/export functionality isn't implemented yet, the foundation is prepared:
+The import/export system enables large-scale Strapi data migrations and backups with streaming support.
 
-### Exception Infrastructure
-- `ImportExportError`, `FormatError`, `RelationError`, `MediaError` already defined
-- These will be raised during data validation and transfer operations
-
-### Design Principles for Future Implementation
-1. **Large dataset handling**: Use streaming/generators for memory efficiency
-2. **Relation resolution**: Track entity dependencies, import in correct order
-3. **Media handling**: Separate media downloads/uploads from content data
-4. **Progress tracking**: Emit events/callbacks for long-running operations
-5. **Dry-run mode**: Validate before executing (especially for imports)
-6. **Idempotency**: Safe to retry failed imports
-
-### Planned Module Structure
+### Module Structure
 ```
 strapi_kit/
 ├─ export/
-│  ├─ exporter.py          # Main export orchestration
-│  ├─ content_collector.py # Gather content types and entries
-│  └─ media_downloader.py  # Handle media files
-├─ import/
-│  ├─ importer.py          # Main import orchestration
-│  ├─ validator.py         # Pre-import validation
-│  ├─ resolver.py          # Relation resolution
-│  └─ media_uploader.py    # Handle media uploads
+│  ├─ exporter.py          # StrapiExporter class - main export orchestration
+│  ├─ importer.py          # StrapiImporter class - main import orchestration
+│  ├─ media_handler.py     # MediaHandler - media download/upload
+│  ├─ relation_resolver.py # RelationResolver - schema-based relation resolution
+│  ├─ jsonl_writer.py      # JSONLExportWriter - streaming JSONL export
+│  └─ jsonl_reader.py      # JSONLImportReader - streaming JSONL import
 └─ models/
-   ├─ export_format.py     # Export file format models
-   └─ import_options.py    # Import configuration models
+   ├─ export_format.py     # ExportData, ExportedEntity, ExportMetadata
+   └─ import_options.py    # ImportOptions, ImportResult, ConflictResolution
 ```
 
-**When implementing**: Follow the sync/async dual pattern. Export/import should work with both SyncClient and AsyncClient.
+### Export Operations (`StrapiExporter`)
+
+```python
+from strapi_kit import SyncClient
+from strapi_kit.export import StrapiExporter
+
+with SyncClient(config) as client:
+    exporter = StrapiExporter(client)
+
+    # Export content types with media
+    export_data = exporter.export_content_types(
+        ["api::article.article", "api::author.author"],
+        include_media=True,
+        media_dir="export/media",
+        progress_callback=lambda cur, total, msg: print(f"{cur}/{total}: {msg}")
+    )
+
+    # Save to JSON file
+    exporter.save_to_file(export_data, "export.json")
+
+    # Or stream to JSONL for large datasets (O(1) memory)
+    exporter.export_to_jsonl(
+        ["api::article.article"],
+        "export.jsonl",
+        media_dir="export/media"
+    )
+```
+
+### Import Operations (`StrapiImporter`)
+
+```python
+from strapi_kit.export import StrapiImporter, StrapiExporter
+from strapi_kit.models.import_options import ImportOptions, ConflictResolution
+
+# Load export data
+export_data = StrapiExporter.load_from_file("export.json")
+
+with SyncClient(target_config) as client:
+    importer = StrapiImporter(client)
+
+    # Import with options
+    result = importer.import_data(
+        export_data,
+        options=ImportOptions(
+            dry_run=True,  # Validate without writing
+            conflict_resolution=ConflictResolution.SKIP  # or UPDATE, FAIL
+        ),
+        media_dir="export/media"
+    )
+
+    if result.success:
+        print(f"Imported {result.entities_imported} entities")
+
+    # Or stream from JSONL (two-pass for relation resolution)
+    result = importer.import_from_jsonl(
+        "export.jsonl",
+        media_dir="export/media"
+    )
+```
+
+### Key Features
+
+1. **JSONL Streaming**: O(1) memory for large datasets via `JSONLExportWriter`/`JSONLImportReader`
+2. **Schema-based Relation Resolution**: `RelationResolver` uses Strapi schema to detect and resolve relations
+3. **Conflict Resolution**: SKIP (ignore duplicates), UPDATE (overwrite), FAIL (abort on conflict)
+4. **Media Handling**: `MediaHandler` downloads/uploads media with deduplication
+5. **Dry-run Mode**: Validate imports without writing to Strapi
+6. **Progress Callbacks**: Track long-running operations with `progress_callback`
+
+### Exception Handling
+
+- `ImportExportError`: Base for all import/export errors
+- `FormatError`: Invalid export data format
+- `RelationError`: Unresolvable entity relations
+- `MediaError`: Media download/upload failures
 
 ---
 
@@ -423,8 +483,8 @@ def test_something(respx_mock):
 When testing typed client methods, mock responses should match v4 or v5 format:
 
 ```python
-@respx.mock
-def test_get_many_typed(strapi_config):
+@pytest.mark.respx
+def test_get_many_typed(strapi_config, respx_mock: respx.Router):
     # Mock v5 response
     mock_response = {
         "data": [
@@ -434,7 +494,7 @@ def test_get_many_typed(strapi_config):
         "meta": {"pagination": {"page": 1, "pageSize": 25, "total": 2}}
     }
 
-    respx.get("http://localhost:1337/api/articles").mock(
+    respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(200, json=mock_response)
     )
 
@@ -693,6 +753,16 @@ make pre-commit
 - ✅ Bulk operations (create, update, delete)
 - ✅ Progress callbacks for long operations
 - ✅ **18 passing retry tests**, full retry coverage
+
+**Completed (Phase 5 - Import/Export)**:
+- ✅ Content export with automatic relation extraction
+- ✅ JSONL streaming export (O(1) memory)
+- ✅ Schema-driven relation resolution
+- ✅ Media export/import with deduplication
+- ✅ Content import with conflict resolution (SKIP, UPDATE, FAIL)
+- ✅ Two-pass streaming import for memory efficiency
+- ✅ Dry-run mode for validation
+- ✅ Progress callbacks for long operations
 
 **Future phases**: See IMPLEMENTATION_STATUS.md for full roadmap
 

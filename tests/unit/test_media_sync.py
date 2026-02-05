@@ -57,9 +57,13 @@ def mock_media_response() -> dict:
 class TestUploadFile:
     """Tests for upload_file method."""
 
-    @respx.mock
+    @pytest.mark.respx
     def test_upload_file_minimal(
-        self, strapi_config: StrapiConfig, mock_media_response: dict, tmp_path: Path
+        self,
+        strapi_config: StrapiConfig,
+        mock_media_response: dict,
+        tmp_path: Path,
+        respx_mock: respx.Router,
     ) -> None:
         """Test uploading a file with minimal parameters."""
         # Create test file
@@ -67,7 +71,7 @@ class TestUploadFile:
         test_file.write_bytes(b"fake image data")
 
         # Mock upload endpoint (returns array with single file)
-        respx.post("http://localhost:1337/api/upload").mock(
+        respx_mock.post("http://localhost:1337/api/upload").mock(
             return_value=httpx.Response(200, json=[mock_media_response])
         )
 
@@ -78,9 +82,13 @@ class TestUploadFile:
             assert media.name == "test-image.jpg"
             assert media.mime == "image/jpeg"
 
-    @respx.mock
+    @pytest.mark.respx
     def test_upload_file_with_metadata(
-        self, strapi_config: StrapiConfig, mock_media_response: dict, tmp_path: Path
+        self,
+        strapi_config: StrapiConfig,
+        mock_media_response: dict,
+        tmp_path: Path,
+        respx_mock: respx.Router,
     ) -> None:
         """Test uploading a file with metadata."""
         test_file = tmp_path / "test.jpg"
@@ -88,7 +96,7 @@ class TestUploadFile:
 
         # Mock with updated metadata
         response_data = {**mock_media_response, "alternativeText": "Custom alt text"}
-        respx.post("http://localhost:1337/api/upload").mock(
+        respx_mock.post("http://localhost:1337/api/upload").mock(
             return_value=httpx.Response(200, json=[response_data])
         )
 
@@ -101,15 +109,19 @@ class TestUploadFile:
 
             assert media.alternative_text == "Custom alt text"
 
-    @respx.mock
+    @pytest.mark.respx
     def test_upload_file_with_reference(
-        self, strapi_config: StrapiConfig, mock_media_response: dict, tmp_path: Path
+        self,
+        strapi_config: StrapiConfig,
+        mock_media_response: dict,
+        tmp_path: Path,
+        respx_mock: respx.Router,
     ) -> None:
         """Test uploading a file with entity reference."""
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")
 
-        respx.post("http://localhost:1337/api/upload").mock(
+        respx_mock.post("http://localhost:1337/api/upload").mock(
             return_value=httpx.Response(200, json=[mock_media_response])
         )
 
@@ -129,14 +141,16 @@ class TestUploadFile:
             with pytest.raises(FileNotFoundError):
                 client.upload_file("/nonexistent/file.jpg")
 
-    @respx.mock
-    def test_upload_file_api_error(self, strapi_config: StrapiConfig, tmp_path: Path) -> None:
+    @pytest.mark.respx
+    def test_upload_file_api_error(
+        self, strapi_config: StrapiConfig, tmp_path: Path, respx_mock: respx.Router
+    ) -> None:
         """Test handling upload API errors."""
         test_file = tmp_path / "test.jpg"
         test_file.write_bytes(b"fake image data")
 
         # Mock 413 - file too large
-        respx.post("http://localhost:1337/api/upload").mock(
+        respx_mock.post("http://localhost:1337/api/upload").mock(
             return_value=httpx.Response(413, json={"error": {"message": "File too large"}})
         )
 
@@ -148,9 +162,13 @@ class TestUploadFile:
 class TestUploadFiles:
     """Tests for upload_files method."""
 
-    @respx.mock
+    @pytest.mark.respx
     def test_upload_multiple_files(
-        self, strapi_config: StrapiConfig, mock_media_response: dict, tmp_path: Path
+        self,
+        strapi_config: StrapiConfig,
+        mock_media_response: dict,
+        tmp_path: Path,
+        respx_mock: respx.Router,
     ) -> None:
         """Test uploading multiple files."""
         # Create test files
@@ -163,7 +181,7 @@ class TestUploadFiles:
         # Mock upload for each file
         for i, _ in enumerate(files):
             response = {**mock_media_response, "id": i + 1, "name": f"test{i}.jpg"}
-            respx.post("http://localhost:1337/api/upload").mock(
+            respx_mock.post("http://localhost:1337/api/upload").mock(
                 return_value=httpx.Response(200, json=[response])
             )
 
@@ -173,9 +191,13 @@ class TestUploadFiles:
             assert len(media_list) == 3
             assert all(isinstance(m.id, int) for m in media_list)
 
-    @respx.mock
+    @pytest.mark.respx
     def test_upload_files_partial_failure(
-        self, strapi_config: StrapiConfig, mock_media_response: dict, tmp_path: Path
+        self,
+        strapi_config: StrapiConfig,
+        mock_media_response: dict,
+        tmp_path: Path,
+        respx_mock: respx.Router,
     ) -> None:
         """Test upload_files with partial failure."""
         # Create test files
@@ -184,7 +206,7 @@ class TestUploadFiles:
             f.write_bytes(b"fake image data")
 
         # First upload succeeds, second fails
-        respx.post("http://localhost:1337/api/upload").mock(
+        respx_mock.post("http://localhost:1337/api/upload").mock(
             side_effect=[
                 httpx.Response(200, json=[mock_media_response]),
                 httpx.Response(413, json={"error": {"message": "File too large"}}),
@@ -199,11 +221,13 @@ class TestUploadFiles:
 class TestDownloadFile:
     """Tests for download_file method."""
 
-    @respx.mock
-    def test_download_file_to_bytes(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_download_file_to_bytes(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test downloading a file to bytes."""
         file_content = b"fake image data"
-        respx.get("http://localhost:1337/uploads/test.jpg").mock(
+        respx_mock.get("http://localhost:1337/uploads/test.jpg").mock(
             return_value=httpx.Response(200, content=file_content)
         )
 
@@ -212,11 +236,13 @@ class TestDownloadFile:
 
             assert content == file_content
 
-    @respx.mock
-    def test_download_file_and_save(self, strapi_config: StrapiConfig, tmp_path: Path) -> None:
+    @pytest.mark.respx
+    def test_download_file_and_save(
+        self, strapi_config: StrapiConfig, tmp_path: Path, respx_mock: respx.Router
+    ) -> None:
         """Test downloading a file and saving to disk."""
         file_content = b"fake image data"
-        respx.get("http://localhost:1337/uploads/test.jpg").mock(
+        respx_mock.get("http://localhost:1337/uploads/test.jpg").mock(
             return_value=httpx.Response(200, content=file_content)
         )
 
@@ -230,11 +256,13 @@ class TestDownloadFile:
             assert save_path.exists()
             assert save_path.read_bytes() == file_content
 
-    @respx.mock
-    def test_download_file_absolute_url(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_download_file_absolute_url(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test downloading from absolute URL."""
         file_content = b"fake image data"
-        respx.get("https://cdn.example.com/uploads/test.jpg").mock(
+        respx_mock.get("https://cdn.example.com/uploads/test.jpg").mock(
             return_value=httpx.Response(200, content=file_content)
         )
 
@@ -243,10 +271,12 @@ class TestDownloadFile:
 
             assert content == file_content
 
-    @respx.mock
-    def test_download_file_not_found(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_download_file_not_found(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test downloading non-existent file."""
-        respx.get("http://localhost:1337/uploads/missing.jpg").mock(
+        respx_mock.get("http://localhost:1337/uploads/missing.jpg").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 
@@ -258,8 +288,10 @@ class TestDownloadFile:
 class TestListMedia:
     """Tests for list_media method."""
 
-    @respx.mock
-    def test_list_media_all(self, strapi_config: StrapiConfig, mock_media_response: dict) -> None:
+    @pytest.mark.respx
+    def test_list_media_all(
+        self, strapi_config: StrapiConfig, mock_media_response: dict, respx_mock: respx.Router
+    ) -> None:
         """Test listing all media files."""
         response_data = {
             "data": [
@@ -269,7 +301,7 @@ class TestListMedia:
             "meta": {"pagination": {"page": 1, "pageSize": 25, "total": 2}},
         }
 
-        respx.get("http://localhost:1337/api/upload/files").mock(
+        respx_mock.get("http://localhost:1337/api/upload/files").mock(
             return_value=httpx.Response(200, json=response_data)
         )
 
@@ -281,9 +313,9 @@ class TestListMedia:
             assert result.meta.pagination is not None
             assert result.meta.pagination.total == 2
 
-    @respx.mock
+    @pytest.mark.respx
     def test_list_media_with_filters(
-        self, strapi_config: StrapiConfig, mock_media_response: dict
+        self, strapi_config: StrapiConfig, mock_media_response: dict, respx_mock: respx.Router
     ) -> None:
         """Test listing media with query filters."""
         from strapi_kit.models import FilterBuilder, StrapiQuery
@@ -293,7 +325,7 @@ class TestListMedia:
             "meta": {"pagination": {"page": 1, "pageSize": 10, "total": 1}},
         }
 
-        respx.get("http://localhost:1337/api/upload/files").mock(
+        respx_mock.get("http://localhost:1337/api/upload/files").mock(
             return_value=httpx.Response(200, json=response_data)
         )
 
@@ -311,10 +343,12 @@ class TestListMedia:
 class TestGetMedia:
     """Tests for get_media method."""
 
-    @respx.mock
-    def test_get_media_by_id(self, strapi_config: StrapiConfig, mock_media_response: dict) -> None:
+    @pytest.mark.respx
+    def test_get_media_by_id(
+        self, strapi_config: StrapiConfig, mock_media_response: dict, respx_mock: respx.Router
+    ) -> None:
         """Test getting media by ID."""
-        respx.get("http://localhost:1337/api/upload/files/1").mock(
+        respx_mock.get("http://localhost:1337/api/upload/files/1").mock(
             return_value=httpx.Response(200, json=mock_media_response)
         )
 
@@ -324,10 +358,12 @@ class TestGetMedia:
             assert media.id == 1
             assert media.name == "test-image.jpg"
 
-    @respx.mock
-    def test_get_media_not_found(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_get_media_not_found(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test getting non-existent media."""
-        respx.get("http://localhost:1337/api/upload/files/999").mock(
+        respx_mock.get("http://localhost:1337/api/upload/files/999").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 
@@ -339,10 +375,12 @@ class TestGetMedia:
 class TestDeleteMedia:
     """Tests for delete_media method."""
 
-    @respx.mock
-    def test_delete_media_success(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_delete_media_success(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test deleting media successfully."""
-        respx.delete("http://localhost:1337/api/upload/files/1").mock(
+        respx_mock.delete("http://localhost:1337/api/upload/files/1").mock(
             return_value=httpx.Response(200, json={})
         )
 
@@ -350,10 +388,12 @@ class TestDeleteMedia:
             # Should not raise
             client.delete_media(1)
 
-    @respx.mock
-    def test_delete_media_not_found(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_delete_media_not_found(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test deleting non-existent media raises NotFoundError."""
-        respx.delete("http://localhost:1337/api/upload/files/999").mock(
+        respx_mock.delete("http://localhost:1337/api/upload/files/999").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 
@@ -365,18 +405,18 @@ class TestDeleteMedia:
 class TestUpdateMedia:
     """Tests for update_media method."""
 
-    @respx.mock
+    @pytest.mark.respx
     def test_update_media_alt_text(
-        self, strapi_config: StrapiConfig, mock_media_response: dict
+        self, strapi_config: StrapiConfig, mock_media_response: dict, respx_mock: respx.Router
     ) -> None:
         """Test updating media alt text."""
         updated_response = {**mock_media_response, "alternativeText": "Updated alt text"}
         # Version detection: get_media is called first when _api_version is None
-        respx.get("http://localhost:1337/api/upload/files/1").mock(
+        respx_mock.get("http://localhost:1337/api/upload/files/1").mock(
             return_value=httpx.Response(200, json=mock_media_response)
         )
         # Strapi v5 uses POST /api/upload?id=x for updates
-        respx.post(url__regex=r".*/api/upload\?id=1$").mock(
+        respx_mock.post(url__regex=r".*/api/upload\?id=1$").mock(
             return_value=httpx.Response(200, json=updated_response)
         )
 
@@ -385,9 +425,9 @@ class TestUpdateMedia:
 
             assert media.alternative_text == "Updated alt text"
 
-    @respx.mock
+    @pytest.mark.respx
     def test_update_media_multiple_fields(
-        self, strapi_config: StrapiConfig, mock_media_response: dict
+        self, strapi_config: StrapiConfig, mock_media_response: dict, respx_mock: respx.Router
     ) -> None:
         """Test updating multiple media fields."""
         updated_response = {
@@ -397,11 +437,11 @@ class TestUpdateMedia:
             "name": "new-name.jpg",
         }
         # Version detection: get_media is called first when _api_version is None
-        respx.get("http://localhost:1337/api/upload/files/1").mock(
+        respx_mock.get("http://localhost:1337/api/upload/files/1").mock(
             return_value=httpx.Response(200, json=mock_media_response)
         )
         # Strapi v5 uses POST /api/upload?id=x for updates
-        respx.post(url__regex=r".*/api/upload\?id=1$").mock(
+        respx_mock.post(url__regex=r".*/api/upload\?id=1$").mock(
             return_value=httpx.Response(200, json=updated_response)
         )
 
@@ -416,11 +456,13 @@ class TestUpdateMedia:
             assert media.alternative_text == "New alt"
             assert media.caption == "New caption"
 
-    @respx.mock
-    def test_update_media_not_found(self, strapi_config: StrapiConfig) -> None:
+    @pytest.mark.respx
+    def test_update_media_not_found(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
         """Test updating non-existent media raises NotFoundError."""
         # Version detection: get_media is called first and returns 404
-        respx.get("http://localhost:1337/api/upload/files/999").mock(
+        respx_mock.get("http://localhost:1337/api/upload/files/999").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 
