@@ -23,7 +23,7 @@ jobs:
           ref: dev
 
       - name: Create or update release PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           base: main
