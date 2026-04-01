@@ -84,7 +84,7 @@ jobs:
           pytest --cov=strapi_kit --cov-report=xml --cov-report=term --junitxml=junit.xml -o junit_family=legacy -v
 
       - name: 📈 Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: MehdiZare/strapi-kit
