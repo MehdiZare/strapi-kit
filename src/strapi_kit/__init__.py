@@ -42,6 +42,7 @@ from .models import (
     BulkOperationResult,
     DocumentAction,
     DocumentStatus,
+    FieldType,
     HttpMethod,
     PublicationFilter,
     PublicationState,
@@ -61,6 +62,7 @@ from .protocols import (
     ResponseParser,
     SchemaProvider,
 )
+from .utils.blocks import MarkdownConversion, blocks_to_markdown, markdown_to_blocks
 from .utils.endpoints import collection_endpoint, document_endpoint
 from .utils.pagination import assert_pagination_echo
 
@@ -78,6 +80,11 @@ __all__ = [
     "DocumentAction",
     "QueryParam",
     "HttpMethod",
+    "FieldType",
+    # Blocks ↔ Markdown
+    "MarkdownConversion",
+    "blocks_to_markdown",
+    "markdown_to_blocks",
     "ConfigFactory",
     "load_config",
     "create_config",

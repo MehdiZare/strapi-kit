@@ -86,6 +86,8 @@ from strapi_kit.models import (
 
 # Strapi 5 relation writes (also exported from strapi_kit)
 from strapi_kit import RelationWriteOp, relation_write
+# Strapi v5 Blocks (rich text JSON) ↔ Markdown
+from strapi_kit import FieldType, MarkdownConversion, blocks_to_markdown, markdown_to_blocks
 
 # For SecretStr (API tokens)
 from pydantic import SecretStr
@@ -397,6 +399,47 @@ query = (StrapiQuery()
 response = client.get_many("articles", query=query)
 ```
 
+## Strapi v5 Blocks ↔ Markdown
+
+Strapi 5 rich text (`FieldType.BLOCKS = "blocks"`) is a JSON tree, **not** a
+markdown string. Classic `richtext` strings pass through as markdown at the call
+site — do not run them through these converters.
+
+There is **no** HTML ↔ blocks conversion and **no** image upload here (use the
+media API for uploads).
+
+```python
+from strapi_kit import FieldType, blocks_to_markdown, markdown_to_blocks
+
+assert FieldType.BLOCKS == "blocks"
+
+# Read: blocks JSON → markdown
+conversion = blocks_to_markdown(entity.attributes["body"])
+md = conversion.markdown
+# conversion.lossy_reasons is () iff the conversion is faithful.
+# Reasons are deduplicated. Underline, missing image/link URLs, unknown
+# types, malformed nodes, and trees deeper than 32 are recorded — never
+# silent. A depth guard prevents recursion bombs and cyclic children.
+
+# Write: best-effort markdown → blocks (inline markdown stays literal text)
+body = markdown_to_blocks("# Title\n\nA paragraph\n\n- item")
+client.create("articles", {"title": "Hello", "body": body})
+
+# Empty input is pinned to one empty paragraph
+assert markdown_to_blocks("") == [
+    {"type": "paragraph", "children": [{"type": "text", "text": ""}]}
+]
+```
+
+Supported read nodes: `paragraph`, `heading` (1–6), `list` + `list-item`,
+`quote`, `code`, `image`, `link`, `text`. Marks: bold, italic, strikethrough,
+code. Text leaves are escaped before marks so `**literal**` cannot invent
+formatting.
+
+`markdown_to_blocks` is **not** a full CommonMark AST. It recognizes headings,
+paragraphs, fenced code, lists, and blockquotes. Inline constructs stay as
+literal text.
+
 ## Media Operations
 
 ### Upload
@@ -656,6 +699,8 @@ with SyncClient(config) as client:
 | `src/strapi_kit/models/response/normalized.py` | Response models |
 | `src/strapi_kit/models/response/pagination.py` | Pagination echo / maxLimit guard |
 | `src/strapi_kit/operations/media.py` | Media utilities |
+| `src/strapi_kit/utils/blocks.py` | Strapi v5 Blocks ↔ Markdown |
+| `src/strapi_kit/models/schema.py` | FieldType (includes `BLOCKS`) |
 | `src/strapi_kit/exceptions/errors.py` | Exception hierarchy |
 | `src/strapi_kit/models/config.py` | Configuration models |
 

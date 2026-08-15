@@ -51,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `None` when the flag is absent — absence is not `False` and is never inferred from `publishedAt`
   - `ContentTypeListItem.options` retains other option keys (not only D&P)
   - `get_content_types(..., skip_unparsable=False)` raises `ValidationError` on malformed items; skip-and-log is opt-in
+- **Strapi v5 Blocks field type and markdown converters** ([#51](https://github.com/MehdiZare/strapi-kit/issues/51))
+  - Added `FieldType.BLOCKS = "blocks"` so Content-Type Builder attributes with `type: "blocks"` no longer fall through as unknown
+  - Added `blocks_to_markdown()` → `MarkdownConversion(markdown, lossy_reasons)` for the official blocks tree (`paragraph`, `heading`, `list`/`list-item`, `quote`, `code`, `image`, `link`, `text` + bold/italic/strikethrough/code marks)
+  - Lossy cases (underline, missing image/link URL, unknown or malformed nodes, trees deeper than 32) are recorded in `lossy_reasons` (deduplicated; empty iff faithful). Markdown metacharacters in text leaves are escaped before marks are applied; image/link destinations with `)` or spaces are wrapped in `<>`
+  - Added `markdown_to_blocks()` best-effort write path (headings, paragraphs, fenced code, lists, blockquotes). Inline markdown is stored as literal text; empty input pins one empty paragraph
+  - Exported `FieldType`, `MarkdownConversion`, `blocks_to_markdown`, and `markdown_to_blocks` from the public `strapi_kit` API
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
   `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
   v4 `with_publication_state()` raises `ValidationError`.
