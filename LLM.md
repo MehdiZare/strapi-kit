@@ -84,6 +84,9 @@ from strapi_kit.models import (
     Populate,
 )
 
+# Strapi 5 relation writes (also exported from strapi_kit)
+from strapi_kit import RelationWriteOp, relation_write
+
 # For SecretStr (API tokens)
 from pydantic import SecretStr
 ```
@@ -185,6 +188,48 @@ client.discard_draft("articles", created.data.document_id)
 A 2xx empty body or a non-object JSON body (`"Created"`) raises
 `UnstructuredResponseError` with `status_code`. Do not treat that as a
 successful entity. Empty 204 / DELETE remains `{}`.
+
+### Relation Writes (Strapi 5)
+
+v5 REST relation writes take **documentId** strings, not numeric `id`.
+Do not send v4 `{ connect: [{ id: 1 }] }` shapes.
+
+```python
+from strapi_kit import RelationWriteOp, relation_write
+
+# One-side: 0 ids → None, 1 id → documentId string, 2+ raises ValidationError
+data = {
+    "title": "New Article",
+    "author": relation_write(document_ids=["authorDocId"], multiple=False),
+}
+
+# Many-side replace
+data = {
+    "categories": relation_write(
+        document_ids=["cat1", "cat2"],
+        multiple=True,  # default op is RelationWriteOp.SET
+    ),
+}
+
+# Incremental
+data = {
+    "categories": relation_write(
+        document_ids=["cat3"],
+        multiple=True,
+        op=RelationWriteOp.CONNECT,
+    ),
+}
+
+# {"documentId": "..."} objects normalize to short strings
+data = {
+    "author": relation_write(
+        document_ids=[{"documentId": "authorDocId"}],
+        multiple=False,
+    ),
+}
+
+response = client.create("articles", data)
+```
 
 ## Query Building
 
@@ -499,6 +544,7 @@ with SyncClient(config) as client:
 | `src/strapi_kit/client/async_client.py` | Async client |
 | `src/strapi_kit/client/base.py` | Shared client logic |
 | `src/strapi_kit/models/request/query.py` | StrapiQuery builder |
+| `src/strapi_kit/models/request/relation_write.py` | v5 relation write helper |
 | `src/strapi_kit/models/request/filters.py` | FilterBuilder |
 | `src/strapi_kit/models/response/normalized.py` | Response models |
 | `src/strapi_kit/operations/media.py` | Media utilities |

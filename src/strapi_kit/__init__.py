@@ -44,8 +44,10 @@ from .models import (
     PublicationFilter,
     PublicationState,
     QueryParam,
+    RelationWriteOp,
     RetryConfig,
     StrapiConfig,
+    relation_write,
 )
 from .operations.streaming import stream_entities, stream_entities_async
 from .parsers import VersionDetectingParser
@@ -79,6 +81,9 @@ __all__ = [
     # Bulk Operations
     "BulkOperationResult",
     "BulkOperationFailure",
+    # Relation writes (Strapi 5)
+    "RelationWriteOp",
+    "relation_write",
     # Streaming
     "stream_entities",
     "stream_entities_async",
