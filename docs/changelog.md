@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **First-class Content-Type Builder Draft & Publish** ([#45](https://github.com/MehdiZare/strapi-kit/issues/45)):
+  `draft_and_publish` is `True` / `False` / `None` (absence is not `False`).
+  `get_content_types()` raises on unparsable items unless `skip_unparsable=True`.
+
 ### Fixed
 
+- CTB v5 flattening retains `options` and `draftAndPublish` instead of dropping them.
 - **Media Upload MIME Type Detection** ([#13](https://github.com/MehdiZare/strapi-kit/issues/13)): Fixed `upload_file()` to properly detect and set MIME type based on file extension instead of using `application/octet-stream` for all uploads. Also now sends actual filename instead of hardcoded "file".
 
 ### Changed

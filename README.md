@@ -741,9 +741,9 @@ with SyncClient(config) as client:
     # List all content types (excludes plugins by default)
     content_types = client.get_content_types()
     for ct in content_types:
-        print(f"{ct.uid}: {ct.info.display_name}")
-        # api::article.article: Article
-        # api::category.category: Category
+        print(f"{ct.uid}: {ct.info.display_name} D&P={ct.draft_and_publish}")
+        # api::article.article: Article D&P=True
+        # api::category.category: Category D&P=None  # unknown, not False
 
     # Include plugin content types
     all_types = client.get_content_types(include_plugins=True)
@@ -759,6 +759,7 @@ with SyncClient(config) as client:
     schema = client.get_content_type_schema("api::article.article")
     print(f"Display name: {schema.display_name}")
     print(f"Plural name: {schema.plural_name}")
+    print(f"Draft & Publish: {schema.draft_and_publish}")  # True | False | None
 
     # Check field types
     print(schema.get_field_type("title"))  # "string"
