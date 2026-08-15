@@ -797,7 +797,7 @@ with SyncClient(config) as client:
         one = client.get_one(document_endpoint(ct, created.data.document_id or created.data.id))
 ```
 
-`collection_endpoint()` raises `ValidationError` if `pluralName` is missing or blank (the only honest answer when the schema cannot be addressed). `document_endpoint()` joins the collection id with a percent-encoded document id so characters like `/`, `?`, space, and `%` are safe in the path.
+`collection_endpoint()` raises `ValidationError` if `pluralName` is missing, blank, or not a string (the only honest answer when the schema cannot be addressed). `document_endpoint()` joins the collection id with a percent-encoded document id so characters like `/`, `?`, space, and `%` are safe in the path; a blank `document_id` raises `ValidationError`.
 
 ### UID Utilities
 

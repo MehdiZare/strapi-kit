@@ -41,9 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Collection REST path from `pluralName` only** ([#49](https://github.com/MehdiZare/strapi-kit/issues/49))
   - `collection_endpoint(content_type)` returns the REST collection id from `pluralName` / `info.plural_name`
   - Raises `ValidationError` when `pluralName` is missing or blank — never guesses from the UID (no appending `s`, no `apiID`, no splitting the UID)
-  - `document_endpoint(content_type, document_id)` joins the collection id with a percent-encoded document id (`urllib.parse.quote(..., safe="")`)
+  - `document_endpoint(content_type, document_id)` joins the collection id with a percent-encoded document id (`urllib.parse.quote(..., safe="")`); blank `document_id` raises `ValidationError`
   - Pass the returned string to `get_many` / `create` / `get_one` (the UID is schema identity, not a URL path)
-  - Accepts `ContentTypeListItem`, `ContentTypeSchema`, or a dict with `info.pluralName`
+  - Accepts `ContentTypeListItem`, `ContentTypeSchema`, or a dict with `info.pluralName` / `info.plural_name`
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
   `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
   v4 `with_publication_state()` raises `ValidationError`.

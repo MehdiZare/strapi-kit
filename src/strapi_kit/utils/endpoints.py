@@ -35,8 +35,8 @@ def collection_endpoint(content_type: object) -> str:
         REST collection id (e.g. ``blog-posts``).
 
     Raises:
-        ValidationError: If ``pluralName`` is missing or blank. The UID is not
-            consulted as a fallback.
+        ValidationError: If ``pluralName`` is missing, blank, or not a string.
+            The UID is not consulted as a fallback.
 
     Examples:
         >>> from strapi_kit.models.content_type import ContentTypeListItem
@@ -72,14 +72,21 @@ def document_endpoint(content_type: object, document_id: str | int) -> str:
         Collection-relative REST path (e.g. ``blog-posts/abc%2F123``).
 
     Raises:
-        ValidationError: If ``pluralName`` is missing or blank.
+        ValidationError: If ``pluralName`` is missing or blank, or if
+            ``document_id`` is missing or blank.
 
     Examples:
         >>> document_endpoint({"info": {"pluralName": "blog-posts"}}, "a/b")
         'blog-posts/a%2Fb'
     """
     collection = collection_endpoint(content_type)
-    return f"{collection}/{quote(str(document_id), safe='')}"
+    raw_id = document_id.strip() if isinstance(document_id, str) else str(document_id)
+    if not raw_id:
+        raise ValidationError(
+            "document_id is missing or blank",
+            details=_uid_details(content_type),
+        )
+    return f"{collection}/{quote(raw_id, safe='')}"
 
 
 def _extract_plural_name(content_type: object) -> str | None:
@@ -100,8 +107,8 @@ def _extract_plural_name(content_type: object) -> str | None:
 def _plural_from_mapping(data: Mapping[str, Any]) -> str | None:
     """Extract ``pluralName`` from a dict (nested info first, then top-level)."""
     info = data.get("info")
-    if isinstance(info, Mapping) and _mapping_has_plural(info):
-        return _as_optional_str(_mapping_plural(info))
+    if info is not None and _info_declares_plural(info):
+        return _plural_from_info(info)
     if _mapping_has_plural(data):
         return _as_optional_str(_mapping_plural(data))
     return None

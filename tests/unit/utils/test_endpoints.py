@@ -4,7 +4,7 @@ import pytest
 
 from strapi_kit import collection_endpoint, document_endpoint
 from strapi_kit.exceptions import ValidationError
-from strapi_kit.models.content_type import ContentTypeListItem
+from strapi_kit.models.content_type import ContentTypeInfo, ContentTypeListItem
 from strapi_kit.models.content_type import ContentTypeSchema as CTBContentTypeSchema
 from strapi_kit.models.schema import ContentTypeSchema
 from strapi_kit.utils import (
@@ -84,6 +84,26 @@ class TestCollectionEndpoint:
         }
         assert collection_endpoint(payload) == "blog-posts"
 
+    def test_uses_snake_case_plural_name_on_mapping(self) -> None:
+        """Dicts accept info.plural_name and top-level plural_name."""
+        nested = {"uid": _MISLEADING_UID, "info": {"plural_name": "blog-posts"}}
+        flat = {"uid": _MISLEADING_UID, "plural_name": "blog-posts"}
+        assert collection_endpoint(nested) == "blog-posts"
+        assert collection_endpoint(flat) == "blog-posts"
+
+    def test_uses_model_valued_info_on_mapping(self) -> None:
+        """A mapping whose info is a ContentTypeInfo still reads pluralName."""
+        info = ContentTypeInfo.model_validate({"displayName": "Post", "pluralName": "blog-posts"})
+        payload = {"uid": _MISLEADING_UID, "info": info}
+        assert collection_endpoint(payload) == "blog-posts"
+
+    def test_non_string_plural_name_raises(self) -> None:
+        """Non-string pluralName raises; UID is not used as a path."""
+        with pytest.raises(ValidationError, match="pluralName") as exc_info:
+            collection_endpoint({"uid": _MISLEADING_UID, "pluralName": 123})
+        assert exc_info.value.details.get("pluralName") == 123
+        assert "posts" not in str(exc_info.value)
+
     def test_missing_plural_name_raises_uid_not_consulted(self) -> None:
         """Missing pluralName raises; UID is not used as a fallback."""
         item = _list_item(pluralName=None)
@@ -125,6 +145,11 @@ class TestDocumentEndpoint:
         item = _list_item()
         assert document_endpoint(item, "abc123") == "blog-posts/abc123"
 
+    def test_joins_integer_document_id(self) -> None:
+        """Numeric v4 ids are stringified and appended."""
+        item = _list_item()
+        assert document_endpoint(item, 12) == "blog-posts/12"
+
     def test_encodes_slash_question_space_percent(self) -> None:
         """Reserved characters in the document id are percent-encoded."""
         item = _list_item()
@@ -149,6 +174,15 @@ class TestDocumentEndpoint:
         """document_endpoint raises when pluralName is missing."""
         with pytest.raises(ValidationError, match="pluralName"):
             document_endpoint({"uid": _MISLEADING_UID}, "abc")
+
+    def test_blank_document_id_raises(self) -> None:
+        """Empty or whitespace document_id is not joined as a trailing slash."""
+        item = _list_item()
+        for document_id in ("", "   "):
+            with pytest.raises(ValidationError, match="document_id") as exc_info:
+                document_endpoint(item, document_id)
+            assert "posts" not in str(exc_info.value)
+            assert exc_info.value.details.get("uid") == _MISLEADING_UID
 
 
 class TestPublicExports:

@@ -130,7 +130,7 @@ response = client.create(endpoint, {"title": "Hello"})
 response = client.get_one(document_endpoint(content_type, document_id))
 ```
 
-`collection_endpoint` raises `ValidationError` if `pluralName` is missing or blank. Do not append `s`, use `apiID`, or split the UID.
+`collection_endpoint` raises `ValidationError` if `pluralName` is missing, blank, or not a string. `document_endpoint` raises if `document_id` is blank. Do not append `s`, use `apiID`, or split the UID.
 
 ### Read
 
