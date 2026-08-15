@@ -460,6 +460,105 @@ class TestURLValidation:
         )
         assert config.base_url == "http://localhost:1337/api/v1"
 
+    def test_trailing_api_suffix_stripped(self):
+        """Test that a trailing /api path is stripped from base_url."""
+        config = ConfigFactory.create(
+            base_url="https://cms.example.com/api",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://cms.example.com"
+
+    def test_trailing_api_slash_suffix_stripped(self):
+        """Test that a trailing /api/ path is stripped from base_url."""
+        config = ConfigFactory.create(
+            base_url="https://cms.example.com/api/",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://cms.example.com"
+
+    def test_url_without_api_suffix_unchanged(self):
+        """Test that a URL with no /api suffix is left intact."""
+        config = ConfigFactory.create(
+            base_url="https://cms.example.com",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://cms.example.com"
+
+    def test_api_only_as_host_path_stripped(self):
+        """Test that /api as the only host path is stripped."""
+        config = ConfigFactory.create(
+            base_url="http://localhost:1337/api",
+            api_token="test-token",
+        )
+        assert config.base_url == "http://localhost:1337"
+
+    def test_api_v1_path_left_intact(self):
+        """Test that /api in the middle of a path is not stripped."""
+        config = ConfigFactory.create(
+            base_url="https://cms.example.com/api/v1",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://cms.example.com/api/v1"
+
+    def test_admin_path_not_stripped(self):
+        """Test that a trailing /admin path is left intact."""
+        config = ConfigFactory.create(
+            base_url="https://cms.example.com/admin",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://cms.example.com/admin"
+
+    def test_nested_trailing_api_segment_stripped(self):
+        """Test that only a final /api segment is stripped from a longer path."""
+        config = ConfigFactory.create(
+            base_url="https://cms.example.com/strapi/api",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://cms.example.com/strapi"
+
+    def test_only_final_api_segment_stripped(self):
+        """Test that /api/api drops only the last segment."""
+        config = ConfigFactory.create(
+            base_url="https://cms.example.com/api/api",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://cms.example.com/api"
+
+    def test_uppercase_api_segment_not_stripped(self):
+        """Test that a trailing /API segment is left intact."""
+        config = ConfigFactory.create(
+            base_url="https://cms.example.com/API",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://cms.example.com/API"
+
+    def test_env_strapi_base_url_trailing_api_stripped(self, monkeypatch):
+        """Test that STRAPI_BASE_URL trailing /api is stripped."""
+        monkeypatch.setenv("STRAPI_BASE_URL", "https://cms.example.com/api")
+        monkeypatch.setenv("STRAPI_API_TOKEN", "env-token")
+
+        config = ConfigFactory.from_environment_only()
+
+        assert config.base_url == "https://cms.example.com"
+        assert config.get_api_token() == "env-token"
+
+    def test_env_strapi_base_url_trailing_api_slash_stripped(self, monkeypatch):
+        """Test that STRAPI_BASE_URL trailing /api/ is stripped."""
+        monkeypatch.setenv("STRAPI_BASE_URL", "https://cms.example.com/api/")
+        monkeypatch.setenv("STRAPI_API_TOKEN", "env-token")
+
+        config = ConfigFactory.from_environment_only()
+
+        assert config.base_url == "https://cms.example.com"
+
+    def test_trailing_api_with_query_stripped(self):
+        """Test that /api/ is still stripped when a query string is present."""
+        config = ConfigFactory.create(
+            base_url="https://cms.example.com/api/?preview=1",
+            api_token="test-token",
+        )
+        assert config.base_url == "https://cms.example.com?preview=1"
+
     def test_non_http_scheme_rejected(self):
         """Test that non-HTTP schemes are rejected."""
         with pytest.raises(ConfigurationError, match="Invalid configuration"):

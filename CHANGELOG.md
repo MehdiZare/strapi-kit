@@ -60,6 +60,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pytest tests/unit` so unmarked files under `tests/e2e/` cannot be
   collected. `make e2e` remains the live-Strapi path.
 
+### Fixed
+
+- **Trailing `/api` stripped from `StrapiConfig.base_url`** ([#47](https://github.com/MehdiZare/strapi-kit/issues/47))
+  - `https://cms.example.com/api` and `https://cms.example.com/api/` now normalize to `https://cms.example.com`
+  - Prevents `_build_url` from producing `/api/api/...` when operators paste the REST root
+  - Does not strip `/api` from the middle of a path (`https://host/api/v1` stays) or `/admin`
+
 ## [0.1.0] - 2026-02-04
 
 ### Fixed

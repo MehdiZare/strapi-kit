@@ -15,6 +15,8 @@ config = StrapiConfig(
 )
 ```
 
+`base_url` should be the Strapi origin (scheme + host, optional port). A trailing `/api` is stripped so the client does not build `/api/api/...` when you paste the REST root from Strapi docs (`https://cms.example.com/api` becomes `https://cms.example.com`). The same normalization applies to `STRAPI_BASE_URL`. Paths such as `/api/v1` and `/admin` are left intact.
+
 ## All Configuration Options
 
 ```python
