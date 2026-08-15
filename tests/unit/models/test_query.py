@@ -3,7 +3,13 @@
 import pytest
 
 from strapi_kit import ValidationError
-from strapi_kit.models.enums import DocumentStatus, PublicationState, SortDirection
+from strapi_kit.models.enums import (
+    DocumentStatus,
+    PublicationFilter,
+    PublicationState,
+    QueryParam,
+    SortDirection,
+)
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.populate import Populate
 from strapi_kit.models.request.query import StrapiQuery
@@ -150,6 +156,82 @@ class TestStrapiQuery:
             StrapiQuery().with_publication_state(PublicationState.PREVIEW).with_document_status(
                 DocumentStatus.DRAFT
             )
+
+    @pytest.mark.parametrize(
+        "publication_filter",
+        list(PublicationFilter),
+    )
+    def test_with_publication_filter_emits_official_value(
+        self, publication_filter: PublicationFilter
+    ) -> None:
+        """Every official publicationFilter value is a first-class query param."""
+        query = StrapiQuery().with_publication_filter(publication_filter)
+        params = query.to_query_params()
+        assert params["publicationFilter"] == publication_filter.value
+        assert "publicationState" not in params
+
+    def test_publication_filter_combines_with_document_status(self) -> None:
+        """status= and publicationFilter= answer different questions."""
+        query = (
+            StrapiQuery()
+            .with_document_status(DocumentStatus.DRAFT)
+            .with_publication_filter(PublicationFilter.NEVER_PUBLISHED)
+        )
+        params = query.to_query_params()
+        assert params["status"] == "draft"
+        assert params["publicationFilter"] == "never-published"
+
+    def test_publication_filter_survives_copy(self) -> None:
+        """copy() must keep publicationFilter so paginators cannot drop it."""
+        query = StrapiQuery().with_publication_filter(PublicationFilter.MODIFIED).paginate(page=1)
+        cloned = query.copy().paginate(page=2)
+        assert cloned.to_query_params()["publicationFilter"] == "modified"
+        assert cloned.to_query_params()["pagination[page]"] == 2
+        assert query.to_query_params()["pagination[page]"] == 1
+
+    def test_cannot_mix_publication_filter_and_publication_state(self) -> None:
+        """v4 publicationState and v5 publicationFilter must not share a query."""
+        with pytest.raises(ValidationError, match="Cannot mix"):
+            StrapiQuery().with_publication_filter(
+                PublicationFilter.MODIFIED
+            ).with_publication_state(PublicationState.PREVIEW)
+        with pytest.raises(ValidationError, match="Cannot mix"):
+            StrapiQuery().with_publication_state(PublicationState.PREVIEW).with_publication_filter(
+                PublicationFilter.MODIFIED
+            )
+
+    def test_populate_rejects_string_at_call_site(self) -> None:
+        """A string must fail immediately, not later in to_query_params()."""
+        with pytest.raises(ValidationError, match="Populate instance"):
+            StrapiQuery().populate("author,categories,tags")  # type: ignore[arg-type]
+
+    def test_query_param_keys_come_from_enum(self) -> None:
+        """Emitted REST keys must match QueryParam values."""
+        query = (
+            StrapiQuery()
+            .with_locale("fr")
+            .with_document_status(DocumentStatus.DRAFT)
+            .with_publication_filter(PublicationFilter.MODIFIED)
+        )
+        params = query.to_query_params()
+        assert params[QueryParam.LOCALE] == "fr"
+        assert params[QueryParam.STATUS] == DocumentStatus.DRAFT.value
+        assert params[QueryParam.PUBLICATION_FILTER] == PublicationFilter.MODIFIED.value
+        assert QueryParam.STATUS.value == "status"
+        assert QueryParam.PUBLICATION_STATE.value == "publicationState"
+
+    def test_publication_filter_official_values(self) -> None:
+        """Lock the eight official REST publicationFilter values."""
+        assert {item.value for item in PublicationFilter} == {
+            "never-published",
+            "never-published-document",
+            "modified",
+            "unmodified",
+            "has-published-version",
+            "has-published-version-document",
+            "published-without-draft",
+            "published-with-draft",
+        }
 
     def test_simple_complete_query(self) -> None:
         """Test simple complete query with multiple parameters."""

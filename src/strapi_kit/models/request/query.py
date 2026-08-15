@@ -37,7 +37,13 @@ import copy
 from typing import Any
 
 from strapi_kit.exceptions import ValidationError
-from strapi_kit.models.enums import DocumentStatus, PublicationState, SortDirection
+from strapi_kit.models.enums import (
+    DocumentStatus,
+    PublicationFilter,
+    PublicationState,
+    QueryParam,
+    SortDirection,
+)
 from strapi_kit.models.request.fields import FieldSelection
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.pagination import OffsetPagination, PagePagination, Pagination
@@ -119,6 +125,7 @@ class StrapiQuery:
         self._locale: str | None = None
         self._publication_state: PublicationState | None = None
         self._document_status: DocumentStatus | None = None
+        self._publication_filter: PublicationFilter | None = None
 
     def copy(self) -> StrapiQuery:
         """Create a deep copy of this query.
@@ -143,6 +150,7 @@ class StrapiQuery:
         new_query._locale = self._locale
         new_query._publication_state = self._publication_state
         new_query._document_status = self._document_status
+        new_query._publication_filter = self._publication_filter
         return new_query
 
     def filter(self, filters: FilterBuilder) -> StrapiQuery:
@@ -277,6 +285,10 @@ class StrapiQuery:
         Returns:
             Self for method chaining
 
+        Raises:
+            ValidationError: If ``populate`` is not a :class:`Populate`
+                instance (for example a comma-separated string)
+
         Examples:
             >>> query = StrapiQuery().populate(
             ...     Populate()
@@ -284,6 +296,13 @@ class StrapiQuery:
             ...         .add_field("category")
             ... )
         """
+        if not isinstance(populate, Populate):
+            raise ValidationError(
+                "populate() expected a Populate instance, "
+                f"got {type(populate).__name__}. "
+                "Use populate_all(), populate_fields([...]), "
+                "or populate(Populate().add_field(...))."
+            )
         self._populate = populate
         return self
 
@@ -347,8 +366,8 @@ class StrapiQuery:
     def with_publication_state(self, state: PublicationState) -> StrapiQuery:
         """Set the v4 ``publicationState`` filter (draft & publish).
 
-        Do not combine with :meth:`with_document_status` — that emits the
-        v5 ``status`` param instead.
+        Do not combine with :meth:`with_document_status` or
+        :meth:`with_publication_filter` — those emit v5 params instead.
 
         Args:
             state: Publication state (LIVE or PREVIEW)
@@ -357,15 +376,15 @@ class StrapiQuery:
             Self for method chaining
 
         Raises:
-            ValidationError: If :meth:`with_document_status` was already set
+            ValidationError: If a v5 Draft & Publish param was already set
 
         Examples:
             >>> query = StrapiQuery().with_publication_state(PublicationState.LIVE)
         """
-        if self._document_status is not None:
+        if self._document_status is not None or self._publication_filter is not None:
             raise ValidationError(
-                "Cannot mix with_document_status (v5 status=) and "
-                "with_publication_state (v4 publicationState=)"
+                "Cannot mix with_document_status / with_publication_filter "
+                "(v5) and with_publication_state (v4 publicationState=)"
             )
         self._publication_state = state
         return self
@@ -397,6 +416,40 @@ class StrapiQuery:
                 "with_publication_state (v4 publicationState=)"
             )
         self._document_status = status
+        return self
+
+    def with_publication_filter(self, publication_filter: PublicationFilter) -> StrapiQuery:
+        """Set the v5 ``publicationFilter`` (draft/published relationship).
+
+        Selects documents by how their draft and published versions relate
+        (never published, modified since last publish, and so on). Combine
+        with :meth:`with_document_status` to choose which version is
+        returned. Pairings that cannot exist (for example
+        ``never-published`` with ``status=published``) return an empty
+        list from Strapi rather than an error.
+
+        Do not combine with :meth:`with_publication_state`.
+
+        Args:
+            publication_filter: Relationship filter
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            ValidationError: If :meth:`with_publication_state` was already set
+
+        Examples:
+            >>> query = (StrapiQuery()
+            ...     .with_document_status(DocumentStatus.DRAFT)
+            ...     .with_publication_filter(PublicationFilter.NEVER_PUBLISHED))
+        """
+        if self._publication_state is not None:
+            raise ValidationError(
+                "Cannot mix with_publication_filter (v5 publicationFilter=) "
+                "and with_publication_state (v4 publicationState=)"
+            )
+        self._publication_filter = publication_filter
         return self
 
     def to_query_params(self) -> dict[str, Any]:
@@ -449,13 +502,15 @@ class StrapiQuery:
 
         # Add locale
         if self._locale:
-            params["locale"] = self._locale
+            params[QueryParam.LOCALE] = self._locale
 
-        # Add publication state (v4) or document status (v5)
+        # Add publication state (v4) or document status / filter (v5)
         if self._publication_state:
-            params["publicationState"] = self._publication_state.value
+            params[QueryParam.PUBLICATION_STATE] = self._publication_state.value
         if self._document_status:
-            params["status"] = self._document_status.value
+            params[QueryParam.STATUS] = self._document_status.value
+        if self._publication_filter:
+            params[QueryParam.PUBLICATION_FILTER] = self._publication_filter.value
 
         return params
 

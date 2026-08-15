@@ -39,6 +39,7 @@ from ..exceptions import (
 from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
+from ..models.enums import DocumentAction, HttpMethod
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
     NormalizedCollectionResponse,
@@ -143,7 +144,10 @@ class BaseClient:
         return f"{self.base_url}/{endpoint}"
 
     def _document_action_endpoint(
-        self, collection: str, document_id: str, action: Literal["publish", "unpublish"]
+        self,
+        collection: str,
+        document_id: str,
+        action: DocumentAction,
     ) -> str:
         """Build a Strapi v5 document-action path.
 
@@ -155,7 +159,7 @@ class BaseClient:
         if not document_id or not document_id.strip():
             raise ValidationError("document_id is required")
         encoded_id = quote(document_id.strip(), safe="")
-        return f"{collection.strip('/')}/{encoded_id}/actions/{action}"
+        return f"{collection.strip('/')}/{encoded_id}/actions/{action.value}"
 
     def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
         """Parse a 2xx response body.
@@ -167,7 +171,7 @@ class BaseClient:
         verb = method.upper()
         empty = response.status_code == 204 or not response.content
         if empty:
-            if response.status_code == 204 or verb == "DELETE":
+            if response.status_code == 204 or verb == HttpMethod.DELETE:
                 logger.debug(f"Response: {response.status_code} (no content)")
                 return {}
             raise UnstructuredResponseError(

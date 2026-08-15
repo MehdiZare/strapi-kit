@@ -85,10 +85,11 @@ class NotFoundError(StrapiError):
 
 
 class ValidationError(StrapiError):
-    """Raised when request validation fails (HTTP 400).
+    """Raised when request validation fails (HTTP 400 or 422).
 
     This typically means the request data doesn't match the expected schema
-    or contains invalid values.
+    or contains invalid values. Client-side query/argument checks use the
+    same type (no HTTP status).
     """
 
     pass

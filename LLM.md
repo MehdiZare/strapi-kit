@@ -72,13 +72,16 @@ pip install strapi-kit
 from strapi_kit import SyncClient, AsyncClient, StrapiConfig
 
 # Query building
+from strapi_kit import (
+    DocumentStatus,
+    PublicationFilter,
+    PublicationState,
+)
 from strapi_kit.models import (
     StrapiQuery,
     FilterBuilder,
     SortDirection,
     Populate,
-    DocumentStatus,
-    PublicationState,
 )
 
 # For SecretStr (API tokens)
@@ -161,10 +164,22 @@ drafts = client.get_many(
     query=StrapiQuery().with_document_status(DocumentStatus.DRAFT),
 )
 
+# Never-published drafts (status=draft + publicationFilter)
+from strapi_kit.models import PublicationFilter
+never_published = client.get_many(
+    "articles",
+    query=(
+        StrapiQuery()
+        .with_document_status(DocumentStatus.DRAFT)
+        .with_publication_filter(PublicationFilter.NEVER_PUBLISHED)
+    ),
+)
+
 # Two-step live publish: create as draft, then publish
 created = client.create("articles", {"title": "Draft"})
 published = client.publish("articles", created.data.document_id)
 client.unpublish("articles", created.data.document_id)
+client.discard_draft("articles", created.data.document_id)
 ```
 
 A 2xx empty body or a non-object JSON body (`"Created"`) raises

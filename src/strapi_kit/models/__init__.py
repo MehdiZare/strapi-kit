@@ -8,7 +8,16 @@ from .config import RetryConfig, StrapiConfig
 from .content_type import ComponentListItem, ContentTypeListItem
 from .content_type import ContentTypeInfo as CTBContentTypeInfo
 from .content_type import ContentTypeSchema as CTBContentTypeSchema
-from .enums import DocumentStatus, FilterOperator, PublicationState, SortDirection
+from .enums import (
+    DocumentAction,
+    DocumentStatus,
+    FilterOperator,
+    HttpMethod,
+    PublicationFilter,
+    PublicationState,
+    QueryParam,
+    SortDirection,
+)
 from .export_format import (
     ExportData,
     ExportedEntity,
@@ -62,6 +71,10 @@ __all__ = [
     "SortDirection",
     "PublicationState",
     "DocumentStatus",
+    "PublicationFilter",
+    "DocumentAction",
+    "QueryParam",
+    "HttpMethod",
     # Request models - Filters
     "FilterBuilder",
     "FilterCondition",

@@ -26,6 +26,7 @@ from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
 )
 from ..models.bulk import BulkOperationFailure, BulkOperationResult
+from ..models.enums import DocumentAction, HttpMethod
 from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
@@ -214,7 +215,7 @@ class SyncClient(BaseClient):
         Returns:
             Response JSON data
         """
-        return self.request("GET", endpoint, params=params, headers=headers)
+        return self.request(HttpMethod.GET, endpoint, params=params, headers=headers)
 
     def post(
         self,
@@ -234,7 +235,7 @@ class SyncClient(BaseClient):
         Returns:
             Response JSON data
         """
-        return self.request("POST", endpoint, params=params, json=json, headers=headers)
+        return self.request(HttpMethod.POST, endpoint, params=params, json=json, headers=headers)
 
     def put(
         self,
@@ -254,7 +255,7 @@ class SyncClient(BaseClient):
         Returns:
             Response JSON data
         """
-        return self.request("PUT", endpoint, params=params, json=json, headers=headers)
+        return self.request(HttpMethod.PUT, endpoint, params=params, json=json, headers=headers)
 
     def delete(
         self,
@@ -272,7 +273,7 @@ class SyncClient(BaseClient):
         Returns:
             Response JSON data
         """
-        return self.request("DELETE", endpoint, params=params, headers=headers)
+        return self.request(HttpMethod.DELETE, endpoint, params=params, headers=headers)
 
     # Typed methods for normalized responses
 
@@ -442,7 +443,7 @@ class SyncClient(BaseClient):
         Returns:
             Normalized published entity
         """
-        endpoint = self._document_action_endpoint(collection, document_id, "publish")
+        endpoint = self._document_action_endpoint(collection, document_id, DocumentAction.PUBLISH)
         params = query.to_query_params() if query else None
         raw_response = self.post(endpoint, json={}, params=params, headers=headers)
         return self._parse_single_response(raw_response)
@@ -467,7 +468,34 @@ class SyncClient(BaseClient):
         Returns:
             Normalized unpublished entity
         """
-        endpoint = self._document_action_endpoint(collection, document_id, "unpublish")
+        endpoint = self._document_action_endpoint(collection, document_id, DocumentAction.UNPUBLISH)
+        params = query.to_query_params() if query else None
+        raw_response = self.post(endpoint, json={}, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    def discard_draft(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Discard a Strapi v5 draft and keep the published version.
+
+        POST ``/api/{collection}/{documentId}/actions/discardDraft``.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields / locale)
+            headers: Additional headers
+
+        Returns:
+            Normalized entity after the draft is discarded
+        """
+        endpoint = self._document_action_endpoint(
+            collection, document_id, DocumentAction.DISCARD_DRAFT
+        )
         params = query.to_query_params() if query else None
         raw_response = self.post(endpoint, json={}, params=params, headers=headers)
         return self._parse_single_response(raw_response)
@@ -643,7 +671,7 @@ class SyncClient(BaseClient):
             url = build_media_download_url(self.base_url, media_url)
 
             # Download with streaming for large files
-            with self._client.stream("GET", url) as response:
+            with self._client.stream(HttpMethod.GET, url) as response:
                 if not response.is_success:
                     self._handle_error_response(response)
 
@@ -802,7 +830,7 @@ class SyncClient(BaseClient):
             if self._api_version == "v4":
                 url = self._build_url(f"upload/files/{media_id}")
                 response = self._client.request(
-                    method="PUT",
+                    method=HttpMethod.PUT,
                     url=url,
                     json={"fileInfo": file_info} if file_info else {},
                     headers=self._get_headers(),

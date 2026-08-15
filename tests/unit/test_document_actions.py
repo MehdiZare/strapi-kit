@@ -4,7 +4,7 @@ import pytest
 import respx
 from httpx import Response
 
-from strapi_kit import AsyncClient, SyncClient, ValidationError
+from strapi_kit import AsyncClient, DocumentAction, SyncClient, ValidationError
 from strapi_kit.exceptions import (
     AuthenticationError,
     MethodNotAllowedError,
@@ -57,6 +57,34 @@ class TestDocumentActions:
 
         assert route.called
 
+    @pytest.mark.respx
+    def test_discard_draft_posts_actions_discard_draft(
+        self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.post(
+            "http://localhost:1337/api/articles/doc_test_001/actions/discardDraft"
+        ).mock(return_value=Response(200, json=mock_v5_response))
+
+        with SyncClient(strapi_config) as client:
+            result = client.discard_draft("articles", "doc_test_001")
+
+        assert route.called
+        assert result.data is not None
+        assert result.data.document_id == mock_v5_response["data"]["documentId"]
+
+    @pytest.mark.respx
+    def test_discard_draft_percent_encodes_document_id(
+        self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.post(
+            "http://localhost:1337/api/articles/a%2Fb%3Fc/actions/discardDraft"
+        ).mock(return_value=Response(200, json=mock_v5_response))
+
+        with SyncClient(strapi_config) as client:
+            client.discard_draft("articles", "a/b?c")
+
+        assert route.called
+
     def test_publish_rejects_blank_document_id(self, strapi_config) -> None:
         with SyncClient(strapi_config) as client:
             with pytest.raises(ValidationError, match="document_id"):
@@ -80,6 +108,53 @@ class TestDocumentActions:
 
         assert result.data is not None
         assert result.data.document_id == mock_v5_response["data"]["documentId"]
+
+    @pytest.mark.respx
+    async def test_async_unpublish(
+        self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.post(
+            "http://localhost:1337/api/articles/doc_test_001/actions/unpublish"
+        ).mock(return_value=Response(200, json=mock_v5_response))
+
+        async with AsyncClient(strapi_config) as client:
+            await client.unpublish("articles", "doc_test_001")
+
+        assert route.called
+
+    @pytest.mark.respx
+    async def test_async_discard_draft(
+        self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.post(
+            "http://localhost:1337/api/articles/doc_test_001/actions/discardDraft"
+        ).mock(return_value=Response(200, json=mock_v5_response))
+
+        async with AsyncClient(strapi_config) as client:
+            result = await client.discard_draft("articles", "doc_test_001")
+
+        assert result.data is not None
+        assert result.data.document_id == mock_v5_response["data"]["documentId"]
+
+    def test_action_paths_use_document_action_enum(self) -> None:
+        """Action URL segments are the DocumentAction values."""
+        assert DocumentAction.PUBLISH.value == "publish"
+        assert DocumentAction.UNPUBLISH.value == "unpublish"
+        assert DocumentAction.DISCARD_DRAFT.value == "discardDraft"
+
+
+class TestPackageRootExports:
+    """#43: Draft & Publish enums are importable from strapi_kit."""
+
+    def test_document_status_from_package_root(self) -> None:
+        import strapi_kit
+
+        assert strapi_kit.DocumentStatus.DRAFT == "draft"
+        assert strapi_kit.PublicationState.LIVE == "live"
+        assert strapi_kit.PublicationFilter.MODIFIED == "modified"
+        assert strapi_kit.DocumentAction.PUBLISH == "publish"
+        assert strapi_kit.QueryParam.STATUS == "status"
+        assert strapi_kit.HttpMethod.DELETE == "DELETE"
 
 
 class TestHonestSuccessBodies:

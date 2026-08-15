@@ -418,8 +418,14 @@ query = StrapiQuery().with_publication_state(PublicationState.LIVE)
 
 # Set document status (Strapi v5 Draft & Publish). Omitted status
 # defaults to published and hides drafts.
-from strapi_kit.models import DocumentStatus
+from strapi_kit import DocumentStatus, PublicationFilter
 query = StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+
+# Filter by how draft and published versions relate (never published,
+# modified since last publish, …). Combines with status=.
+query = (StrapiQuery()
+    .with_document_status(DocumentStatus.DRAFT)
+    .with_publication_filter(PublicationFilter.NEVER_PUBLISHED))
 ```
 
 ### Complete Example
@@ -500,6 +506,7 @@ with SyncClient(config) as client:
     data = {"title": "New Article", "content": "Article body"}
     response = client.create("articles", data)
     created_id = response.data.id
+    document_id = response.data.document_id
 
     # Read one
     response = client.get_one(f"articles/{created_id}")
@@ -512,6 +519,12 @@ with SyncClient(config) as client:
     # Update
     data = {"title": "Updated Title"}
     response = client.update(f"articles/{created_id}", data)
+
+    # v5 Draft & Publish actions (documentId, not numeric id)
+    if document_id:
+        client.publish("articles", document_id)
+        client.unpublish("articles", document_id)
+        client.discard_draft("articles", document_id)
 
     # Delete
     response = client.remove(f"articles/{created_id}")
@@ -1190,7 +1203,7 @@ This project is in active development. Currently implemented:
 - **Request Models**: Filters (24 operators), sorting, pagination, population, field selection
 - **Response Models**: V4/V5 parsing with automatic normalization
 - **Query Builder**: `StrapiQuery` fluent API with full type safety
-- **Typed Client Methods**: `get_one()`, `get_many()`, `create()`, `update()`, `remove()`
+- **Typed Client Methods**: `get_one()`, `get_many()`, `create()`, `update()`, `remove()`, `publish()`, `unpublish()`, `discard_draft()`
 - **Dependency Injection**: Full DI support with protocols for testability
 - **Full test coverage** with type-safe query building
 

@@ -131,13 +131,50 @@ query = StrapiQuery().with_locale("fr")
 
 #### `.with_publication_state(state: PublicationState) -> StrapiQuery`
 
-Filter by publication state:
+Filter by publication state (Strapi v4 `publicationState`):
 
 ```python
 from strapi_kit.models import PublicationState
 
 query = StrapiQuery().with_publication_state(PublicationState.LIVE)
 ```
+
+#### `.with_document_status(status: DocumentStatus) -> StrapiQuery`
+
+Set the Strapi v5 `status` query param (`draft` or `published`). Omitted
+status defaults to published and hides drafts. Cannot mix with
+`with_publication_state()`.
+
+```python
+from strapi_kit.models import DocumentStatus
+
+query = StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+```
+
+#### `.with_publication_filter(publication_filter: PublicationFilter) -> StrapiQuery`
+
+Set the Strapi v5 `publicationFilter` (how draft and published versions
+relate). Combines with `with_document_status()`. Cannot mix with
+`with_publication_state()`.
+
+All eight official REST values are supported, including the two
+diagnostic-only filters (`published-without-draft`,
+`published-with-draft`).
+
+```python
+from strapi_kit.models import DocumentStatus, PublicationFilter
+
+query = (StrapiQuery()
+    .with_document_status(DocumentStatus.DRAFT)
+    .with_publication_filter(PublicationFilter.NEVER_PUBLISHED))
+```
+
+#### `.populate(populate: Populate) -> StrapiQuery`
+
+Add a `Populate` configuration. Passing a string (or any non-`Populate`
+value) raises `ValidationError` immediately. For a field list use
+`populate_fields([...])`; for every first-level relation use
+`populate_all()`.
 
 #### `.to_query_params() -> dict[str, Any]`
 

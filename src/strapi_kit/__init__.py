@@ -38,6 +38,12 @@ from .export import StrapiExporter, StrapiImporter
 from .models import (
     BulkOperationFailure,
     BulkOperationResult,
+    DocumentAction,
+    DocumentStatus,
+    HttpMethod,
+    PublicationFilter,
+    PublicationState,
+    QueryParam,
     RetryConfig,
     StrapiConfig,
 )
@@ -60,6 +66,12 @@ __all__ = [
     # Configuration
     "StrapiConfig",
     "RetryConfig",
+    "DocumentStatus",
+    "PublicationState",
+    "PublicationFilter",
+    "DocumentAction",
+    "QueryParam",
+    "HttpMethod",
     "ConfigFactory",
     "load_config",
     "create_config",
