@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Returns `AdminInformation` with `strapi_version` parsed from `strapiVersion` or `data.strapiVersion` (missing version is still a successful probe)
   - Content, Content-Type Builder, and upload endpoints remain under `/api`; `admin/` is origin-rooted
   - Default `get("admin/information")` still prefixes `/api` (no silent behaviour change)
+  - Origin-rooted responses (`api_prefix=False`) do not drive v4/v5 content-API version detection
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
   `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
   v4 `with_publication_state()` raises `ValidationError`.

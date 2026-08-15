@@ -169,6 +169,8 @@ info: AdminInformation = client.get_admin_information()
 # info.strapi_version from top-level strapiVersion or data.strapiVersion
 # Missing version is still a successful probe (token worked)
 # info.raw is the original JSON dict
+# Origin-rooted responses do not drive v4/v5 content-API version detection
+# Empty / non-object 2xx bodies raise UnstructuredResponseError
 ```
 
 ```python

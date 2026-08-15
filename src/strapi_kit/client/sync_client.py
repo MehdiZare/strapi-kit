@@ -189,7 +189,8 @@ class SyncClient(BaseClient):
                     self._handle_error_response(response)
 
                 data = self._parse_success_response(response, method=method)
-                if data and isinstance(data, dict):
+                # Origin-rooted routes are not content-API payloads.
+                if api_prefix and data and isinstance(data, dict):
                     self._detect_api_version(data)
 
                 logger.debug(f"Response: {response.status_code}")
@@ -327,6 +328,7 @@ class SyncClient(BaseClient):
             AuthenticationError: If the request is unauthorized (401)
             AuthorizationError: If the token lacks permission (403)
             NotFoundError: If the endpoint does not exist (404)
+            UnstructuredResponseError: If a 2xx body is empty, non-JSON, or not an object
             StrapiError: On other API errors
 
         Examples:

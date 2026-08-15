@@ -7,7 +7,12 @@ import respx
 from httpx import Response
 
 from strapi_kit import AsyncClient, StrapiConfig, SyncClient
-from strapi_kit.exceptions import AuthenticationError, AuthorizationError, NotFoundError
+from strapi_kit.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    NotFoundError,
+    UnstructuredResponseError,
+)
 from strapi_kit.models import AdminInformation
 
 ADMIN_ORIGIN = "http://localhost:1337/admin/information"
@@ -76,6 +81,18 @@ class TestAdminInformationParsing:
         payload = {"strapiVersion": "", "data": {"strapiVersion": "5.2.0"}}
         info = AdminInformation.from_response(payload)
         assert info.strapi_version == "5.2.0"
+
+    def test_non_string_version_is_ignored(self) -> None:
+        payload = {"strapiVersion": 5, "data": {"strapiVersion": True}}
+        info = AdminInformation.from_response(payload)
+        assert info.strapi_version is None
+        assert info.raw == payload
+
+    def test_non_dict_data_is_ignored(self) -> None:
+        payload: dict[str, Any] = {"data": ["not", "an", "object"]}
+        info = AdminInformation.from_response(payload)
+        assert info.strapi_version is None
+        assert info.raw == payload
 
 
 class TestSyncAdminInformation:
@@ -214,6 +231,69 @@ class TestSyncAdminInformation:
                 client.get_admin_information()
             assert exc_info.value.status_code == 404
 
+    @pytest.mark.respx
+    def test_get_admin_information_empty_2xx(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        """Empty 2xx is UnstructuredResponseError, not a successful missing version."""
+        respx_mock.get(ADMIN_ORIGIN).mock(return_value=Response(200, content=b""))
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
+                client.get_admin_information()
+            assert exc_info.value.status_code == 200
+
+    @pytest.mark.respx
+    def test_get_admin_information_non_json_2xx(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.get(ADMIN_ORIGIN).mock(
+            return_value=Response(
+                200, text="<html>admin</html>", headers={"content-type": "text/html"}
+            )
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
+                client.get_admin_information()
+            assert exc_info.value.status_code == 200
+
+    @pytest.mark.respx
+    def test_get_admin_information_scalar_json_2xx(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.get(ADMIN_ORIGIN).mock(return_value=Response(200, json="5.11.0"))
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
+                client.get_admin_information()
+            assert exc_info.value.status_code == 200
+
+    @pytest.mark.respx
+    def test_admin_probe_does_not_detect_content_api_version(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_response: dict[str, Any],
+        respx_mock: respx.Router,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Nested admin `{data: {...}}` must not warn or cache v4/v5."""
+        payload = {"data": {"strapiVersion": "5.11.0", "currentEnvironment": "development"}}
+        respx_mock.get(ADMIN_ORIGIN).mock(return_value=Response(200, json=payload))
+        respx_mock.get("http://localhost:1337/api/articles/1").mock(
+            return_value=Response(200, json=mock_v5_response)
+        )
+
+        with caplog.at_level("WARNING"):
+            with SyncClient(strapi_config) as client:
+                info = client.get_admin_information()
+                assert info.strapi_version == "5.11.0"
+                assert client.api_version is None
+                assert "Could not detect API version" not in caplog.text
+
+                client.get("articles/1")
+                assert client.api_version == "v5"
+
 
 class TestAsyncAdminInformation:
     """Async client URL routing and get_admin_information()."""
@@ -316,3 +396,38 @@ class TestAsyncAdminInformation:
             with pytest.raises(NotFoundError) as exc_info:
                 await client.get_admin_information()
             assert exc_info.value.status_code == 404
+
+    @pytest.mark.respx
+    async def test_admin_probe_does_not_detect_content_api_version(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_response: dict[str, Any],
+        respx_mock: respx.Router,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        payload = {"data": {"strapiVersion": "4.25.1"}}
+        respx_mock.get(ADMIN_ORIGIN).mock(return_value=Response(200, json=payload))
+        respx_mock.get("http://localhost:1337/api/articles/1").mock(
+            return_value=Response(200, json=mock_v5_response)
+        )
+
+        with caplog.at_level("WARNING"):
+            async with AsyncClient(strapi_config) as client:
+                info = await client.get_admin_information()
+                assert info.strapi_version == "4.25.1"
+                assert client.api_version is None
+                assert "Could not detect API version" not in caplog.text
+
+                await client.get("articles/1")
+                assert client.api_version == "v5"
+
+    @pytest.mark.respx
+    async def test_get_admin_information_empty_2xx(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.get(ADMIN_ORIGIN).mock(return_value=Response(200, content=b""))
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
+                await client.get_admin_information()
+            assert exc_info.value.status_code == 200
