@@ -418,7 +418,8 @@ conversion = blocks_to_markdown(entity.attributes["body"])
 md = conversion.markdown
 # conversion.lossy_reasons is () iff the conversion is faithful.
 # Reasons are deduplicated. Underline, missing image/link URLs, unknown
-# types, and malformed nodes are recorded — never silent.
+# types, malformed nodes, and trees deeper than 32 are recorded — never
+# silent. A depth guard prevents recursion bombs and cyclic children.
 
 # Write: best-effort markdown → blocks (inline markdown stays literal text)
 body = markdown_to_blocks("# Title\n\nA paragraph\n\n- item")

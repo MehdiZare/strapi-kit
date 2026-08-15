@@ -34,6 +34,9 @@ _REASON_UNKNOWN_INLINE: Final[str] = "unknown inline type flattened to text"
 _REASON_MALFORMED: Final[str] = "malformed non-object node skipped"
 _REASON_HEADING_LEVEL: Final[str] = "heading level is outside 1-6"
 _REASON_UNKNOWN_MARK: Final[str] = "unknown mark dropped"
+_REASON_MAX_DEPTH: Final[str] = "maximum node depth exceeded"
+# Generous for real documents (nested lists); stops recursion bombs / cycles.
+_MAX_DEPTH: Final[int] = 32
 
 _HEADING_RE: Final[re.Pattern[str]] = re.compile(r"^(#{1,6})[ \t]+(.*)$")
 _UL_RE: Final[re.Pattern[str]] = re.compile(r"^[*+-][ \t]+(.*)$")
@@ -94,6 +97,7 @@ def blocks_to_markdown(blocks: Sequence[object] | None) -> MarkdownConversion:
     - image/link without a URL — image dropped / link text kept
     - unknown block/inline types — flattened to plain text or dropped
     - malformed (non-object) nodes — skipped
+    - trees deeper than 32 nodes — remaining subtree skipped
 
     Args:
         blocks: Blocks field value (a list of root nodes). ``None`` or an empty
@@ -221,6 +225,25 @@ def _escape_markdown(text: str) -> str:
     return "".join(out)
 
 
+def _link_destination(url: str) -> str:
+    """Format a markdown link/image destination.
+
+    Destinations containing ``)`` or spaces are wrapped in ``<>`` so they do
+    not terminate the surrounding ``(...)``.
+    """
+    if ")" in url or " " in url:
+        return f"<{url}>"
+    return url
+
+
+def _too_deep(depth: int, reasons: _ReasonCollector) -> bool:
+    """Record a reason and return True when ``depth`` is at/over the guard."""
+    if depth >= _MAX_DEPTH:
+        reasons.add(_REASON_MAX_DEPTH)
+        return True
+    return False
+
+
 def _iter_children(node: Mapping[str, object]) -> Sequence[object]:
     children = node.get("children")
     if isinstance(children, Sequence) and not isinstance(children, (str, bytes)):
@@ -256,9 +279,11 @@ def _fence_for(text: str) -> str:
     return "`" * max(3, longest + 1)
 
 
-def _extract_plain_text(node: object, reasons: _ReasonCollector) -> str:
+def _extract_plain_text(node: object, reasons: _ReasonCollector, depth: int) -> str:
     if isinstance(node, str):
         return node
+    if _too_deep(depth, reasons):
+        return ""
     if not isinstance(node, Mapping):
         reasons.add(_REASON_MALFORMED)
         return ""
@@ -269,10 +294,10 @@ def _extract_plain_text(node: object, reasons: _ReasonCollector) -> str:
         text = str(raw)
     if text:
         return text
-    return "".join(_extract_plain_text(child, reasons) for child in _iter_children(node))
+    return "".join(_extract_plain_text(child, reasons, depth + 1) for child in _iter_children(node))
 
 
-def _extract_code_text(node: Mapping[str, object], reasons: _ReasonCollector) -> str:
+def _extract_code_text(node: Mapping[str, object], reasons: _ReasonCollector, depth: int) -> str:
     children = _iter_children(node)
     if children:
         parts: list[str] = []
@@ -282,7 +307,7 @@ def _extract_code_text(node: Mapping[str, object], reasons: _ReasonCollector) ->
                 if isinstance(raw, str):
                     parts.append(raw)
                 else:
-                    parts.append(_extract_plain_text(child, reasons))
+                    parts.append(_extract_plain_text(child, reasons, depth + 1))
             elif isinstance(child, str):
                 parts.append(child)
             else:
@@ -312,7 +337,9 @@ def _apply_marks(text: str, node: Mapping[str, object], reasons: _ReasonCollecto
     return text
 
 
-def _convert_inline(node: object, reasons: _ReasonCollector) -> str:
+def _convert_inline(node: object, reasons: _ReasonCollector, depth: int) -> str:
+    if _too_deep(depth, reasons):
+        return ""
     if not isinstance(node, Mapping):
         reasons.add(_REASON_MALFORMED)
         return ""
@@ -330,28 +357,26 @@ def _convert_inline(node: object, reasons: _ReasonCollector) -> str:
         return _apply_marks(_escape_markdown(text), node, reasons)
 
     if ntype == "link":
-        inner = _convert_inlines(_iter_children(node), reasons)
+        inner = _convert_inlines(_iter_children(node), reasons, depth + 1)
         url = _as_str(node.get("url"))
         if not url:
             reasons.add(_REASON_LINK_NO_URL)
             return inner
-        if ")" in url or " " in url:
-            return f"[{inner}](<{url}>)"
-        return f"[{inner}]({url})"
+        return f"[{inner}]({_link_destination(url)})"
 
     if ntype == "list-item":
-        return _convert_inlines(_iter_children(node), reasons)
+        return _convert_inlines(_iter_children(node), reasons, depth + 1)
 
     if isinstance(ntype, str) and ntype in _BLOCK_TYPES:
-        converted = _convert_block(node, reasons)
+        converted = _convert_block(node, reasons, depth)
         return converted if converted is not None else ""
 
     reasons.add(_REASON_UNKNOWN_INLINE)
-    return _escape_markdown(_extract_plain_text(node, reasons))
+    return _escape_markdown(_extract_plain_text(node, reasons, depth))
 
 
-def _convert_inlines(children: Sequence[object], reasons: _ReasonCollector) -> str:
-    return "".join(_convert_inline(child, reasons) for child in children)
+def _convert_inlines(children: Sequence[object], reasons: _ReasonCollector, depth: int) -> str:
+    return "".join(_convert_inline(child, reasons, depth) for child in children)
 
 
 def _convert_image(node: Mapping[str, object], reasons: _ReasonCollector) -> str | None:
@@ -370,10 +395,14 @@ def _convert_image(node: Mapping[str, object], reasons: _ReasonCollector) -> str
     if not url:
         reasons.add(_REASON_IMAGE_NO_URL)
         return None
-    return f"![{_escape_markdown(alt)}]({url})"
+    return f"![{_escape_markdown(alt)}]({_link_destination(url)})"
 
 
-def _convert_list(node: Mapping[str, object], reasons: _ReasonCollector, indent: int) -> str:
+def _convert_list(
+    node: Mapping[str, object], reasons: _ReasonCollector, indent: int, depth: int
+) -> str:
+    if _too_deep(depth, reasons):
+        return ""
     fmt = node.get("format")
     ordered = fmt == "ordered"
     lines: list[str] = []
@@ -386,15 +415,15 @@ def _convert_list(node: Mapping[str, object], reasons: _ReasonCollector, indent:
         if ctype == "list-item":
             marker = f"{index}. " if ordered else "- "
             index += 1
-            body = _convert_inlines(_iter_children(child), reasons)
+            body = _convert_inlines(_iter_children(child), reasons, depth + 1)
             lines.append(f"{' ' * indent}{marker}{body}")
         elif ctype == "list":
-            nested = _convert_list(child, reasons, indent + 2)
+            nested = _convert_list(child, reasons, indent + 2, depth + 1)
             if nested:
                 lines.append(nested)
         else:
             reasons.add(_REASON_UNKNOWN_INLINE)
-            plain = _escape_markdown(_extract_plain_text(child, reasons))
+            plain = _escape_markdown(_extract_plain_text(child, reasons, depth + 1))
             if plain:
                 marker = f"{index}. " if ordered else "- "
                 index += 1
@@ -402,14 +431,16 @@ def _convert_list(node: Mapping[str, object], reasons: _ReasonCollector, indent:
     return "\n".join(lines)
 
 
-def _convert_block(node: object, reasons: _ReasonCollector) -> str | None:
+def _convert_block(node: object, reasons: _ReasonCollector, depth: int = 0) -> str | None:
+    if _too_deep(depth, reasons):
+        return None
     if not isinstance(node, Mapping):
         reasons.add(_REASON_MALFORMED)
         return None
 
     ntype = node.get("type")
     if ntype == "paragraph":
-        return _convert_inlines(_iter_children(node), reasons)
+        return _convert_inlines(_iter_children(node), reasons, depth + 1)
     if ntype == "heading":
         level = _heading_level(node.get("level"))
         if level is None or not 1 <= level <= 6:
@@ -419,31 +450,31 @@ def _convert_block(node: object, reasons: _ReasonCollector) -> str | None:
                 level = 1
             else:
                 level = min(max(level, 1), 6)
-        body = _convert_inlines(_iter_children(node), reasons)
+        body = _convert_inlines(_iter_children(node), reasons, depth + 1)
         return f"{'#' * level} {body}".rstrip()
     if ntype == "list":
-        return _convert_list(node, reasons, indent=0)
+        return _convert_list(node, reasons, indent=0, depth=depth)
     if ntype == "list-item":
-        return f"- {_convert_inlines(_iter_children(node), reasons)}"
+        return f"- {_convert_inlines(_iter_children(node), reasons, depth + 1)}"
     if ntype == "quote":
-        body = _convert_inlines(_iter_children(node), reasons)
+        body = _convert_inlines(_iter_children(node), reasons, depth + 1)
         if not body:
             return ">"
         return "\n".join(f"> {line}" if line else ">" for line in body.split("\n"))
     if ntype == "code":
-        text = _extract_code_text(node, reasons)
+        text = _extract_code_text(node, reasons, depth)
         fence = _fence_for(text)
         return f"{fence}\n{text}\n{fence}"
     if ntype == "image":
         return _convert_image(node, reasons)
     if ntype in {"link", "text"}:
-        return _convert_inline(node, reasons)
+        return _convert_inline(node, reasons, depth)
 
     if ntype is None or not isinstance(ntype, str):
         reasons.add(_REASON_MALFORMED)
     else:
         reasons.add(_REASON_UNKNOWN_BLOCK)
-    plain = _escape_markdown(_extract_plain_text(node, reasons))
+    plain = _escape_markdown(_extract_plain_text(node, reasons, depth))
     return plain if plain else None
 
 

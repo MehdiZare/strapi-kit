@@ -201,6 +201,35 @@ class TestBlocksToMarkdownSupported:
         assert result.markdown == "See [docs](https://example.com)."
         assert result.lossy_reasons == ()
 
+    def test_link_url_with_paren_is_wrapped(self) -> None:
+        blocks = [
+            _paragraph(
+                {
+                    "type": "link",
+                    "url": "https://example.com/a(b)",
+                    "children": [_text("docs")],
+                }
+            )
+        ]
+        result = blocks_to_markdown(blocks)
+        assert result.markdown == "[docs](<https://example.com/a(b)>)"
+        assert result.lossy_reasons == ()
+
+    def test_image_url_with_paren_is_wrapped(self) -> None:
+        blocks = [
+            {
+                "type": "image",
+                "image": {
+                    "url": "https://example.com/a(b).png",
+                    "alternativeText": "mascot",
+                },
+                "children": [_text("")],
+            }
+        ]
+        result = blocks_to_markdown(blocks)
+        assert result.markdown == "![mascot](<https://example.com/a(b).png>)"
+        assert result.lossy_reasons == ()
+
     def test_bold(self) -> None:
         result = blocks_to_markdown([_paragraph(_text("this is the bold", bold=True))])
         assert result.markdown == "**this is the bold**"
@@ -392,6 +421,42 @@ class TestBlocksToMarkdownLossy:
         result = blocks_to_markdown([_paragraph(node)])
         assert result.markdown == "glow"
         assert result.lossy_reasons == ("unknown mark dropped",)
+
+    def test_cyclic_children_do_not_raise(self) -> None:
+        para: dict[str, Any] = _paragraph(_text("x"))
+        para["children"].append(para)
+        result = blocks_to_markdown([para])
+        assert "maximum node depth exceeded" in result.lossy_reasons
+
+    def test_deeply_nested_lists_do_not_raise(self) -> None:
+        node: dict[str, Any] = {
+            "type": "list",
+            "format": "unordered",
+            "children": [{"type": "list-item", "children": [_text("leaf")]}],
+        }
+        for _ in range(64):
+            node = {"type": "list", "format": "unordered", "children": [node]}
+        result = blocks_to_markdown([node])
+        assert "maximum node depth exceeded" in result.lossy_reasons
+
+    def test_unknown_block_cycle_does_not_raise(self) -> None:
+        node: dict[str, Any] = {"type": "callout", "children": []}
+        node["children"].append(node)
+        result = blocks_to_markdown([node])
+        assert "maximum node depth exceeded" in result.lossy_reasons
+        assert "unknown block type flattened to text" in result.lossy_reasons
+
+    def test_reasonable_nesting_is_faithful(self) -> None:
+        node: dict[str, Any] = {
+            "type": "list",
+            "format": "unordered",
+            "children": [{"type": "list-item", "children": [_text("leaf")]}],
+        }
+        for _ in range(8):
+            node = {"type": "list", "format": "unordered", "children": [node]}
+        result = blocks_to_markdown([node])
+        assert result.lossy_reasons == ()
+        assert "leaf" in result.markdown
 
 
 class TestMetacharacterEscape:

@@ -886,6 +886,8 @@ client.create("articles", payload)
 - image/link without a URL — image dropped / link text kept
 - unknown block/inline types — flattened to plain text or dropped
 - malformed (non-object) nodes — skipped
+- trees deeper than 32 nodes — remaining subtree skipped (guards recursion
+  bombs and cyclic children)
 
 **`markdown_to_blocks`** is a best-effort write path, not a full CommonMark AST:
 
