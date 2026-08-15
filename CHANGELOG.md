@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Typed write/parse status isolation** — `UnstructuredResponseError.status_code` is stored in a contextvar so concurrent `AsyncClient` requests cannot stamp the wrong HTTP status
 - **`join_document_path` rejects whitespace-only collection names** (same as blank ids) so `"   /id"` cannot be emitted
+- **Streamers raise on empty later pages** (or an empty first page with `total > 0`) instead of treating empty `data` as a complete collection
+- **Default `status=draft` is dropped after a first-page 400** so collections without Draft & Publish still export
+- **`markdown_to_blocks` image nodes include the official empty text child**
 
 ### Added
 
@@ -84,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `FieldType.BLOCKS = "blocks"` so Content-Type Builder attributes with `type: "blocks"` no longer fall through as unknown
   - Added `blocks_to_markdown()` → `MarkdownConversion(markdown, lossy_reasons)` for the official blocks tree (`paragraph`, `heading`, `list`/`list-item`, `quote`, `code`, `image`, `link`, `text` + bold/italic/strikethrough/code marks)
   - Lossy cases (underline, missing image/link URL, unknown or malformed nodes, trees deeper than 32) are recorded in `lossy_reasons` (deduplicated; empty iff faithful). Markdown metacharacters in text leaves are escaped before marks are applied; image/link destinations with `)` or spaces are wrapped in `<>`
-  - Added `markdown_to_blocks()` best-effort write path (headings, paragraphs, fenced code, lists, blockquotes). Inline markdown is stored as literal text; empty input pins one empty paragraph
+  - Added `markdown_to_blocks()` write path (headings, paragraphs, fenced code, lists, blockquotes). Empty input pins one empty paragraph. Inline marks, links, images, and nested lists landed in #77.
   - Exported `FieldType`, `MarkdownConversion`, `blocks_to_markdown`, and `markdown_to_blocks` from the public `strapi_kit` API
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
   `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
@@ -108,8 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   re-raise the original `NotFoundError`. Default `False` keeps today's
   mapping.
 - **v5 document actions** — `SyncClient.publish` / `unpublish` /
-  `discard_draft` and the async equivalents.
-  `POST /api/{collection}/{documentId}/actions/{publish|unpublish|discardDraft}`.
+  `discard_draft` and the async equivalents. `publish()` is stock REST
+  `PUT ?status=published` (see #65). `unpublish` / `discard_draft` stay
+  on `POST /api/{collection}/{documentId}/actions/{unpublish|discardDraft}`.
   `documentId` is percent-encoded.
 - **Wire enums** — `DocumentAction`, `QueryParam`, and `HttpMethod`
   (`StrEnum`). Document-action paths, REST query keys, and HTTP verbs in
@@ -119,8 +123,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are importable from `strapi_kit`.
 - **E2E Draft & Publish** — `tests/e2e/test_draft_publish.py` covers live
   Strapi 5 `status=` (`with_document_status`) on list and publish-on-write.
-  `publish` / `unpublish` helpers are live-checked and skipped if stock
-  REST 404s/405s ([#65](https://github.com/MehdiZare/strapi-kit/issues/65)).
+  Live `publish()` is asserted. `unpublish` / `discard_draft` are
+  live-checked and skipped if stock REST 404s/405s
+  ([#65](https://github.com/MehdiZare/strapi-kit/issues/65)).
   Avoids the article `status` attribute
   ([#68](https://github.com/MehdiZare/strapi-kit/issues/68)).
   Marked `@pytest.mark.e2e`; default CI still runs `pytest tests/unit`.

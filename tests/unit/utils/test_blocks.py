@@ -592,6 +592,7 @@ class TestMarkdownToBlocks:
             {
                 "type": "image",
                 "image": {"url": "https://example.com/a.png", "alternativeText": "alt"},
+                "children": [_text("")],
             }
         ]
 
