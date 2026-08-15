@@ -10,7 +10,8 @@ class FieldType(StrEnum):
 
     STRING = "string"
     TEXT = "text"
-    RICH_TEXT = "richtext"
+    RICH_TEXT = "richtext"  # Classic markdown/string rich text
+    BLOCKS = "blocks"  # Strapi v5 Blocks rich text (JSON tree)
     EMAIL = "email"
     PASSWORD = "password"  # noqa: S105 - Field type enum, not a hardcoded password
     INTEGER = "integer"

@@ -313,6 +313,40 @@ def test_parse_unknown_field_type(strapi_config: StrapiConfig, respx_mock: respx
         assert schema.fields["custom_field"].type == FieldType.STRING
 
 
+@pytest.mark.respx
+def test_parse_blocks_field_type(strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
+    """CTB attribute type 'blocks' must map to FieldType.BLOCKS, not unknown."""
+    mock_response = {
+        "data": {
+            "kind": "collectionType",
+            "info": {"displayName": "Article"},
+            "attributes": {
+                "body": {
+                    "type": "blocks",
+                    "required": False,
+                },
+                "legacy": {
+                    "type": "richtext",
+                    "required": False,
+                },
+            },
+        }
+    }
+
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=Response(200, json=mock_response))
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+        schema = cache.get_schema("api::article.article")
+
+        assert schema.fields["body"].type is FieldType.BLOCKS
+        assert schema.fields["body"].type.value == "blocks"
+        assert FieldType(schema.fields["body"].type.value) is FieldType.BLOCKS
+        assert schema.fields["legacy"].type is FieldType.RICH_TEXT
+
+
 # Tests for ACTUAL Strapi v5 format (Issue #28)
 
 

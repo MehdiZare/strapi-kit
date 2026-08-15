@@ -16,6 +16,7 @@ A modern Python client for Strapi CMS with comprehensive import/export capabilit
 - 🔄 **Import/Export**: Comprehensive backup/restore and data migration tools
 - 🔁 **Smart Retry**: Automatic retry with exponential backoff for transient failures
 - 🔍 **Schema Introspection**: Content-Type Builder API support for schema discovery
+- 📝 **Blocks ↔ Markdown**: Convert Strapi v5 `blocks` rich text JSON to and from Markdown
 - 📦 **Modern Python**: Built for Python 3.12+ with full type hints
 
 ## Installation
@@ -841,6 +842,58 @@ extract_model_name("plugin::users-permissions.user")  # "user"
 is_api_content_type("api::article.article")  # True
 is_api_content_type("plugin::users-permissions.user")  # False
 ```
+
+### Strapi v5 Blocks ↔ Markdown
+
+Strapi 5 rich text is stored as **`blocks`** JSON (not a markdown string). Classic
+`richtext` fields remain markdown/strings and are not converted here.
+
+```python
+from strapi_kit import (
+    FieldType,
+    MarkdownConversion,
+    blocks_to_markdown,
+    markdown_to_blocks,
+)
+
+# CTB attribute type "blocks" is a first-class FieldType
+assert FieldType.BLOCKS == "blocks"
+
+# Read path: official nodes → markdown (lossy cases are never silent)
+conversion: MarkdownConversion = blocks_to_markdown(entity.attributes["body"])
+print(conversion.markdown)
+print(conversion.lossy_reasons)  # () iff faithful
+
+# Write path: best-effort markdown → blocks (inline markdown stays literal)
+payload = {
+    "title": "Hello",
+    "body": markdown_to_blocks("# Title\n\nA paragraph"),
+}
+client.create("articles", payload)
+```
+
+**`blocks_to_markdown` supports**
+
+- Blocks: `paragraph`, `heading` (levels 1–6), `list` (`ordered` / `unordered`) +
+  `list-item`, `quote`, `code`, `image`, `link`, `text`
+- Marks: `bold`, `italic`, `strikethrough`, `code`
+- Markdown metacharacters in plain-text leaves are escaped **before** marks so
+  source `**literal**` cannot invent formatting
+
+**Lossy, never silent** (reason recorded in `lossy_reasons`, deduplicated):
+
+- `underline` — text kept (no markdown equivalent)
+- image/link without a URL — image dropped / link text kept
+- unknown block/inline types — flattened to plain text or dropped
+- malformed (non-object) nodes — skipped
+
+**`markdown_to_blocks`** is a best-effort write path, not a full CommonMark AST:
+
+- Headings, paragraphs, fenced code, ordered/unordered lists, blockquotes
+- Inline markdown (`**bold**`, `[text](url)`) is stored as literal text
+- Images are **not** uploaded; `![alt](url)` stays paragraph text
+- Empty / whitespace-only input pins one empty paragraph:
+  `[{"type": "paragraph", "children": [{"type": "text", "text": ""}]}]`
 
 ### SEO Configuration Detection
 

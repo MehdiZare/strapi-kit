@@ -6,8 +6,10 @@ This package contains helper utilities including:
 - UID handling
 - SEO detection
 - Pagination echo / maxLimit guards
+- Strapi v5 Blocks to Markdown conversion
 """
 
+from strapi_kit.utils.blocks import MarkdownConversion, blocks_to_markdown, markdown_to_blocks
 from strapi_kit.utils.endpoints import collection_endpoint, document_endpoint
 from strapi_kit.utils.pagination import assert_pagination_echo
 from strapi_kit.utils.rate_limiter import AsyncTokenBucketRateLimiter, TokenBucketRateLimiter
@@ -51,4 +53,8 @@ __all__ = [
     "extract_content_type_options",
     "extract_draft_and_publish",
     "apply_draft_and_publish_sources",
+    # Blocks to Markdown
+    "MarkdownConversion",
+    "blocks_to_markdown",
+    "markdown_to_blocks",
 ]
