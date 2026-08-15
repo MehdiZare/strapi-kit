@@ -417,6 +417,8 @@ config = StrapiConfig(
 )
 ```
 
+`base_url` is the Strapi origin without a trailing `/api`. A final `/api` segment is stripped so `_build_url` does not produce `/api/api/...`. The same applies to `STRAPI_BASE_URL`. Mid-path `/api` (`https://host/api/v1`) and `/admin` are not stripped.
+
 ## Environment Variables
 
 ```bash
