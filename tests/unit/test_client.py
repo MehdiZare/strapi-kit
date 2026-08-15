@@ -7,9 +7,11 @@ from httpx import Response
 from strapi_kit import AsyncClient, StrapiConfig, SyncClient
 from strapi_kit.exceptions import (
     AuthenticationError,
+    ConflictError,
     NotFoundError,
     ServerError,
     ValidationError,
+    is_uniqueness_violation,
 )
 
 
@@ -113,6 +115,38 @@ class TestSyncClient:
         with SyncClient(strapi_config) as client:
             with pytest.raises(ValidationError):
                 client.post("articles", json={})
+
+    @pytest.mark.respx
+    def test_uniqueness_400_remains_validation_error(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        """Unique-index collisions stay ValidationError (not ConflictError)."""
+        error_response = {
+            "error": {
+                "status": 400,
+                "name": "ValidationError",
+                "message": "2 errors occurred",
+                "details": {
+                    "errors": [
+                        {
+                            "path": ["slug"],
+                            "message": "This attribute must be unique",
+                            "name": "ValidationError",
+                        }
+                    ]
+                },
+            }
+        }
+        respx_mock.post("http://localhost:1337/api/articles").mock(
+            return_value=Response(400, json=error_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError) as exc_info:
+                client.post("articles", json={"slug": "hello"})
+
+        assert not isinstance(exc_info.value, ConflictError)
+        assert is_uniqueness_violation(exc_info.value) is True
 
     @pytest.mark.respx
     def test_server_error(self, strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:

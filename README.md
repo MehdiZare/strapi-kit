@@ -1167,6 +1167,26 @@ except StrapiError as e:
     print(f"Strapi error: {e}")
 ```
 
+Strapi reports unique-index collisions as HTTP 400 `ValidationError` (not `ConflictError`). Use the helpers to tell "slug already taken" from a malformed payload:
+
+```python
+from strapi_kit.exceptions import (
+    ValidationError,
+    format_validation_errors,
+    is_uniqueness_violation,
+)
+
+try:
+    client.create("articles", {"slug": "hello", "title": "Hello"})
+except ValidationError as e:
+    if is_uniqueness_violation(e):
+        print("Unique field already taken")
+        print(format_validation_errors(e) or str(e))
+        # e.field_errors -> [("slug", "This attribute must be unique")]
+    else:
+        print(f"Invalid payload: {e}")
+```
+
 All exceptions inherit from `StrapiError`, making it easy to catch all package-specific errors while still allowing precise handling of specific error types.
 
 ## Development

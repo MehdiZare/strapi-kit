@@ -19,6 +19,8 @@ from .errors import (
     TimeoutError,
     UnstructuredResponseError,
     ValidationError,
+    format_validation_errors,
+    is_uniqueness_violation,
 )
 
 __all__ = [
@@ -40,4 +42,6 @@ __all__ = [
     "FormatError",
     "RelationError",
     "MediaError",
+    "is_uniqueness_violation",
+    "format_validation_errors",
 ]
