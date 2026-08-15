@@ -126,10 +126,16 @@ response = client.get_many("articles")
 for article in response.data:
     print(article.id, article.attributes["title"])
 
-# Get one (returns NormalizedSingleResponse)
-response = client.get_one("articles/1")
+# Get one — prefer collection + document_id so the ID is percent-encoded
+response = client.get_one("articles", document_id="abc123")
 article = response.data
 print(article.attributes["title"])
+
+# String endpoint still works (caller must encode `/`, `?`, `#`, `%` themselves)
+response = client.get_one("articles/1")
+
+# Shared helper used by get_one / update / remove
+path = client.document_path("articles", "a/b?x=1")  # "articles/a%2Fb%3Fx%3D1"
 
 # Raw API (returns dict)
 response = client.get("articles")  # dict
@@ -140,20 +146,22 @@ response = client.get("articles")  # dict
 ```python
 data = {"title": "New Article", "content": "Body text"}
 response = client.create("articles", data)
-new_id = response.data.id
+new_id = response.data.document_id or str(response.data.id)
 ```
 
 ### Update
 
 ```python
 data = {"title": "Updated Title"}
-response = client.update("articles/1", data)
+response = client.update("articles", data, document_id="abc123")
+# Also valid: client.update("articles/1", data)
 ```
 
 ### Delete
 
 ```python
-response = client.remove("articles/1")
+response = client.remove("articles", document_id="abc123")
+# Also valid: client.remove("articles/1")
 ```
 
 ### Publish / Unpublish (Strapi v5)
@@ -621,4 +629,5 @@ python examples/full_migration_v5.py migrate
 6. **API prefix is automatic** - use `"articles"` not `"/api/articles"`
 7. **SecretStr for tokens** - always wrap API tokens in `SecretStr`
 8. **v4 vs v5** - use `document_id` for v5, `id` works for both
-9. **FILE ISSUES** - If you find bugs, errors, or unexpected behavior, **file an issue immediately** at https://github.com/MehdiZare/strapi-kit/issues/new - this is critical for improving the library
+9. **Encode document IDs** - use `get_one("articles", document_id=id)` (same for `update`/`remove`) instead of f-strings; IDs with `/`, `?`, `#`, `%` change the path if interpolated raw. Blank collection or id raises `ValidationError`.
+10. **FILE ISSUES** - If you find bugs, errors, or unexpected behavior, **file an issue immediately** at https://github.com/MehdiZare/strapi-kit/issues/new - this is critical for improving the library

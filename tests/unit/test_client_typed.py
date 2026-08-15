@@ -5,9 +5,17 @@ import pytest
 import respx
 
 from strapi_kit.client.async_client import AsyncClient
+from strapi_kit.client.base import BaseClient
 from strapi_kit.client.sync_client import SyncClient
+from strapi_kit.exceptions import ValidationError
 from strapi_kit.models import FilterBuilder, SortDirection, StrapiQuery
 from strapi_kit.models.config import StrapiConfig
+from strapi_kit.models.enums import DocumentAction
+
+# documentId with path/query/space/percent chars — must be fully encoded
+SPECIAL_DOCUMENT_ID = "a/b?c d%"
+ENCODED_DOCUMENT_ID = "a%2Fb%3Fc%20d%25"
+ENCODED_DOCUMENT_URL = f"http://localhost:1337/api/articles/{ENCODED_DOCUMENT_ID}"
 
 
 @pytest.fixture
@@ -401,3 +409,254 @@ class TestAsyncClientTyped:
             response = await client.remove("articles/1")
 
         assert response.data is not None
+
+
+class TestDocumentPath:
+    """Tests for BaseClient.document_path encoding and validation."""
+
+    def test_encodes_slash_question_space_and_percent(self) -> None:
+        """document_id characters that change a URL must be fully encoded."""
+        assert (
+            BaseClient.document_path("articles", SPECIAL_DOCUMENT_ID)
+            == f"articles/{ENCODED_DOCUMENT_ID}"
+        )
+        assert ENCODED_DOCUMENT_ID == "a%2Fb%3Fc%20d%25"
+
+    def test_strips_collection_slashes_without_encoding(self) -> None:
+        """Collection names are strip("/") only — not percent-encoded."""
+        assert BaseClient.document_path("/articles/", "abc123") == "articles/abc123"
+
+    def test_blank_collection_raises(self) -> None:
+        """Blank collection names raise ValidationError."""
+        with pytest.raises(ValidationError, match="collection"):
+            BaseClient.document_path("", "abc123")
+        with pytest.raises(ValidationError, match="collection"):
+            BaseClient.document_path("/", "abc123")
+        with pytest.raises(ValidationError, match="collection"):
+            BaseClient.document_path("///", "abc123")
+
+    def test_blank_document_id_raises(self) -> None:
+        """Blank document IDs raise ValidationError."""
+        with pytest.raises(ValidationError, match="document_id"):
+            BaseClient.document_path("articles", "")
+        with pytest.raises(ValidationError, match="document_id"):
+            BaseClient.document_path("articles", "   ")
+
+    def test_action_helpers_reuse_document_path(self, strapi_config: StrapiConfig) -> None:
+        """publish / unpublish / discard_draft share the CRUD document_id encoder."""
+        encoded = BaseClient.document_path("articles", SPECIAL_DOCUMENT_ID)
+        with SyncClient(strapi_config) as client:
+            assert (
+                client._document_action_endpoint(
+                    "articles", SPECIAL_DOCUMENT_ID, DocumentAction.PUBLISH
+                )
+                == f"{encoded}/actions/publish"
+            )
+            assert (
+                client._document_action_endpoint(
+                    "articles", SPECIAL_DOCUMENT_ID, DocumentAction.UNPUBLISH
+                )
+                == f"{encoded}/actions/unpublish"
+            )
+            assert (
+                client._document_action_endpoint(
+                    "articles", SPECIAL_DOCUMENT_ID, DocumentAction.DISCARD_DRAFT
+                )
+                == f"{encoded}/actions/discardDraft"
+            )
+
+
+class TestSyncClientDocumentId:
+    """Sync get_one / update / remove with encoded document_id."""
+
+    @pytest.mark.respx
+    def test_get_one_encodes_document_id(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_response: dict,
+        respx_mock: respx.Router,
+    ) -> None:
+        """GET uses a fully encoded document_id path segment."""
+        respx_mock.get(ENCODED_DOCUMENT_URL).mock(
+            return_value=httpx.Response(200, json=mock_v5_single_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            response = client.get_one("articles", document_id=SPECIAL_DOCUMENT_ID)
+
+        assert response.data is not None
+        assert response.data.id == 1
+
+    @pytest.mark.respx
+    def test_update_encodes_document_id(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_response: dict,
+        respx_mock: respx.Router,
+    ) -> None:
+        """PUT uses a fully encoded document_id path segment."""
+        respx_mock.put(ENCODED_DOCUMENT_URL).mock(
+            return_value=httpx.Response(200, json=mock_v5_single_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            response = client.update(
+                "articles", {"title": "Updated"}, document_id=SPECIAL_DOCUMENT_ID
+            )
+
+        assert response.data is not None
+        assert response.data.id == 1
+
+    @pytest.mark.respx
+    def test_remove_encodes_document_id(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_response: dict,
+        respx_mock: respx.Router,
+    ) -> None:
+        """DELETE uses a fully encoded document_id path segment."""
+        respx_mock.delete(ENCODED_DOCUMENT_URL).mock(
+            return_value=httpx.Response(200, json=mock_v5_single_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            response = client.remove("articles", document_id=SPECIAL_DOCUMENT_ID)
+
+        assert response.data is not None
+        assert response.data.id == 1
+
+    @pytest.mark.respx
+    def test_get_one_string_endpoint_still_works(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_response: dict,
+        respx_mock: respx.Router,
+    ) -> None:
+        """Existing get_one("articles/abc") form remains supported."""
+        respx_mock.get("http://localhost:1337/api/articles/abc").mock(
+            return_value=httpx.Response(200, json=mock_v5_single_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            response = client.get_one("articles/abc")
+
+        assert response.data is not None
+        assert response.data.id == 1
+
+    def test_blank_collection_raises(self, strapi_config: StrapiConfig) -> None:
+        """Blank collection on get_one / update / remove raises ValidationError."""
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="collection"):
+                client.get_one("", document_id="abc123")
+            with pytest.raises(ValidationError, match="collection"):
+                client.update("", {"title": "x"}, document_id="abc123")
+            with pytest.raises(ValidationError, match="collection"):
+                client.remove("", document_id="abc123")
+
+    def test_blank_document_id_raises(self, strapi_config: StrapiConfig) -> None:
+        """Blank document_id on get_one / update / remove raises ValidationError."""
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="document_id"):
+                client.get_one("articles", document_id="")
+            with pytest.raises(ValidationError, match="document_id"):
+                client.update("articles", {"title": "x"}, document_id="   ")
+            with pytest.raises(ValidationError, match="document_id"):
+                client.remove("articles", document_id="")
+
+
+class TestAsyncClientDocumentId:
+    """Async get_one / update / remove with encoded document_id."""
+
+    @pytest.mark.respx
+    async def test_get_one_encodes_document_id(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_response: dict,
+        respx_mock: respx.Router,
+    ) -> None:
+        """GET uses a fully encoded document_id path segment."""
+        respx_mock.get(ENCODED_DOCUMENT_URL).mock(
+            return_value=httpx.Response(200, json=mock_v5_single_response)
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            response = await client.get_one("articles", document_id=SPECIAL_DOCUMENT_ID)
+
+        assert response.data is not None
+        assert response.data.id == 1
+
+    @pytest.mark.respx
+    async def test_update_encodes_document_id(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_response: dict,
+        respx_mock: respx.Router,
+    ) -> None:
+        """PUT uses a fully encoded document_id path segment."""
+        respx_mock.put(ENCODED_DOCUMENT_URL).mock(
+            return_value=httpx.Response(200, json=mock_v5_single_response)
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            response = await client.update(
+                "articles", {"title": "Updated"}, document_id=SPECIAL_DOCUMENT_ID
+            )
+
+        assert response.data is not None
+        assert response.data.id == 1
+
+    @pytest.mark.respx
+    async def test_remove_encodes_document_id(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_response: dict,
+        respx_mock: respx.Router,
+    ) -> None:
+        """DELETE uses a fully encoded document_id path segment."""
+        respx_mock.delete(ENCODED_DOCUMENT_URL).mock(
+            return_value=httpx.Response(200, json=mock_v5_single_response)
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            response = await client.remove("articles", document_id=SPECIAL_DOCUMENT_ID)
+
+        assert response.data is not None
+        assert response.data.id == 1
+
+    @pytest.mark.respx
+    async def test_get_one_string_endpoint_still_works(
+        self,
+        strapi_config: StrapiConfig,
+        mock_v5_single_response: dict,
+        respx_mock: respx.Router,
+    ) -> None:
+        """Existing get_one("articles/abc") form remains supported."""
+        respx_mock.get("http://localhost:1337/api/articles/abc").mock(
+            return_value=httpx.Response(200, json=mock_v5_single_response)
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            response = await client.get_one("articles/abc")
+
+        assert response.data is not None
+        assert response.data.id == 1
+
+    async def test_blank_collection_raises(self, strapi_config: StrapiConfig) -> None:
+        """Blank collection on get_one / update / remove raises ValidationError."""
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="collection"):
+                await client.get_one("", document_id="abc123")
+            with pytest.raises(ValidationError, match="collection"):
+                await client.update("", {"title": "x"}, document_id="abc123")
+            with pytest.raises(ValidationError, match="collection"):
+                await client.remove("", document_id="abc123")
+
+    async def test_blank_document_id_raises(self, strapi_config: StrapiConfig) -> None:
+        """Blank document_id on get_one / update / remove raises ValidationError."""
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="document_id"):
+                await client.get_one("articles", document_id="")
+            with pytest.raises(ValidationError, match="document_id"):
+                await client.update("articles", {"title": "x"}, document_id="   ")
+            with pytest.raises(ValidationError, match="document_id"):
+                await client.remove("articles", document_id="")
