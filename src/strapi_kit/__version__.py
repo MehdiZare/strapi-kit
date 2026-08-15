@@ -6,7 +6,7 @@ For development installs, it falls back to a placeholder version.
 
 try:
     # Try to import version from hatch-vcs generated file
-    from strapi_kit._version import __version__  # type: ignore[import-untyped]
+    from strapi_kit._version import __version__
 except ImportError:
     # Development mode - not built with hatch-vcs yet
     # This happens when installed with pip install -e .
