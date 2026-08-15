@@ -205,6 +205,11 @@ class TestStrapiQuery:
         with pytest.raises(ValidationError, match="Populate instance"):
             StrapiQuery().populate("author,categories,tags")  # type: ignore[arg-type]
 
+    def test_filter_rejects_string_at_call_site(self) -> None:
+        """A non-FilterBuilder must fail immediately, not later in to_query_params()."""
+        with pytest.raises(ValidationError, match="FilterBuilder"):
+            StrapiQuery().filter("status=published")  # type: ignore[arg-type]
+
     def test_query_param_keys_come_from_enum(self) -> None:
         """Emitted REST keys must match QueryParam values."""
         query = (

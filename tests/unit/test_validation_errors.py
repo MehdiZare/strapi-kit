@@ -238,16 +238,36 @@ class TestFieldErrorsProperty:
         assert format_validation_errors(exc) is None
         assert is_uniqueness_violation(exc) is False
 
-    def test_non_list_errors_yields_empty(self) -> None:
-        """Dict-shaped details.errors is not parsed (REST uses a list)."""
+    def test_dict_shaped_errors_flatten_to_field_pairs(self) -> None:
+        """Yup/admin field → messages maps flatten like REST list payloads."""
         exc = ValidationError(
             "Validation error",
             details={"errors": {"slug": ["This attribute must be unique"]}},
         )
 
+        assert exc.field_errors == [("slug", "This attribute must be unique")]
+        assert is_uniqueness_violation(exc) is True
+        assert format_validation_errors(exc) == "slug: This attribute must be unique"
+
+    def test_dict_shaped_errors_accept_bare_string_messages(self) -> None:
+        """A field mapped to a single string is one (path, message) pair."""
+        exc = ValidationError(
+            "Validation error",
+            details={"errors": {"title": "This attribute must be unique"}},
+        )
+
+        assert exc.field_errors == [("title", "This attribute must be unique")]
+        assert is_uniqueness_violation(exc) is True
+
+    def test_dict_shaped_errors_skip_empty_messages(self) -> None:
+        """Empty / non-string map values are skipped."""
+        exc = ValidationError(
+            "Validation error",
+            details={"errors": {"slug": ["", "  "], "title": 1}},
+        )
+
         assert exc.field_errors == []
         assert format_validation_errors(exc) is None
-        assert is_uniqueness_violation(exc) is False
 
 
 class TestValidationErrorCompatibility:

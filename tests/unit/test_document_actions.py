@@ -18,20 +18,23 @@ from strapi_kit.models import StrapiQuery
 
 
 class TestDocumentActions:
-    """publish() / unpublish() hit the v5 document-action routes."""
+    """publish() uses stock REST PUT; unpublish/discard stay custom-route."""
 
     @pytest.mark.respx
-    def test_publish_posts_actions_publish(
+    def test_publish_puts_status_published(
         self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
-        route = respx_mock.post(
-            "http://localhost:1337/api/articles/doc_test_001/actions/publish"
-        ).mock(return_value=Response(200, json=mock_v5_response))
+        route = respx_mock.put("http://localhost:1337/api/articles/doc_test_001").mock(
+            return_value=Response(200, json=mock_v5_response)
+        )
 
         with SyncClient(strapi_config) as client:
             result = client.publish("articles", "doc_test_001")
 
         assert route.called
+        request = route.calls.last.request
+        assert request.url.params["status"] == "published"
+        assert request.content == b'{"data":{}}'
         assert result.data is not None
         assert result.data.document_id == mock_v5_response["data"]["documentId"]
 
@@ -67,28 +70,31 @@ class TestDocumentActions:
     def test_publish_forwards_query_params(
         self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
-        route = respx_mock.post(
-            "http://localhost:1337/api/articles/doc_test_001/actions/publish"
-        ).mock(return_value=Response(200, json=mock_v5_response))
+        route = respx_mock.put("http://localhost:1337/api/articles/doc_test_001").mock(
+            return_value=Response(200, json=mock_v5_response)
+        )
 
         with SyncClient(strapi_config) as client:
             client.publish("articles", "doc_test_001", query=StrapiQuery().with_locale("fr"))
 
         assert route.called
-        assert route.calls.last.request.url.params["locale"] == "fr"
+        params = route.calls.last.request.url.params
+        assert params["locale"] == "fr"
+        assert params["status"] == "published"
 
     @pytest.mark.respx
     def test_publish_percent_encodes_document_id(
         self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
-        route = respx_mock.post(
-            "http://localhost:1337/api/articles/a%2Fb%3Fc/actions/publish"
-        ).mock(return_value=Response(200, json=mock_v5_response))
+        route = respx_mock.put("http://localhost:1337/api/articles/a%2Fb%3Fc").mock(
+            return_value=Response(200, json=mock_v5_response)
+        )
 
         with SyncClient(strapi_config) as client:
             client.publish("articles", "a/b?c")
 
         assert route.called
+        assert route.calls.last.request.url.params["status"] == "published"
 
     @pytest.mark.respx
     def test_discard_draft_posts_actions_discard_draft(
@@ -139,7 +145,7 @@ class TestDocumentActions:
     async def test_async_publish(
         self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
-        respx_mock.post("http://localhost:1337/api/articles/doc_test_001/actions/publish").mock(
+        respx_mock.put("http://localhost:1337/api/articles/doc_test_001").mock(
             return_value=Response(200, json=mock_v5_response)
         )
 
@@ -269,13 +275,49 @@ class TestHonestSuccessBodies:
 
     @pytest.mark.respx
     def test_empty_publish_200_raises(self, strapi_config, respx_mock: respx.Router) -> None:
-        respx_mock.post("http://localhost:1337/api/articles/doc_test_001/actions/publish").mock(
+        respx_mock.put("http://localhost:1337/api/articles/doc_test_001").mock(
             return_value=Response(200, content=b"")
         )
 
         with SyncClient(strapi_config) as client:
             with pytest.raises(UnstructuredResponseError) as exc_info:
                 client.publish("articles", "doc_test_001")
+            assert exc_info.value.status_code == 200
+
+    @pytest.mark.respx
+    def test_write_empty_object_raises(self, strapi_config, respx_mock: respx.Router) -> None:
+        respx_mock.post("http://localhost:1337/api/articles").mock(
+            return_value=Response(201, json={})
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
+                client.create("articles", {"title": "x"})
+            assert exc_info.value.status_code == 201
+
+    @pytest.mark.respx
+    def test_write_ok_true_raises(self, strapi_config, respx_mock: respx.Router) -> None:
+        respx_mock.post("http://localhost:1337/api/articles").mock(
+            return_value=Response(200, json={"ok": True})
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
+                client.create("articles", {"title": "x"})
+            assert exc_info.value.status_code == 200
+            assert exc_info.value.details.get("has_data") is False
+
+    @pytest.mark.respx
+    def test_get_one_array_data_is_unstructured(
+        self, strapi_config, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.get("http://localhost:1337/api/articles/1").mock(
+            return_value=Response(200, json={"data": []})
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
+                client.get_one("articles/1")
             assert exc_info.value.status_code == 200
 
     @pytest.mark.respx
@@ -313,12 +355,12 @@ class TestHttpErrorStatusCodes:
 
     @pytest.mark.respx
     def test_405_is_method_not_allowed(self, strapi_config, respx_mock: respx.Router) -> None:
-        respx_mock.post("http://localhost:1337/api/articles/abc/actions/publish").mock(
+        respx_mock.post("http://localhost:1337/api/articles/abc/actions/unpublish").mock(
             return_value=Response(405, json={"error": {"message": "nope"}})
         )
         with SyncClient(strapi_config) as client:
             with pytest.raises(MethodNotAllowedError) as exc_info:
-                client.publish("articles", "abc")
+                client.unpublish("articles", "abc")
             assert exc_info.value.status_code == 405
 
     @pytest.mark.respx

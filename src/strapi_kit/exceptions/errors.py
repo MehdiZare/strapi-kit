@@ -287,17 +287,36 @@ def _parse_field_errors(details: object) -> list[tuple[str, str]]:
     if not isinstance(details, dict):
         return []
     errors = details.get("errors")
-    if not isinstance(errors, list):
-        return []
+    if isinstance(errors, list):
+        parsed: list[tuple[str, str]] = []
+        for entry in errors:
+            if not isinstance(entry, dict):
+                continue
+            message = entry.get("message")
+            if not isinstance(message, str) or not message.strip():
+                continue
+            parsed.append((_format_error_path(entry.get("path")), message))
+        return parsed
 
+    if isinstance(errors, dict):
+        return _parse_field_errors_mapping(errors)
+    return []
+
+
+def _parse_field_errors_mapping(errors: dict[object, object]) -> list[tuple[str, str]]:
+    """Flatten Yup/admin ``{field: message | [message, ...]}`` maps."""
     parsed: list[tuple[str, str]] = []
-    for entry in errors:
-        if not isinstance(entry, dict):
+    for field, messages in errors.items():
+        path = _format_error_path(field)
+        if isinstance(messages, str):
+            candidates: list[object] = [messages]
+        elif isinstance(messages, list):
+            candidates = list(messages)
+        else:
             continue
-        message = entry.get("message")
-        if not isinstance(message, str) or not message.strip():
-            continue
-        parsed.append((_format_error_path(entry.get("path")), message))
+        for message in candidates:
+            if isinstance(message, str) and message.strip():
+                parsed.append((path, message))
     return parsed
 
 

@@ -3,6 +3,7 @@
 import pytest
 
 from strapi_kit import collection_endpoint, document_endpoint
+from strapi_kit.client.base import BaseClient
 from strapi_kit.exceptions import ValidationError
 from strapi_kit.models.content_type import ContentTypeInfo, ContentTypeListItem
 from strapi_kit.models.content_type import ContentTypeSchema as CTBContentTypeSchema
@@ -154,6 +155,11 @@ class TestDocumentEndpoint:
         """Reserved characters in the document id are percent-encoded."""
         item = _list_item()
         assert document_endpoint(item, "a/b?c d%") == "blog-posts/a%2Fb%3Fc%20d%25"
+
+    def test_shares_encoder_with_document_path(self) -> None:
+        """document_endpoint and BaseClient.document_path use one encoder."""
+        item = _list_item()
+        assert document_endpoint(item, "a/b?c") == BaseClient.document_path("blog-posts", "a/b?c")
 
     def test_encodes_each_reserved_character(self) -> None:
         """Encode /, ?, space, and % individually."""

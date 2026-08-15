@@ -1,15 +1,14 @@
 """E2E tests for Strapi 5 Draft & Publish.
 
 Covers live REST ``status=`` via ``StrapiQuery.with_document_status`` on
-list and on publish-on-write (``PUT ?status=published``).
+list and ``SyncClient.publish`` (PUT ``?status=published``).
 
-``SyncClient.publish`` / ``unpublish`` hit ``/api/.../actions/*``. Stock
-Strapi 5 public REST does not register those routes (see #65); the
-helper test skips on 404/405 instead of failing this file.
+``unpublish`` / ``discard_draft`` still hit custom ``/actions/*`` routes
+that stock REST does not register (see #65); those helpers skip on
+404/405.
 
-This module does not write or filter the article ``status`` enum
-attribute used by other e2e modules (``FilterBuilder().eq("status",
-...)``). That field collides with reserved D&P ``status`` (see #68).
+The article content attribute is ``workflow_state`` (see #68), not
+``status``, so these tests do not collide with reserved D&P ``status=``.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ from strapi_kit.models import (
 
 
 def _unique_article() -> tuple[str, dict[str, str]]:
-    """Return ``(title, create payload)`` without the ``status`` attribute."""
+    """Return ``(title, create payload)`` without ``workflow_state``."""
     unique = uuid.uuid4().hex[:12]
     title = f"E2E Draft Publish {unique}"
     payload = {
@@ -118,7 +117,7 @@ class TestDraftAndPublish:
                 _delete_article(sync_client, document_id)
 
     def test_publish_unpublish_document_actions(self, sync_client: SyncClient) -> None:
-        """Live-check ``publish`` / ``unpublish`` helpers (depends on #65)."""
+        """Live-check stock ``publish`` and custom-route ``unpublish``."""
         title, payload = _unique_article()
         document_id: str | None = None
 
@@ -132,13 +131,7 @@ class TestDraftAndPublish:
             document_id = created.data.document_id
             assert document_id is not None
 
-            try:
-                published = sync_client.publish("articles", document_id)
-            except (NotFoundError, MethodNotAllowedError) as exc:
-                pytest.skip(
-                    "stock Strapi 5 REST does not register "
-                    f"/api/.../actions/publish ({exc}); see #65"
-                )
+            published = sync_client.publish("articles", document_id)
 
             assert published.data is not None
             assert published.data.document_id == document_id

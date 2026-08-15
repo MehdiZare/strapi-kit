@@ -260,14 +260,18 @@ never_published = client.get_many(
 
 # Two-step live publish: create as draft, then publish
 created = client.create("articles", {"title": "Draft"})
+# Stock REST: PUT /api/{collection}/{id}?status=published
 published = client.publish("articles", created.data.document_id)
+# unpublish / discard_draft need custom /actions/* routes (not stock REST)
 client.unpublish("articles", created.data.document_id)
 client.discard_draft("articles", created.data.document_id)
 ```
 
-A 2xx empty body or a non-object JSON body (`"Created"`) raises
-`UnstructuredResponseError` with `status_code`. Do not treat that as a
-successful entity. Empty 204 / DELETE remains `{}`.
+A 2xx empty body, a non-object JSON body (`"Created"`), or a write
+object without a `data` object (`{}`, `{"ok": true}`) raises
+`UnstructuredResponseError` with `status_code`. A 2xx single-entity
+body whose `data` shape cannot be parsed (for example `{"data": []}`)
+is the same error. Empty 204 / DELETE remains `{}`.
 
 ### Relation Writes (Strapi 5)
 
@@ -689,6 +693,11 @@ while True:
         break
     page += 1
 ```
+
+`stream_entities` / `stream_entities_async` (and therefore `StrapiExporter`)
+already call `assert_pagination_echo` and default to v5 `status=draft`
+(`include_drafts=True`) so unpublished documents are not skipped. Pass
+`include_drafts=False` for published-only. v4 clients never send `status=`.
 
 ### Check API Version
 

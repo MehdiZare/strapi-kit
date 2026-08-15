@@ -21,7 +21,7 @@ class TestCreateOperations:
             "title": "Test Article",
             "content": "This is test content for the article.",
             "slug": "test-article-create",
-            "status": "draft",
+            "workflow_state": "draft",
             "views": 0,
         }
 
@@ -30,7 +30,7 @@ class TestCreateOperations:
         assert response.data is not None
         assert response.data.id is not None
         assert response.data.attributes["title"] == "Test Article"
-        assert response.data.attributes["status"] == "draft"
+        assert response.data.attributes["workflow_state"] == "draft"
 
         # Cleanup
         article_id = response.data.document_id or str(response.data.id)
@@ -155,7 +155,7 @@ class TestUpdateOperations:
         # Create test article
         create_response = sync_client.create(
             "articles",
-            {"title": "Partial Update Test", "slug": "partial-update", "status": "draft"},
+            {"title": "Partial Update Test", "slug": "partial-update", "workflow_state": "draft"},
         )
         assert create_response.data is not None
         article_id = create_response.data.document_id or str(create_response.data.id)
@@ -163,11 +163,11 @@ class TestUpdateOperations:
         # Update only status
         update_response = sync_client.update(
             f"articles/{article_id}",
-            {"status": "published"},
+            {"workflow_state": "published"},
         )
 
         assert update_response.data is not None
-        assert update_response.data.attributes["status"] == "published"
+        assert update_response.data.attributes["workflow_state"] == "published"
         # Title should remain unchanged
         assert update_response.data.attributes["title"] == "Partial Update Test"
 
