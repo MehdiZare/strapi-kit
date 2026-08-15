@@ -779,6 +779,26 @@ async with AsyncClient(config) as client:
     schema = await client.get_content_type_schema("api::article.article")
 ```
 
+### Collection REST endpoints
+
+Strapi REST collections are addressed by `schema.pluralName` (`articles`, `blog-posts`, `people`). The content-type UID (`api::post.post`) is **not** a URL path — do not append `s`, use `apiID`, or split the UID.
+
+Use `collection_endpoint()` to read `pluralName` / `info.plural_name`, then pass that string to `get_many`, `create`, and `get_one`:
+
+```python
+from strapi_kit import SyncClient, collection_endpoint, document_endpoint
+
+with SyncClient(config) as client:
+    for ct in client.get_content_types():
+        # "blog-posts" even when uid is "api::post.post"
+        endpoint = collection_endpoint(ct)
+        response = client.get_many(endpoint)
+        created = client.create(endpoint, {"title": "Hello"})
+        one = client.get_one(document_endpoint(ct, created.data.document_id or created.data.id))
+```
+
+`collection_endpoint()` raises `ValidationError` if `pluralName` is missing or blank (the only honest answer when the schema cannot be addressed). `document_endpoint()` joins the collection id with a percent-encoded document id so characters like `/`, `?`, space, and `%` are safe in the path.
+
 ### UID Utilities
 
 Utility functions for working with Strapi content type UIDs:
@@ -793,7 +813,7 @@ from strapi_kit.utils import (
     is_api_content_type,
 )
 
-# Convert UID to API endpoint (pluralized)
+# Heuristic only — prefer collection_endpoint(schema) for REST paths
 uid_to_endpoint("api::article.article")  # "articles"
 uid_to_endpoint("api::category.category")  # "categories"
 uid_to_endpoint("api::class.class")  # "classes"

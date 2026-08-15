@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Content, Content-Type Builder, and upload endpoints remain under `/api`; `admin/` is origin-rooted
   - Default `get("admin/information")` still prefixes `/api` (no silent behaviour change)
   - Origin-rooted responses (`api_prefix=False`) do not drive v4/v5 content-API version detection
+- **Collection REST path from `pluralName` only** ([#49](https://github.com/MehdiZare/strapi-kit/issues/49))
+  - `collection_endpoint(content_type)` returns the REST collection id from `pluralName` / `info.plural_name`
+  - Raises `ValidationError` when `pluralName` is missing or blank — never guesses from the UID (no appending `s`, no `apiID`, no splitting the UID)
+  - `document_endpoint(content_type, document_id)` joins the collection id with a percent-encoded document id (`urllib.parse.quote(..., safe="")`)
+  - Pass the returned string to `get_many` / `create` / `get_one` (the UID is schema identity, not a URL path)
+  - Accepts `ContentTypeListItem`, `ContentTypeSchema`, or a dict with `info.pluralName`
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
   `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
   v4 `with_publication_state()` raises `ValidationError`.
