@@ -19,7 +19,6 @@ from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
 from ..exceptions import (
-    FormatError,
     MediaError,
     StrapiError,
 )
@@ -27,6 +26,7 @@ from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
 )
 from ..models.bulk import BulkOperationFailure, BulkOperationResult
+from ..models.enums import DocumentAction, HttpMethod
 from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
@@ -183,24 +183,8 @@ class SyncClient(BaseClient):
                 if not response.is_success:
                     self._handle_error_response(response)
 
-                # Handle 204 No Content (common for DELETE operations)
-                if response.status_code == 204 or not response.content:
-                    logger.debug(f"Response: {response.status_code} (no content)")
-                    return {}
-
-                # Parse and return JSON with proper error handling for non-JSON responses
-                try:
-                    data: dict[str, Any] = response.json()
-                except Exception as json_error:
-                    content_type = response.headers.get("content-type", "unknown")
-                    body_preview = response.text[:500] if response.text else ""
-                    raise FormatError(
-                        f"Received non-JSON response (content-type: {content_type})",
-                        details={"body_preview": body_preview},
-                    ) from json_error
-
-                # Detect API version from response
-                if data and isinstance(data, dict):
+                data = self._parse_success_response(response, method=method)
+                if data:
                     self._detect_api_version(data)
 
                 logger.debug(f"Response: {response.status_code}")
@@ -231,7 +215,7 @@ class SyncClient(BaseClient):
         Returns:
             Response JSON data
         """
-        return self.request("GET", endpoint, params=params, headers=headers)
+        return self.request(HttpMethod.GET, endpoint, params=params, headers=headers)
 
     def post(
         self,
@@ -251,7 +235,7 @@ class SyncClient(BaseClient):
         Returns:
             Response JSON data
         """
-        return self.request("POST", endpoint, params=params, json=json, headers=headers)
+        return self.request(HttpMethod.POST, endpoint, params=params, json=json, headers=headers)
 
     def put(
         self,
@@ -271,7 +255,7 @@ class SyncClient(BaseClient):
         Returns:
             Response JSON data
         """
-        return self.request("PUT", endpoint, params=params, json=json, headers=headers)
+        return self.request(HttpMethod.PUT, endpoint, params=params, json=json, headers=headers)
 
     def delete(
         self,
@@ -289,7 +273,7 @@ class SyncClient(BaseClient):
         Returns:
             Response JSON data
         """
-        return self.request("DELETE", endpoint, params=params, headers=headers)
+        return self.request(HttpMethod.DELETE, endpoint, params=params, headers=headers)
 
     # Typed methods for normalized responses
 
@@ -437,6 +421,83 @@ class SyncClient(BaseClient):
             1
         """
         raw_response = self.delete(endpoint, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    def publish(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Publish a Strapi v5 draft document.
+
+        POST ``/api/{collection}/{documentId}/actions/publish``.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields after publish)
+            headers: Additional headers
+
+        Returns:
+            Normalized published entity
+        """
+        endpoint = self._document_action_endpoint(collection, document_id, DocumentAction.PUBLISH)
+        params = query.to_query_params() if query else None
+        raw_response = self.post(endpoint, json={}, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    def unpublish(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Unpublish a Strapi v5 live document.
+
+        POST ``/api/{collection}/{documentId}/actions/unpublish``.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields after unpublish)
+            headers: Additional headers
+
+        Returns:
+            Normalized unpublished entity
+        """
+        endpoint = self._document_action_endpoint(collection, document_id, DocumentAction.UNPUBLISH)
+        params = query.to_query_params() if query else None
+        raw_response = self.post(endpoint, json={}, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    def discard_draft(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Discard a Strapi v5 draft and keep the published version.
+
+        POST ``/api/{collection}/{documentId}/actions/discardDraft``.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields / locale)
+            headers: Additional headers
+
+        Returns:
+            Normalized entity after the draft is discarded
+        """
+        endpoint = self._document_action_endpoint(
+            collection, document_id, DocumentAction.DISCARD_DRAFT
+        )
+        params = query.to_query_params() if query else None
+        raw_response = self.post(endpoint, json={}, params=params, headers=headers)
         return self._parse_single_response(raw_response)
 
     # Media Operations
@@ -610,7 +671,7 @@ class SyncClient(BaseClient):
             url = build_media_download_url(self.base_url, media_url)
 
             # Download with streaming for large files
-            with self._client.stream("GET", url) as response:
+            with self._client.stream(HttpMethod.GET, url) as response:
                 if not response.is_success:
                     self._handle_error_response(response)
 
@@ -769,7 +830,7 @@ class SyncClient(BaseClient):
             if self._api_version == "v4":
                 url = self._build_url(f"upload/files/{media_id}")
                 response = self._client.request(
-                    method="PUT",
+                    method=HttpMethod.PUT,
                     url=url,
                     json={"fileInfo": file_info} if file_info else {},
                     headers=self._get_headers(),

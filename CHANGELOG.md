@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
+  `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
+  v4 `with_publication_state()` raises `ValidationError`.
+- **v5 publicationFilter** — `PublicationFilter` (all 8 official REST values,
+  including diagnostic `published-without-draft` / `published-with-draft`)
+  and `StrapiQuery.with_publication_filter()`. Combines with `status=`.
+  Mixing with v4 `with_publication_state()` raises `ValidationError`.
+- **v5 document actions** — `SyncClient.publish` / `unpublish` /
+  `discard_draft` and the async equivalents.
+  `POST /api/{collection}/{documentId}/actions/{publish|unpublish|discardDraft}`.
+  `documentId` is percent-encoded.
+- **Wire enums** — `DocumentAction`, `QueryParam`, and `HttpMethod`
+  (`StrEnum`). Document-action paths, REST query keys, and HTTP verbs in
+  `src/` go through the enums.
+- **Root exports** — `DocumentStatus`, `PublicationState`,
+  `PublicationFilter`, `DocumentAction`, `QueryParam`, and `HttpMethod`
+  are importable from `strapi_kit`.
+- **`MethodNotAllowedError`** for HTTP 405. HTTP **422** maps to
+  `ValidationError` (same as 400).
+- **`UnstructuredResponseError`** for 2xx responses that are empty or not
+  a JSON object (the `"Created"` / empty-201 class). Empty **DELETE**
+  bodies (any 2xx, including 204) stay success with `{}`. A 204 on
+  POST/PUT/GET is treated as unstructured, not a created entity.
+
+### Changed
+
+- Every HTTP error now carries `status_code` on the exception (`401`,
+  `404`, `429`, …), not only `ServerError`.
+- Non-JSON 2xx responses raise `UnstructuredResponseError` instead of
+  `FormatError`. `FormatError` remains for import/export payloads.
+- **Dependency refresh** ([#33](https://github.com/MehdiZare/strapi-kit/issues/33),
+  [#34](https://github.com/MehdiZare/strapi-kit/issues/34),
+  [#35](https://github.com/MehdiZare/strapi-kit/issues/35),
+  [#37](https://github.com/MehdiZare/strapi-kit/issues/37),
+  [#38](https://github.com/MehdiZare/strapi-kit/issues/38)):
+  GitHub Actions majors (`checkout` v6, `create-or-update-comment` v5,
+  `create-pull-request` v8, `deploy-pages` v5, `codecov-action` v6,
+  plus `setup-python` v7, `cache` v6, `upload-pages-artifact` v5,
+  `setup-uv` v10.0.0, `action-gh-release` v3). Runtime/dev floors
+  raised to current stables (`pydantic` 2.13, `mypy` 2.3, `ruff` 0.16,
+  `pytest` 9.1, `respx` 0.23, and matching lockfile upgrades).
+  `safety` stays `<4.0.0` so CI does not need a Safety API token.
+- `StrapiQuery.populate()` raises `ValidationError` immediately when given
+  a non-`Populate` value (for example a comma-separated string) instead of
+  failing later in `to_query_params()`.
+- Default CI and `make test` / `make test-verbose` / `make coverage` run
+  `pytest tests/unit` so unmarked files under `tests/e2e/` cannot be
+  collected. `make e2e` remains the live-Strapi path.
+
 ## [0.1.0] - 2026-02-04
 
 ### Fixed

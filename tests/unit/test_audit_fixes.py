@@ -18,7 +18,7 @@ import pytest
 import respx
 
 from strapi_kit import StrapiConfig, SyncClient, ValidationError
-from strapi_kit.exceptions import FormatError
+from strapi_kit.exceptions import UnstructuredResponseError
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.query import StrapiQuery
@@ -376,8 +376,8 @@ class TestNonJsonResponseHandling:
     """Tests for non-JSON response handling."""
 
     @pytest.mark.respx
-    def test_html_response_raises_format_error(self, strapi_config, respx_mock: respx.Router):
-        """Test that HTML responses raise FormatError."""
+    def test_html_response_raises_unstructured_error(self, strapi_config, respx_mock: respx.Router):
+        """Test that HTML 2xx responses raise UnstructuredResponseError."""
         respx_mock.get("http://localhost:1337/api/test").mock(
             return_value=httpx.Response(
                 200,
@@ -387,15 +387,18 @@ class TestNonJsonResponseHandling:
         )
 
         with SyncClient(strapi_config) as client:
-            with pytest.raises(FormatError) as exc_info:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
                 client.get("test")
 
-            assert "non-JSON response" in str(exc_info.value)
+            assert "non-JSON" in str(exc_info.value)
             assert "text/html" in str(exc_info.value)
+            assert exc_info.value.status_code == 200
 
     @pytest.mark.respx
-    def test_format_error_includes_body_preview(self, strapi_config, respx_mock: respx.Router):
-        """Test that FormatError includes body preview."""
+    def test_unstructured_error_includes_body_preview(
+        self, strapi_config, respx_mock: respx.Router
+    ):
+        """Test that UnstructuredResponseError includes body preview."""
         html_body = "<html><body>Gateway Error</body></html>"
         respx_mock.get("http://localhost:1337/api/test").mock(
             return_value=httpx.Response(
@@ -406,10 +409,11 @@ class TestNonJsonResponseHandling:
         )
 
         with SyncClient(strapi_config) as client:
-            with pytest.raises(FormatError) as exc_info:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
                 client.get("test")
 
             assert exc_info.value.details.get("body_preview") == html_body
+            assert exc_info.value.status_code == 200
 
 
 class TestMediaUpdateEndpoint:

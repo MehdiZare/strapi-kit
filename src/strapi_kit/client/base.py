@@ -6,6 +6,7 @@ automatic response format detection, error handling, and authentication.
 
 import logging
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from ..models.content_type import ComponentListItem, ContentTypeListItem
@@ -27,15 +28,18 @@ from ..exceptions import (
     AuthorizationError,
     ConfigurationError,
     ConflictError,
+    MethodNotAllowedError,
     NotFoundError,
     RateLimitError,
     ServerError,
     StrapiError,
+    UnstructuredResponseError,
     ValidationError,
 )
 from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
+from ..models.enums import DocumentAction, HttpMethod
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
     NormalizedCollectionResponse,
@@ -139,6 +143,73 @@ class BaseClient:
 
         return f"{self.base_url}/{endpoint}"
 
+    def _document_action_endpoint(
+        self,
+        collection: str,
+        document_id: str,
+        action: DocumentAction,
+    ) -> str:
+        """Build a Strapi v5 document-action path.
+
+        ``document_id`` is percent-encoded so a corrupted id cannot address
+        a different endpoint or inject query parameters.
+        """
+        collection_name = collection.strip().strip("/")
+        if not collection_name:
+            raise ValidationError("collection is required")
+        if "/" in collection_name or "\\" in collection_name:
+            raise ValidationError("collection must be a single path segment")
+        if not document_id or not document_id.strip():
+            raise ValidationError("document_id is required")
+        encoded_id = quote(document_id.strip(), safe="")
+        encoded_collection = quote(collection_name, safe="")
+        return f"{encoded_collection}/{encoded_id}/actions/{action.value}"
+
+    def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
+        """Parse a 2xx response body.
+
+        Empty DELETE bodies (any 2xx) are success with ``{}``. Other empty
+        or non-object 2xx bodies — including 204 on POST/PUT/GET — raise
+        :class:`UnstructuredResponseError` so callers cannot invent a
+        ``documentId`` from silence.
+        """
+        verb = method.upper()
+        empty = response.status_code == 204 or not response.content
+        if empty:
+            if verb == HttpMethod.DELETE:
+                logger.debug(f"Response: {response.status_code} (no content)")
+                return {}
+            raise UnstructuredResponseError(
+                f"Successful HTTP {response.status_code} returned an empty body",
+                details={"method": verb, "body_preview": ""},
+                status_code=response.status_code,
+            )
+
+        try:
+            data: Any = response.json()
+        except ValueError as json_error:
+            content_type = response.headers.get("content-type", "unknown")
+            body_preview = response.text[:500] if response.text else ""
+            raise UnstructuredResponseError(
+                f"Successful HTTP {response.status_code} returned non-JSON "
+                f"(content-type: {content_type})",
+                details={"method": verb, "body_preview": body_preview},
+                status_code=response.status_code,
+            ) from json_error
+
+        if not isinstance(data, dict):
+            body_preview = response.text[:500] if response.text else ""
+            raise UnstructuredResponseError(
+                f"Successful HTTP {response.status_code} returned non-object JSON",
+                details={
+                    "method": verb,
+                    "body_preview": body_preview,
+                    "parsed_type": type(data).__name__,
+                },
+                status_code=response.status_code,
+            )
+        return data
+
     def _detect_api_version(self, response_data: dict[str, Any]) -> Literal["v4", "v5"]:
         """Detect Strapi API version from response structure.
 
@@ -219,21 +290,44 @@ class BaseClient:
             error_message = response.text or f"HTTP {status_code}"
             error_details = {}
 
-        # Map status codes to exceptions
+        # Map status codes to exceptions. Every HTTP error carries status_code
+        # so callers can classify without parsing the message string.
         if status_code == 401:
             raise AuthenticationError(
-                f"Authentication failed: {error_message}", details=error_details
+                f"Authentication failed: {error_message}",
+                details=error_details,
+                status_code=status_code,
             )
         elif status_code == 403:
             raise AuthorizationError(
-                f"Authorization failed: {error_message}", details=error_details
+                f"Authorization failed: {error_message}",
+                details=error_details,
+                status_code=status_code,
             )
         elif status_code == 404:
-            raise NotFoundError(f"Resource not found: {error_message}", details=error_details)
-        elif status_code == 400:
-            raise ValidationError(f"Validation error: {error_message}", details=error_details)
+            raise NotFoundError(
+                f"Resource not found: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code in {400, 422}:
+            raise ValidationError(
+                f"Validation error: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code == 405:
+            raise MethodNotAllowedError(
+                f"Method not allowed: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
         elif status_code == 409:
-            raise ConflictError(f"Conflict: {error_message}", details=error_details)
+            raise ConflictError(
+                f"Conflict: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
         elif status_code == 429:
             retry_after = response.headers.get("Retry-After")
             # RFC 7231: Retry-After can be numeric seconds or HTTP-date string
@@ -260,6 +354,7 @@ class BaseClient:
             raise StrapiError(
                 f"Unexpected error (HTTP {status_code}): {error_message}",
                 details=error_details,
+                status_code=status_code,
             )
 
     def _create_retry_decorator(self) -> Any:

@@ -14,16 +14,24 @@ class StrapiError(Exception):
     making it easy to catch all package-specific errors.
     """
 
-    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        details: dict[str, Any] | None = None,
+        *,
+        status_code: int | None = None,
+    ) -> None:
         """Initialize the exception.
 
         Args:
             message: Human-readable error message
             details: Optional dictionary with additional error context
+            status_code: HTTP status when this error came from a response
         """
         super().__init__(message)
         self.message = message
         self.details = details or {}
+        self.status_code = status_code
 
     def __str__(self) -> str:
         """Return string representation of the error."""
@@ -77,10 +85,11 @@ class NotFoundError(StrapiError):
 
 
 class ValidationError(StrapiError):
-    """Raised when request validation fails (HTTP 400).
+    """Raised when request validation fails (HTTP 400 or 422).
 
     This typically means the request data doesn't match the expected schema
-    or contains invalid values.
+    or contains invalid values. Client-side query/argument checks use the
+    same type (no HTTP status).
     """
 
     pass
@@ -113,8 +122,29 @@ class ServerError(StrapiError):
             status_code: HTTP status code (5xx)
             details: Optional dictionary with additional error context
         """
-        super().__init__(message, details)
-        self.status_code = status_code
+        super().__init__(message, details, status_code=status_code)
+
+
+class MethodNotAllowedError(StrapiError):
+    """Raised when the HTTP method is not allowed (HTTP 405).
+
+    Typical for a missing or disabled Strapi route (for example a
+    Draft & Publish action on a type that does not support it).
+    """
+
+    pass
+
+
+class UnstructuredResponseError(StrapiError):
+    """Raised when a 2xx response is empty or not a JSON object.
+
+    Strapi REST should return a JSON object for entry writes. Some
+    proxies or custom controllers return an empty body or a bare
+    string such as ``"Created"``. Callers must not treat that as a
+    successful entity — there is no ``documentId`` to continue with.
+    """
+
+    pass
 
 
 # Network Related Errors
@@ -167,7 +197,7 @@ class RateLimitError(NetworkError):
             retry_after: Seconds to wait before retrying (from Retry-After header)
             details: Optional dictionary with additional error context
         """
-        super().__init__(message, details)
+        super().__init__(message, details, status_code=429)
         self.retry_after = retry_after
 
 

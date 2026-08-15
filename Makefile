@@ -27,13 +27,13 @@ install-dev: ## Install package with development dependencies
 	@echo "$(GREEN)✓ Installation complete$(NC)"
 
 # Testing
-test: ## Run tests
+test: ## Run unit tests
 	@echo "$(BLUE)Running tests...$(NC)"
-	pytest
+	pytest tests/unit
 
-test-verbose: ## Run tests with verbose output
+test-verbose: ## Run unit tests with verbose output
 	@echo "$(BLUE)Running tests (verbose)...$(NC)"
-	pytest -v
+	pytest tests/unit -v
 
 test-watch: ## Run tests in watch mode
 	@echo "$(BLUE)Running tests in watch mode...$(NC)"
@@ -45,12 +45,12 @@ test-specific: ## Run specific test file (use TEST=path/to/test.py)
 
 coverage: ## Run tests with coverage report
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
-	pytest --cov=strapi_kit --cov-report=html --cov-report=term
+	pytest tests/unit --cov=strapi_kit --cov-report=html --cov-report=term
 	@echo "$(GREEN)✓ Coverage report generated in htmlcov/index.html$(NC)"
 
 coverage-xml: ## Generate XML coverage report for CI
 	@echo "$(BLUE)Generating XML coverage report...$(NC)"
-	pytest --cov=strapi_kit --cov-report=xml
+	pytest tests/unit --cov=strapi_kit --cov-report=xml
 
 # Code Quality
 lint: ## Run linting checks
