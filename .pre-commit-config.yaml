@@ -20,7 +20,7 @@ repos:
 
   # Python formatting with ruff
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.14
+    rev: v0.16.3
     hooks:
       # Run the formatter
       - id: ruff-format
@@ -33,17 +33,17 @@ repos:
 
   # Type checking
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.19.1
+    rev: v2.3.1
     hooks:
       - id: mypy
         files: ^src/
         exclude: ^(tests/|examples/)
         additional_dependencies:
-          - pydantic>=2.10.0
-          - pydantic-settings>=2.7.0
+          - pydantic>=2.13.4
+          - pydantic-settings>=2.15.0
           - httpx>=0.28.1
-          - tenacity>=9.1.0
-          - typing-extensions>=4.15.0
+          - tenacity>=9.1.4
+          - typing-extensions>=4.16.0
         args: [--strict]
 
   # Detect secrets (API keys, tokens, etc.)
