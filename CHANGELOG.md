@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Root exports** — `DocumentStatus`, `PublicationState`,
   `PublicationFilter`, `DocumentAction`, `QueryParam`, and `HttpMethod`
   are importable from `strapi_kit`.
+- **E2E Draft & Publish** — `tests/e2e/test_draft_publish.py` covers live
+  Strapi 5 `status=` (`with_document_status`) and `publish` / `unpublish`.
+  Marked `@pytest.mark.e2e`; default CI still runs `pytest tests/unit`.
 - **`MethodNotAllowedError`** for HTTP 405. HTTP **422** maps to
   `ValidationError` (same as 400).
 - **`UnstructuredResponseError`** for 2xx responses that are empty or not
