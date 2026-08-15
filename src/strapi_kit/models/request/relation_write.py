@@ -95,6 +95,38 @@ def _normalize_document_ids(document_ids: Sequence[RelationIdInput]) -> list[str
     return [_normalize_document_id(value, index) for index, value in enumerate(document_ids)]
 
 
+def _coerce_relation_write_op(op: object) -> RelationWriteOp:
+    """Resolve ``op`` to a :class:`RelationWriteOp`.
+
+    Accepts the enum or its official string values (``set`` / ``connect`` /
+    ``disconnect``). Invalid values raise :class:`ValidationError` instead of
+    ``AttributeError`` from ``op.value``.
+
+    Args:
+        op: A ``RelationWriteOp`` member or its ``.value`` string.
+
+    Returns:
+        The matching ``RelationWriteOp``.
+
+    Raises:
+        ValidationError: If ``op`` is not a known relation write operation.
+    """
+    if isinstance(op, RelationWriteOp):
+        return op
+    if isinstance(op, str):
+        try:
+            return RelationWriteOp(op)
+        except ValueError as e:
+            raise ValidationError(
+                "op must be a RelationWriteOp (set, connect, or disconnect)",
+                details={"op": op},
+            ) from e
+    raise ValidationError(
+        "op must be a RelationWriteOp (set, connect, or disconnect)",
+        details={"op": op},
+    )
+
+
 @overload
 def relation_write(
     *,
@@ -149,8 +181,9 @@ def relation_write(
         ``{op.value: [documentIds]}`` for many-side writes.
 
     Raises:
-        ValidationError: If a one-side write receives 2+ ids, ``document_ids``
-            is a bare string, or an item is not a documentId.
+        ValidationError: If a one-side write receives 2+ ids, ``op`` is not a
+            :class:`RelationWriteOp`, ``document_ids`` is a bare string, or an
+            item is not a documentId.
 
     Examples:
         >>> relation_write(document_ids=["authorDoc"], multiple=False)
@@ -160,6 +193,7 @@ def relation_write(
         >>> relation_write(document_ids=["a", "b"], multiple=True)
         {'set': ['a', 'b']}
     """
+    resolved_op = _coerce_relation_write_op(op)
     ids = _normalize_document_ids(document_ids)
 
     if not multiple:
@@ -170,4 +204,4 @@ def relation_write(
             )
         return ids[0] if ids else None
 
-    return {op.value: ids}
+    return {resolved_op.value: ids}
