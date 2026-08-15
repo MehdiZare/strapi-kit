@@ -11,6 +11,7 @@ from strapi_kit.exceptions import (
     NotFoundError,
     ServerError,
     ValidationError,
+    format_validation_errors,
     is_uniqueness_violation,
 )
 
@@ -145,8 +146,72 @@ class TestSyncClient:
             with pytest.raises(ValidationError) as exc_info:
                 client.post("articles", json={"slug": "hello"})
 
-        assert not isinstance(exc_info.value, ConflictError)
-        assert is_uniqueness_violation(exc_info.value) is True
+        exc = exc_info.value
+        assert not isinstance(exc, ConflictError)
+        assert exc.status_code == 400
+        assert is_uniqueness_violation(exc) is True
+        assert exc.field_errors == [("slug", "This attribute must be unique")]
+        assert format_validation_errors(exc) == "slug: This attribute must be unique"
+
+    @pytest.mark.respx
+    def test_uniqueness_422_remains_validation_error(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        """HTTP 422 uniqueness payloads stay ValidationError (not ConflictError)."""
+        error_response = {
+            "error": {
+                "status": 422,
+                "name": "ValidationError",
+                "message": "This attribute must be unique",
+                "details": {
+                    "errors": [
+                        {
+                            "path": "slug",
+                            "message": "This attribute must be unique",
+                            "name": "ValidationError",
+                        }
+                    ]
+                },
+            }
+        }
+        respx_mock.post("http://localhost:1337/api/articles").mock(
+            return_value=Response(422, json=error_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError) as exc_info:
+                client.post("articles", json={"slug": "hello"})
+
+        exc = exc_info.value
+        assert not isinstance(exc, ConflictError)
+        assert exc.status_code == 422
+        assert is_uniqueness_violation(exc) is True
+        assert format_validation_errors(exc) == "slug: This attribute must be unique"
+
+    @pytest.mark.respx
+    def test_uniqueness_400_message_only(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        """Details-less uniqueness 400s classify via the exception message."""
+        error_response = {
+            "error": {
+                "status": 400,
+                "name": "ValidationError",
+                "message": "This attribute must be unique",
+            }
+        }
+        respx_mock.post("http://localhost:1337/api/articles").mock(
+            return_value=Response(400, json=error_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError) as exc_info:
+                client.post("articles", json={"slug": "hello"})
+
+        exc = exc_info.value
+        assert exc.status_code == 400
+        assert is_uniqueness_violation(exc) is True
+        assert format_validation_errors(exc) is None
 
     @pytest.mark.respx
     def test_server_error(self, strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:

@@ -1167,7 +1167,7 @@ except StrapiError as e:
     print(f"Strapi error: {e}")
 ```
 
-Strapi reports unique-index collisions as HTTP 400 `ValidationError` (not `ConflictError`). Use the helpers to tell "slug already taken" from a malformed payload:
+Strapi reports unique-index collisions as HTTP 400/422 `ValidationError` (not `ConflictError`). Use the helpers to tell "slug already taken" from a malformed payload:
 
 ```python
 from strapi_kit.exceptions import (

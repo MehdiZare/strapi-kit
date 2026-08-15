@@ -278,8 +278,14 @@ def _format_error_path(path: object) -> str:
     return str(path)
 
 
-def _parse_field_errors(details: dict[str, Any]) -> list[tuple[str, str]]:
-    """Extract ``(path, message)`` pairs from ``details["errors"]``."""
+def _parse_field_errors(details: object) -> list[tuple[str, str]]:
+    """Extract ``(path, message)`` pairs from ``details["errors"]``.
+
+    Returns an empty list when ``details`` is not a mapping (HTTP payloads
+    are normally a dict, but a non-dict ``error.details`` must not raise).
+    """
+    if not isinstance(details, dict):
+        return []
     errors = details.get("errors")
     if not isinstance(errors, list):
         return []
@@ -299,15 +305,16 @@ def is_uniqueness_violation(exc: ValidationError) -> bool:
     """Return True if ``exc`` is a Strapi unique-index collision.
 
     True when any ``exc.details["errors"]`` entry has a message containing
-    ``must be unique`` (case-insensitive), or when the exception message
-    itself contains that substring (details-less variants).
+    ``must be unique`` (case-insensitive), or when ``exc.message`` itself
+    contains that substring (details-less variants). ``str(exc)`` is not
+    used: it dumps ``details`` and would false-positive on unrelated keys.
 
     HTTP status is not inspected beyond ``exc`` already being a
-    :class:`ValidationError`. Other 400s (required fields, type errors)
+    :class:`ValidationError`. Other 400/422s (required fields, type errors)
     return False.
 
     Args:
-        exc: Validation error raised from a Strapi 400 response.
+        exc: Validation error raised from a Strapi 400 or 422 response.
 
     Returns:
         Whether the error represents a uniqueness constraint violation.
@@ -315,23 +322,24 @@ def is_uniqueness_violation(exc: ValidationError) -> bool:
     for _path, message in exc.field_errors:
         if _UNIQUENESS_SUBSTRING in message.lower():
             return True
-    return _UNIQUENESS_SUBSTRING in str(exc).lower()
+    return _UNIQUENESS_SUBSTRING in exc.message.lower()
 
 
 def format_validation_errors(exc: ValidationError) -> str | None:
     """Flatten ``details.errors`` to ``path: message`` lines.
 
     ``path`` may be a list (``["slug"]`` → ``slug``) or a string. Nested
-    list paths are joined with ``.``. Empty messages are skipped.
+    list paths are joined with ``.``. Empty messages are skipped. Entries
+    with an empty path emit just the message (no leading ``: ``).
 
     Args:
-        exc: Validation error raised from a Strapi 400 response.
+        exc: Validation error raised from a Strapi 400 or 422 response.
 
     Returns:
         Newline-joined ``path: message`` lines, or ``None`` when there
         are no nested field errors (caller should keep ``str(exc)``).
     """
-    lines = [f"{path}: {message}" for path, message in exc.field_errors]
+    lines = [f"{path}: {message}" if path else message for path, message in exc.field_errors]
     if not lines:
         return None
     return "\n".join(lines)
