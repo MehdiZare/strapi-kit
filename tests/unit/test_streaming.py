@@ -714,3 +714,92 @@ async def test_async_stream_defaults_to_status_draft(
 
     assert len(entities) == 1
     assert route.calls.last.request.url.params["status"] == "draft"
+
+
+@pytest.mark.respx
+def test_stream_empty_later_page_raises(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """An empty page 2 must not silently truncate a collection."""
+    respx_mock.get(
+        "http://localhost:1337/api/articles",
+        params={"pagination[page]": 1, "pagination[pageSize]": 2, "pagination[withCount]": True},
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": 1, "documentId": "doc1", "title": "Article 1"},
+                    {"id": 2, "documentId": "doc2", "title": "Article 2"},
+                ],
+                "meta": {"pagination": {"page": 1, "pageSize": 2, "pageCount": 3, "total": 5}},
+            },
+        )
+    )
+    respx_mock.get(
+        "http://localhost:1337/api/articles",
+        params={"pagination[page]": 2, "pagination[pageSize]": 2, "pagination[withCount]": True},
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [],
+                "meta": {"pagination": {"page": 2, "pageSize": 2, "pageCount": 3, "total": 5}},
+            },
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ValidationError, match="Empty page"):
+            list(stream_entities(client, "articles", page_size=2, include_drafts=False))
+
+
+@pytest.mark.respx
+def test_stream_empty_first_page_with_nonzero_total_raises(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Empty first page + total>0 is a completeness error, not an empty collection."""
+    respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 5, "total": 500}},
+            },
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ValidationError, match="Empty first page"):
+            list(stream_entities(client, "articles", include_drafts=False))
+
+
+@pytest.mark.respx
+def test_stream_retries_without_status_when_draft_param_rejected(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Draft & Publish off: drop default status=draft and retry the first page."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("status") == "draft":
+            return httpx.Response(
+                400,
+                json={"error": {"message": "Invalid key status", "name": "ValidationError"}},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"id": 1, "documentId": "doc1", "title": "Live"}],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}},
+            },
+        )
+
+    route = respx_mock.get("http://localhost:1337/api/articles").mock(side_effect=handler)
+
+    with SyncClient(strapi_config) as client:
+        entities = list(stream_entities(client, "articles"))
+
+    assert len(entities) == 1
+    assert route.call_count == 2
+    assert route.calls[0].request.url.params["status"] == "draft"
+    assert "status" not in route.calls[1].request.url.params

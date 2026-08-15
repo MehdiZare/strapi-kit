@@ -243,6 +243,7 @@ def _parse_inlines(text: str) -> list[dict[str, Any]]:
                         "url": _unwrap_destination(image.group(2)),
                         "alternativeText": image.group(1),
                     },
+                    "children": [_text_node("")],
                 }
             )
             index = image.end()

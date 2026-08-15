@@ -869,10 +869,10 @@ conversion: MarkdownConversion = blocks_to_markdown(entity.attributes["body"])
 print(conversion.markdown)
 print(conversion.lossy_reasons)  # () iff faithful
 
-# Write path: best-effort markdown → blocks (inline markdown stays literal)
+# Write path: CommonMark subset → blocks (marks, links, images, nested lists)
 payload = {
     "title": "Hello",
-    "body": markdown_to_blocks("# Title\n\nA paragraph"),
+    "body": markdown_to_blocks("# Title\n\nA paragraph with **bold**"),
 }
 client.create("articles", payload)
 ```
@@ -896,9 +896,9 @@ client.create("articles", payload)
 
 **`markdown_to_blocks`** is a best-effort write path, not a full CommonMark AST:
 
-- Headings, paragraphs, fenced code, ordered/unordered lists, blockquotes
-- Inline markdown (`**bold**`, `[text](url)`) is stored as literal text
-- Images are **not** uploaded; `![alt](url)` stays paragraph text
+- Headings, paragraphs, fenced code, ordered/unordered lists (including nested), blockquotes
+- Inline marks (`**bold**`, `_italic_`, `~~strike~~`, `` `code` ``), links, and images
+- Images are **not** uploaded; a lone `![alt](url)` becomes a root image node
 - Empty / whitespace-only input pins one empty paragraph:
   `[{"type": "paragraph", "children": [{"type": "text", "text": ""}]}]`
 

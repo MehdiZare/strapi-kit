@@ -444,8 +444,8 @@ md = conversion.markdown
 # types, malformed nodes, and trees deeper than 32 are recorded — never
 # silent. A depth guard prevents recursion bombs and cyclic children.
 
-# Write: best-effort markdown → blocks (inline markdown stays literal text)
-body = markdown_to_blocks("# Title\n\nA paragraph\n\n- item")
+# Write: documented CommonMark subset → blocks (marks, links, images)
+body = markdown_to_blocks("# Title\n\nA paragraph with **bold**\n\n- item")
 client.create("articles", {"title": "Hello", "body": body})
 
 # Empty input is pinned to one empty paragraph
@@ -460,8 +460,9 @@ code. Text leaves are escaped before marks so `**literal**` cannot invent
 formatting.
 
 `markdown_to_blocks` is **not** a full CommonMark AST. It recognizes headings,
-paragraphs, fenced code, lists, and blockquotes. Inline constructs stay as
-literal text.
+paragraphs, fenced code, lists (including indented nesting), and blockquotes,
+plus inline marks, links, and images (no upload). Setext headings, HTML
+blocks, reference links, and thematic breaks are not recognized.
 
 ## Media Operations
 

@@ -11,7 +11,7 @@ from ..exceptions import ValidationError
 from ..models import StrapiQuery
 from ..models.enums import DocumentStatus
 from ..models.response.normalized import NormalizedEntity
-from ..utils.pagination import assert_pagination_echo
+from ..models.response.pagination import PaginationEchoMeta, assert_pagination_echo
 
 if TYPE_CHECKING:
     from ..client.async_client import AsyncClient
@@ -22,16 +22,56 @@ def _with_default_draft_status(
     query: StrapiQuery,
     client: Any,
     include_drafts: bool,
-) -> StrapiQuery:
-    """Apply ``status=draft`` for v5 completeness unless the caller set status."""
+) -> tuple[StrapiQuery, bool]:
+    """Apply ``status=draft`` for v5 completeness unless the caller set status.
+
+    Returns the query and whether this helper added ``status=draft`` so a
+    first-page ``ValidationError`` (Draft & Publish off) can drop it.
+    """
     if not include_drafts:
-        return query
+        return query, False
     if query.document_status is not None or query.publication_state is not None:
-        return query
+        return query, False
     version = client.api_version or client.config.api_version
     if version == "v4":
-        return query
-    return query.with_document_status(DocumentStatus.DRAFT)
+        return query, False
+    return query.with_document_status(DocumentStatus.DRAFT), True
+
+
+def _should_stop_after_page(
+    *,
+    data_len: int,
+    yielded: int,
+    current_page: int,
+    page_size: int,
+    meta: PaginationEchoMeta | None,
+) -> bool:
+    """Return True when the stream is complete; raise if a page is truncated."""
+    if data_len == 0:
+        if current_page == 1:
+            if meta is None:
+                return True
+            total = assert_pagination_echo(
+                meta,
+                requested_page=current_page,
+                requested_page_size=page_size,
+            )
+            if total == 0:
+                return True
+            raise ValidationError(
+                "Empty first page but pagination total is non-zero",
+                details={"total": total, "page": current_page},
+            )
+        raise ValidationError(
+            "Empty page before pagination total was reached",
+            details={"page": current_page, "yielded": yielded},
+        )
+    total = assert_pagination_echo(
+        meta,
+        requested_page=current_page,
+        requested_page_size=page_size,
+    )
+    return yielded >= total or current_page * page_size >= total
 
 
 def stream_entities(
@@ -60,8 +100,12 @@ def stream_entities(
 
     Each page is checked with :func:`assert_pagination_echo`. The
     stream stops after ``total`` items (or raises if the echo is
-    missing, unreadable, or silently capped). ``get_many()`` itself
-    does not call the helper.
+    missing, unreadable, silently capped, or a later page is empty
+    while ``total`` is still unmet). An empty first page with
+    ``total == 0`` is a complete empty collection. ``get_many()``
+    itself does not call the helper. If the default ``status=draft``
+    400s (Draft & Publish off), the first page is retried without
+    ``status=``.
 
     Args:
         client: SyncClient instance
@@ -92,29 +136,35 @@ def stream_entities(
     yielded = 0
 
     # Build base query - create copy to avoid mutating caller's query
-    base_query = query.copy() if query is not None else StrapiQuery()
-    base_query = _with_default_draft_status(base_query, client, include_drafts)
+    caller_query = query.copy() if query is not None else StrapiQuery()
+    base_query, applied_default_draft = _with_default_draft_status(
+        caller_query.copy(), client, include_drafts
+    )
 
     while True:
         # Update pagination for current page on a copy
         page_query = base_query.copy().paginate(page=current_page, page_size=page_size)
 
-        # Fetch page
-        response = client.get_many(endpoint, query=page_query)
+        try:
+            response = client.get_many(endpoint, query=page_query)
+        except ValidationError:
+            if current_page == 1 and applied_default_draft:
+                # D&P-off / unknown status= — retry without the default.
+                base_query = caller_query.copy()
+                applied_default_draft = False
+                continue
+            raise
 
-        # Yield each entity
         yield from response.data
         yielded += len(response.data)
 
-        if not response.data:
-            break
-
-        total = assert_pagination_echo(
-            response.meta,
-            requested_page=current_page,
-            requested_page_size=page_size,
-        )
-        if yielded >= total or current_page * page_size >= total:
+        if _should_stop_after_page(
+            data_len=len(response.data),
+            yielded=yielded,
+            current_page=current_page,
+            page_size=page_size,
+            meta=response.meta,
+        ):
             break
 
         current_page += 1
@@ -166,30 +216,35 @@ async def stream_entities_async(
     yielded = 0
 
     # Build base query - create copy to avoid mutating caller's query
-    base_query = query.copy() if query is not None else StrapiQuery()
-    base_query = _with_default_draft_status(base_query, client, include_drafts)
+    caller_query = query.copy() if query is not None else StrapiQuery()
+    base_query, applied_default_draft = _with_default_draft_status(
+        caller_query.copy(), client, include_drafts
+    )
 
     while True:
         # Update pagination for current page on a copy
         page_query = base_query.copy().paginate(page=current_page, page_size=page_size)
 
-        # Fetch page
-        response = await client.get_many(endpoint, query=page_query)
+        try:
+            response = await client.get_many(endpoint, query=page_query)
+        except ValidationError:
+            if current_page == 1 and applied_default_draft:
+                base_query = caller_query.copy()
+                applied_default_draft = False
+                continue
+            raise
 
-        # Yield each entity
         for entity in response.data:
             yield entity
         yielded += len(response.data)
 
-        if not response.data:
-            break
-
-        total = assert_pagination_echo(
-            response.meta,
-            requested_page=current_page,
-            requested_page_size=page_size,
-        )
-        if yielded >= total or current_page * page_size >= total:
+        if _should_stop_after_page(
+            data_len=len(response.data),
+            yielded=yielded,
+            current_page=current_page,
+            page_size=page_size,
+            meta=response.meta,
+        ):
             break
 
         current_page += 1
