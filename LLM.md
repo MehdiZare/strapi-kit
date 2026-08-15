@@ -69,7 +69,7 @@ pip install strapi-kit
 
 ```python
 # Core clients and config
-from strapi_kit import SyncClient, AsyncClient, StrapiConfig
+from strapi_kit import SyncClient, AsyncClient, StrapiConfig, collection_endpoint, document_endpoint
 
 # Query building
 from strapi_kit import (
@@ -117,6 +117,20 @@ async with AsyncClient(config) as client:
 ```
 
 ## CRUD Operations
+
+REST collection paths come from `schema.pluralName`, not the UID. Resolve the path once, then pass that string to `get_many` / `create` / `get_one`:
+
+```python
+from strapi_kit import collection_endpoint, document_endpoint
+
+# From Content-Type Builder list items or schemas
+endpoint = collection_endpoint(content_type)  # e.g. "blog-posts", never "posts" from api::post.post
+response = client.get_many(endpoint)
+response = client.create(endpoint, {"title": "Hello"})
+response = client.get_one(document_endpoint(content_type, document_id))
+```
+
+`collection_endpoint` raises `ValidationError` if `pluralName` is missing, blank, or not a string. `document_endpoint` raises if `document_id` is blank. Do not append `s`, use `apiID`, or split the UID.
 
 ### Read
 
@@ -557,27 +571,19 @@ config = load_config()  # Auto-loads from .env or environment
 
 ### Content Type UID to Endpoint
 
-```python
-def uid_to_endpoint(uid: str) -> str:
-    """Convert 'api::article.article' to 'articles'.
+Do **not** guess a REST path from the UID (no appending `s`, no `apiID`, no splitting `api::post.post`). Use `pluralName`:
 
-    Also handles plugin UIDs like 'plugin::users-permissions.user' -> 'users'.
-    """
-    parts = uid.split("::")
-    if len(parts) == 2:
-        # Extract content name from after the dot
-        name_parts = parts[1].split(".")
-        name = name_parts[1] if len(name_parts) > 1 else name_parts[0]
-        # Pluralize
-        if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
-            return name[:-1] + "ies"
-        if name.endswith(("s", "x", "z", "ch", "sh")):
-            return name + "es"
-        if not name.endswith("s"):
-            return name + "s"
-        return name
-    return uid
+```python
+from strapi_kit import collection_endpoint, document_endpoint
+
+# content_type is a ContentTypeListItem / ContentTypeSchema / dict with info.pluralName
+endpoint = collection_endpoint(content_type)  # "blog-posts"
+client.get_many(endpoint)
+client.create(endpoint, data)
+client.get_one(document_endpoint(content_type, document_id))
 ```
+
+`uid_to_endpoint()` is a heuristic only. If `pluralName` is missing or blank, `collection_endpoint` raises `ValidationError` — that is the correct failure mode (guessing produces silent empty lists).
 
 ### Iterate All Pages
 
@@ -701,7 +707,7 @@ python examples/full_migration_v5.py migrate
 3. **Build queries incrementally** - chain methods on `StrapiQuery()`
 4. **Handle errors specifically** - catch `NotFoundError` before `StrapiError`
 5. **Check response.data** - it's `None` for 404 on `get_one`
-6. **API prefix is automatic** - use `"articles"` not `"/api/articles"`
+6. **API prefix is automatic** - use `"articles"` not `"/api/articles"`. Resolve that string with `collection_endpoint(schema)` (`pluralName`), never by pluralizing the UID
 7. **SecretStr for tokens** - always wrap API tokens in `SecretStr`
 8. **v4 vs v5** - use `document_id` for v5, `id` works for both
 9. **Encode document IDs** - use `get_one("articles", document_id=id)` (same for `update`/`remove`) instead of f-strings; IDs with `/`, `?`, `#`, `%` change the path if interpolated raw. Blank collection or id raises `ValidationError`.

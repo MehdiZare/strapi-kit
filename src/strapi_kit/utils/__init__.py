@@ -2,11 +2,13 @@
 
 This package contains helper utilities including:
 - Rate limiting
+- REST collection endpoints (pluralName)
 - UID handling
 - SEO detection
 - Pagination echo / maxLimit guards
 """
 
+from strapi_kit.utils.endpoints import collection_endpoint, document_endpoint
 from strapi_kit.utils.pagination import assert_pagination_echo
 from strapi_kit.utils.rate_limiter import AsyncTokenBucketRateLimiter, TokenBucketRateLimiter
 from strapi_kit.utils.schema import extract_info_from_schema
@@ -24,6 +26,9 @@ __all__ = [
     # Rate limiting
     "TokenBucketRateLimiter",
     "AsyncTokenBucketRateLimiter",
+    # REST collection endpoints (from pluralName only)
+    "collection_endpoint",
+    "document_endpoint",
     # UID utilities
     "uid_to_endpoint",
     "uid_to_api_id",
