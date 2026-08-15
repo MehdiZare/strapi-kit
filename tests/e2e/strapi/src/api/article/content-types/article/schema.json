@@ -24,7 +24,7 @@
       "type": "uid",
       "targetField": "title"
     },
-    "status": {
+    "workflow_state": {
       "type": "enumeration",
       "enum": ["draft", "published", "archived"],
       "default": "draft"

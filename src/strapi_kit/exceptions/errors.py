@@ -149,12 +149,15 @@ class MethodNotAllowedError(StrapiError):
 
 
 class UnstructuredResponseError(StrapiError):
-    """Raised when a 2xx response is empty or not a JSON object.
+    """Raised when a 2xx response is not a usable structured document.
 
-    Strapi REST should return a JSON object for entry writes. Some
-    proxies or custom controllers return an empty body or a bare
-    string such as ``"Created"``. Callers must not treat that as a
-    successful entity — there is no ``documentId`` to continue with.
+    Covers empty bodies, non-JSON / non-object JSON, typed writes whose
+    JSON has no ``data`` object (``{}``, ``{"ok": true}``, ``{"data": []}``),
+    and Pydantic parse failures on a single-entity 2xx body.
+
+    Callers must not treat the call as a successful entity write or fetch —
+    there is no ``documentId`` to continue with. Empty 2xx DELETE bodies
+    are success, not this error.
     """
 
     pass
@@ -287,17 +290,36 @@ def _parse_field_errors(details: object) -> list[tuple[str, str]]:
     if not isinstance(details, dict):
         return []
     errors = details.get("errors")
-    if not isinstance(errors, list):
-        return []
+    if isinstance(errors, list):
+        parsed: list[tuple[str, str]] = []
+        for entry in errors:
+            if not isinstance(entry, dict):
+                continue
+            message = entry.get("message")
+            if not isinstance(message, str) or not message.strip():
+                continue
+            parsed.append((_format_error_path(entry.get("path")), message))
+        return parsed
 
+    if isinstance(errors, dict):
+        return _parse_field_errors_mapping(errors)
+    return []
+
+
+def _parse_field_errors_mapping(errors: dict[object, object]) -> list[tuple[str, str]]:
+    """Flatten Yup/admin ``{field: message | [message, ...]}`` maps."""
     parsed: list[tuple[str, str]] = []
-    for entry in errors:
-        if not isinstance(entry, dict):
+    for field, messages in errors.items():
+        path = _format_error_path(field)
+        if isinstance(messages, str):
+            candidates: list[object] = [messages]
+        elif isinstance(messages, list):
+            candidates = list(messages)
+        else:
             continue
-        message = entry.get("message")
-        if not isinstance(message, str) or not message.strip():
-            continue
-        parsed.append((_format_error_path(entry.get("path")), message))
+        for message in candidates:
+            if isinstance(message, str) and message.strip():
+                parsed.append((path, message))
     return parsed
 
 

@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Stock REST `publish()`** ([#65](https://github.com/MehdiZare/strapi-kit/issues/65))
+  - `publish()` is `PUT /api/{collection}/{documentId}?status=published` with `{"data": {}}`
+  - `unpublish()` / `discard_draft()` stay on custom `POST /actions/*` routes (not registered by stock Strapi 5 REST)
+- **Stream/export completeness** ([#81](https://github.com/MehdiZare/strapi-kit/issues/81), [#67](https://github.com/MehdiZare/strapi-kit/issues/67))
+  - `stream_entities` / `stream_entities_async` call `assert_pagination_echo()` and stop on `total`, not `pageCount` alone
+  - Default `include_drafts=True` sends v5 `status=draft` so never-published documents are not skipped; pass `include_drafts=False` for published-only
+  - `get_many()` remains opt-in / unchanged
+- **Yup/admin `details.errors` maps** ([#76](https://github.com/MehdiZare/strapi-kit/issues/76))
+  - `field_errors` / `is_uniqueness_violation()` accept `{field: message | [message, ...]}` as well as the official REST list
+- **`markdown_to_blocks` inline subset** ([#77](https://github.com/MehdiZare/strapi-kit/issues/77))
+  - Bold, italic, strikethrough, inline code, links, images (no upload), and indented nested lists
+
+### Changed
+
+- **`get_components()` raises on unparsable items** ([#79](https://github.com/MehdiZare/strapi-kit/issues/79)); skip-and-log is `skip_unparsable=True`
+- **CTB `options` lift schema-root keys** ([#80](https://github.com/MehdiZare/strapi-kit/issues/80)) from stock `formatContentType` (not only nested `options`)
+- **`StrapiQuery.filter()` fail-fast** ([#60](https://github.com/MehdiZare/strapi-kit/issues/60)) when the argument is not a `FilterBuilder`
+- **`document_endpoint` shares `join_document_path` with `BaseClient.document_path`** ([#82](https://github.com/MehdiZare/strapi-kit/issues/82))
+- **Typed writes require a `data` object** ([#58](https://github.com/MehdiZare/strapi-kit/issues/58)); parser `ValidationError` on a 2xx single-entity body is `UnstructuredResponseError` ([#59](https://github.com/MehdiZare/strapi-kit/issues/59))
+- **`blocks_to_markdown` escapes ATX/list/quote prefixes** at the start of generated lines ([#78](https://github.com/MehdiZare/strapi-kit/issues/78))
+- **E2E article attribute `status` renamed to `workflow_state`** ([#68](https://github.com/MehdiZare/strapi-kit/issues/68)); live D&P e2e covers stock `publish()` ([#44](https://github.com/MehdiZare/strapi-kit/issues/44))
+
+### Fixed
+
+- **Typed write/parse status isolation** — `UnstructuredResponseError.status_code` is stored in a contextvar so concurrent `AsyncClient` requests cannot stamp the wrong HTTP status
+- **`join_document_path` rejects whitespace-only collection names** (same as blank ids) so `"   /id"` cannot be emitted
+
+### Added
+
 - **Strapi 5 relation write helper** ([#54](https://github.com/MehdiZare/strapi-kit/issues/54))
   - `RelationWriteOp` StrEnum (`set`, `connect`, `disconnect`)
   - `relation_write()` builds v5 REST relation payloads from documentId strings

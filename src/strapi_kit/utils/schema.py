@@ -7,6 +7,25 @@ particularly for extracting info from various schema formats.
 from typing import Any
 
 _DRAFT_AND_PUBLISH_KEYS = ("draftAndPublish", "draft_and_publish")
+# Keys that are schema structure, not model.options, on live formatContentType.
+_STRUCTURAL_SCHEMA_KEYS = frozenset(
+    {
+        "kind",
+        "info",
+        "attributes",
+        "displayName",
+        "singularName",
+        "pluralName",
+        "description",
+        "collectionName",
+        "options",
+        "pluginOptions",
+        "uid",
+        "modelName",
+        "modelType",
+        "connection",
+    }
+)
 
 
 def extract_info_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -40,32 +59,36 @@ def extract_info_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
 def extract_content_type_options(item: dict[str, Any]) -> dict[str, Any] | None:
     """Return Content-Type Builder options without dropping extra keys.
 
-    Merges top-level ``options`` with ``schema.options`` when both are present.
-    Nested schema options win on key conflicts.
+    Merges, in order (later keys win):
+
+    * top-level ``options``
+    * non-structural keys on ``schema`` (stock ``formatContentType`` spreads
+      ``getOptions()`` onto the schema root)
+    * ``schema.options``
+
+    ``draft_and_publish`` remains the first-class source of truth.
 
     Args:
         item: Raw content-type item (v4 flat or v5 nested schema)
 
     Returns:
-        A shallow copy of the options dict, or None if no options object exists.
+        A shallow copy of the options dict, or None if no option keys exist.
     """
+    merged: dict[str, Any] = {}
+
     top = item.get("options")
-    top_options = dict(top) if isinstance(top, dict) else None
+    if isinstance(top, dict):
+        merged.update(top)
 
     schema = item.get("schema")
-    schema_options: dict[str, Any] | None = None
     if isinstance(schema, dict):
+        lifted = {key: value for key, value in schema.items() if key not in _STRUCTURAL_SCHEMA_KEYS}
+        merged.update(lifted)
         nested = schema.get("options")
         if isinstance(nested, dict):
-            schema_options = dict(nested)
+            merged.update(nested)
 
-    if top_options is None and schema_options is None:
-        return None
-    if top_options is None:
-        return schema_options
-    if schema_options is None:
-        return top_options
-    return {**top_options, **schema_options}
+    return merged or None
 
 
 def extract_draft_and_publish(item: dict[str, Any]) -> bool | None:

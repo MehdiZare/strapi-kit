@@ -33,24 +33,24 @@ class TestFilterOperations:
 
     def test_filter_eq(self, sync_client: SyncClient, seeded_data: SeededData) -> None:
         """Test equality filter."""
-        query = StrapiQuery().filter(FilterBuilder().eq("status", "published"))
+        query = StrapiQuery().filter(FilterBuilder().eq("workflow_state", "published"))
 
         response = sync_client.get_many("articles", query=query)
 
         assert response.data is not None
         assert len(response.data) > 0
         for article in response.data:
-            assert article.attributes["status"] == "published"
+            assert article.attributes["workflow_state"] == "published"
 
     def test_filter_ne(self, sync_client: SyncClient, seeded_data: SeededData) -> None:
         """Test not-equal filter."""
-        query = StrapiQuery().filter(FilterBuilder().ne("status", "archived"))
+        query = StrapiQuery().filter(FilterBuilder().ne("workflow_state", "archived"))
 
         response = sync_client.get_many("articles", query=query)
 
         assert response.data is not None
         for article in response.data:
-            assert article.attributes["status"] != "archived"
+            assert article.attributes["workflow_state"] != "archived"
 
     def test_filter_gt(self, sync_client: SyncClient, seeded_data: SeededData) -> None:
         """Test greater-than filter."""
@@ -94,20 +94,20 @@ class TestFilterOperations:
 
     def test_filter_in(self, sync_client: SyncClient, seeded_data: SeededData) -> None:
         """Test 'in' filter with multiple values."""
-        query = StrapiQuery().filter(FilterBuilder().in_("status", ["published", "draft"]))
+        query = StrapiQuery().filter(FilterBuilder().in_("workflow_state", ["published", "draft"]))
 
         response = sync_client.get_many("articles", query=query)
 
         assert response.data is not None
         for article in response.data:
-            assert article.attributes["status"] in ["published", "draft"]
+            assert article.attributes["workflow_state"] in ["published", "draft"]
 
     def test_filter_or_group(self, sync_client: SyncClient, seeded_data: SeededData) -> None:
         """Test OR group filter."""
         query = StrapiQuery().filter(
             FilterBuilder().or_group(
                 FilterBuilder().gt("views", 3000),
-                FilterBuilder().eq("status", "draft"),
+                FilterBuilder().eq("workflow_state", "draft"),
             )
         )
 
@@ -116,17 +116,22 @@ class TestFilterOperations:
         assert response.data is not None
         for article in response.data:
             # Either views > 3000 OR status is draft
-            assert article.attributes["views"] > 3000 or article.attributes["status"] == "draft"
+            assert (
+                article.attributes["views"] > 3000
+                or article.attributes["workflow_state"] == "draft"
+            )
 
     def test_filter_combined(self, sync_client: SyncClient, seeded_data: SeededData) -> None:
         """Test combining multiple filters (AND)."""
-        query = StrapiQuery().filter(FilterBuilder().eq("status", "published").gt("views", 500))
+        query = StrapiQuery().filter(
+            FilterBuilder().eq("workflow_state", "published").gt("views", 500)
+        )
 
         response = sync_client.get_many("articles", query=query)
 
         assert response.data is not None
         for article in response.data:
-            assert article.attributes["status"] == "published"
+            assert article.attributes["workflow_state"] == "published"
             assert article.attributes["views"] > 500
 
 
@@ -271,7 +276,7 @@ class TestPopulationOperations:
         """Test population combined with filtering."""
         query = (
             StrapiQuery()
-            .filter(FilterBuilder().eq("status", "published"))
+            .filter(FilterBuilder().eq("workflow_state", "published"))
             .populate_fields(["author"])
         )
 
@@ -279,7 +284,7 @@ class TestPopulationOperations:
 
         assert response.data is not None
         for article in response.data:
-            assert article.attributes["status"] == "published"
+            assert article.attributes["workflow_state"] == "published"
 
 
 @pytest.mark.e2e
@@ -288,7 +293,7 @@ class TestFieldSelectionOperations:
 
     def test_select_specific_fields(self, sync_client: SyncClient, seeded_data: SeededData) -> None:
         """Test selecting only specific fields."""
-        query = StrapiQuery().select(["title", "status"])
+        query = StrapiQuery().select(["title", "workflow_state"])
 
         response = sync_client.get_many("articles", query=query)
 
@@ -308,7 +313,7 @@ class TestCombinedQueries:
         """Test combining filter, sort, and pagination."""
         query = (
             StrapiQuery()
-            .filter(FilterBuilder().eq("status", "published"))
+            .filter(FilterBuilder().eq("workflow_state", "published"))
             .sort_by("views", SortDirection.DESC)
             .paginate(page=1, page_size=3)
         )
@@ -318,7 +323,7 @@ class TestCombinedQueries:
         assert response.data is not None
         # All should be published
         for article in response.data:
-            assert article.attributes["status"] == "published"
+            assert article.attributes["workflow_state"] == "published"
 
         # Should be sorted by views descending
         if len(response.data) >= 2:
@@ -333,7 +338,7 @@ class TestCombinedQueries:
         """Test a comprehensive query with all features."""
         query = (
             StrapiQuery()
-            .filter(FilterBuilder().ne("status", "archived"))
+            .filter(FilterBuilder().ne("workflow_state", "archived"))
             .sort_by("title", SortDirection.ASC)
             .paginate(page=1, page_size=5)
             .populate_fields(["author", "category"])
@@ -346,7 +351,7 @@ class TestCombinedQueries:
 
         # Verify filter applied
         for article in response.data:
-            assert article.attributes["status"] != "archived"
+            assert article.attributes["workflow_state"] != "archived"
 
         # Verify sort applied
         if len(response.data) >= 2:

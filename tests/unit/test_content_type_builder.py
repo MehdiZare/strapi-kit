@@ -1637,9 +1637,7 @@ class TestDraftAndPublishWireShapes:
         assert article.info.display_name == "Article"
         assert article.draft_and_publish is expected
 
-        if shape == "schema_only":
-            assert article.options is None
-        elif shape == "absent":
+        if shape == "absent":
             assert article.options is None
         else:
             assert article.options is not None
@@ -1672,9 +1670,7 @@ class TestDraftAndPublishWireShapes:
         assert schema.display_name == "Article"
         assert schema.draft_and_publish is expected
 
-        if shape == "schema_only":
-            assert schema.options is None
-        elif shape == "absent":
+        if shape == "absent":
             assert schema.options is None
         else:
             assert schema.options is not None
@@ -1786,7 +1782,7 @@ class TestDraftAndPublishWireShapes:
 
         assert "schema" not in normalized
         assert normalized["draftAndPublish"] is True
-        assert normalized["options"] is None
+        assert normalized["options"] == {"draftAndPublish": True}
         assert normalized["info"]["displayName"] == "Article"
 
     @pytest.mark.respx
@@ -1822,8 +1818,13 @@ class TestDraftAndPublishWireShapes:
 
         article = content_types[0]
         assert article.draft_and_publish is True
-        # Extra option keys live on schema root in this wire shape, not options.
-        assert article.options is None
+        assert article.options is not None
+        assert article.options["populateCreatorFields"] is True
+        assert article.options["draftAndPublish"] is True
+        assert article.options["visible"] is True
+        assert article.options["restrictRelationsTo"] is None
+        assert "displayName" not in article.options
+        assert "attributes" not in article.options
 
     @pytest.mark.respx
     def test_get_content_types_top_level_options_on_nested_item(
@@ -2008,3 +2009,114 @@ class TestUnparsableContentTypes:
         with SyncClient(strapi_config) as client:
             with pytest.raises(ValidationError, match="Invalid content type schema response"):
                 client.get_content_type_schema(uid)
+
+
+def _valid_component_item() -> dict[str, Any]:
+    return {
+        "uid": "shared.seo",
+        "category": "shared",
+        "info": {"displayName": "SEO"},
+        "attributes": {"metaTitle": {"type": "string"}},
+    }
+
+
+class TestUnparsableComponents:
+    """Unparsable CTB components raise unless skip_unparsable is set (#79)."""
+
+    @staticmethod
+    def _mixed_payload() -> dict[str, Any]:
+        return {"data": [_valid_component_item(), {"uid": "broken.broken"}]}
+
+    @pytest.mark.respx
+    def test_unparsable_component_raises_by_default(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
+            return_value=Response(200, json=self._mixed_payload())
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="Failed to parse component"):
+                client.get_components()
+
+    @pytest.mark.respx
+    def test_unparsable_component_skipped_when_opted_in(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
+            return_value=Response(200, json=self._mixed_payload())
+        )
+
+        with SyncClient(strapi_config) as client:
+            components = client.get_components(skip_unparsable=True)
+
+        assert len(components) == 1
+        assert components[0].uid == "shared.seo"
+
+    @pytest.mark.respx
+    async def test_async_unparsable_component_raises_by_default(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
+            return_value=Response(200, json=self._mixed_payload())
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="Failed to parse component"):
+                await client.get_components()
+
+    @pytest.mark.respx
+    async def test_async_unparsable_component_skipped_when_opted_in(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
+            return_value=Response(200, json=self._mixed_payload())
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            components = await client.get_components(skip_unparsable=True)
+
+        assert len(components) == 1
+        assert components[0].uid == "shared.seo"
+
+    @pytest.mark.respx
+    def test_non_list_data_raises_even_when_skip_unparsable(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        """skip_unparsable does not swallow a non-list envelope."""
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
+            return_value=Response(200, json={"data": {"uid": "shared.seo"}})
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="must be a list"):
+                client.get_components(skip_unparsable=True)
+
+    @pytest.mark.respx
+    def test_non_object_component_skipped_when_opted_in(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        respx_mock.get("http://localhost:1337/api/content-type-builder/components").mock(
+            return_value=Response(
+                200,
+                json={"data": [_valid_component_item(), "not-an-object"]},
+            )
+        )
+
+        with SyncClient(strapi_config) as client:
+            components = client.get_components(skip_unparsable=True)
+
+        assert len(components) == 1
+        assert components[0].uid == "shared.seo"

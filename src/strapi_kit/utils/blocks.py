@@ -7,9 +7,10 @@ Classic ``richtext`` fields remain markdown/strings and are not handled here.
 ``blocks_to_markdown`` walks official nodes and is never silently lossy:
 every unsupported construct is recorded in ``MarkdownConversion.lossy_reasons``.
 
-``markdown_to_blocks`` is a best-effort write path for creates/updates. It
-recognizes block-level Markdown only. Inline Markdown such as ``**bold**`` or
-``[text](url)`` is stored as literal text, not marks or link nodes.
+``markdown_to_blocks`` is a documented CommonMark subset write path. It
+recognizes block-level Markdown plus inline marks, links, images, and
+nested lists. It is not a full CommonMark parser (no setext headings,
+HTML blocks, reference links, or thematic breaks).
 """
 
 import re
@@ -43,6 +44,9 @@ _UL_RE: Final[re.Pattern[str]] = re.compile(r"^[*+-][ \t]+(.*)$")
 _OL_RE: Final[re.Pattern[str]] = re.compile(r"^\d+\.[ \t]+(.*)$")
 _FENCE_RE: Final[re.Pattern[str]] = re.compile(r"^(`{3,}|~{3,})(.*)$")
 _QUOTE_RE: Final[re.Pattern[str]] = re.compile(r"^>[ \t]?(.*)$")
+_IMAGE_RE: Final[re.Pattern[str]] = re.compile(r"!\[([^\]]*)\]\((<[^>\n]+>|[^)\s]+)\)")
+_LINK_RE: Final[re.Pattern[str]] = re.compile(r"\[([^\]]+)\]\((<[^>\n]+>|[^)\s]+)\)")
+_ORDERED_PREFIX_RE: Final[re.Pattern[str]] = re.compile(r"^(\d+)\.")
 
 __all__ = [
     "MarkdownConversion",
@@ -126,11 +130,15 @@ def markdown_to_blocks(markdown: str) -> list[dict[str, Any]]:
     """Convert Markdown to a Strapi v5 Blocks tree (best-effort write path).
 
     Recognized block constructs: ATX headings (levels 1–6), paragraphs, fenced
-    code, ordered/unordered lists, and blockquotes.
+    code, ordered/unordered lists (including indented nested lists), and
+    blockquotes.
 
-    This is **not** a full CommonMark parser. Inline Markdown (emphasis, links,
-    images, inline code) is stored as literal text nodes. Images are not
-    uploaded; a line such as ``![alt](url)`` becomes a paragraph of that text.
+    Inline Markdown is converted to official nodes/marks: ``**bold**``,
+    ``_italic_`` / ``*italic*``, ``~~strike~~``, inline ``code``,
+    ``[text](url)`` links, and ``![alt](url)`` images (no upload).
+
+    This is **not** a full CommonMark parser. Setext headings, HTML blocks,
+    reference links, and thematic breaks are not recognized.
 
     Empty or whitespace-only input is pinned to a single empty paragraph::
 
@@ -169,13 +177,9 @@ def markdown_to_blocks(markdown: str) -> list[dict[str, Any]]:
             index += 1
             continue
 
-        if _UL_RE.match(line):
-            block, index = _consume_list(lines, index, ordered=False)
-            blocks.append(block)
-            continue
-
-        if _OL_RE.match(line):
-            block, index = _consume_list(lines, index, ordered=True)
+        list_line = _match_list_line(line)
+        if list_line is not None:
+            block, index = _consume_list(lines, index, ordered=list_line[2])
             blocks.append(block)
             continue
 
@@ -202,15 +206,166 @@ def _text_node(text: str) -> dict[str, Any]:
 
 
 def _heading_block(level: int, text: str) -> dict[str, Any]:
-    return {"type": "heading", "level": level, "children": [_text_node(text)]}
+    return {"type": "heading", "level": level, "children": _parse_inlines(text)}
 
 
 def _paragraph_block(text: str) -> dict[str, Any]:
-    return {"type": "paragraph", "children": [_text_node(text)]}
+    children = _parse_inlines(text)
+    if len(children) == 1 and children[0].get("type") == "image":
+        return children[0]
+    return {"type": "paragraph", "children": children}
 
 
 def _list_item_block(text: str) -> dict[str, Any]:
-    return {"type": "list-item", "children": [_text_node(text)]}
+    return {"type": "list-item", "children": _parse_inlines(text)}
+
+
+def _unwrap_destination(raw: str) -> str:
+    if raw.startswith("<") and raw.endswith(">") and len(raw) >= 2:
+        return raw[1:-1]
+    return raw
+
+
+def _parse_inlines(text: str) -> list[dict[str, Any]]:
+    """Parse inline marks, links, and images from a Markdown fragment."""
+    if text == "":
+        return [_text_node("")]
+    nodes: list[dict[str, Any]] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        image = _IMAGE_RE.match(text, index)
+        if image:
+            nodes.append(
+                {
+                    "type": "image",
+                    "image": {
+                        "url": _unwrap_destination(image.group(2)),
+                        "alternativeText": image.group(1),
+                    },
+                }
+            )
+            index = image.end()
+            continue
+        link = _LINK_RE.match(text, index)
+        if link:
+            nodes.append(
+                {
+                    "type": "link",
+                    "url": _unwrap_destination(link.group(2)),
+                    "children": _parse_styled_text(link.group(1)),
+                }
+            )
+            index = link.end()
+            continue
+        next_special = _next_inline_special(text, index)
+        chunk_end = next_special if next_special is not None else length
+        if chunk_end > index:
+            nodes.extend(_parse_styled_text(text[index:chunk_end]))
+        if next_special is None:
+            break
+        index = chunk_end
+    return nodes or [_text_node("")]
+
+
+def _next_inline_special(text: str, start: int) -> int | None:
+    image = _IMAGE_RE.search(text, start)
+    link = _LINK_RE.search(text, start)
+    candidates = [match.start() for match in (image, link) if match is not None]
+    return min(candidates) if candidates else None
+
+
+def _parse_styled_text(text: str) -> list[dict[str, Any]]:
+    """Parse bold / italic / strike / code marks; leftover text stays literal."""
+    if text == "":
+        return [_text_node("")]
+    nodes: list[dict[str, Any]] = []
+    buffer: list[str] = []
+    index = 0
+    length = len(text)
+
+    def flush() -> None:
+        if buffer:
+            nodes.append(_text_node("".join(buffer)))
+            buffer.clear()
+
+    while index < length:
+        styled = _consume_styled(text, index)
+        if styled is not None:
+            flush()
+            inner_nodes, new_index = styled
+            nodes.extend(inner_nodes)
+            index = new_index
+            continue
+        buffer.append(text[index])
+        index += 1
+    flush()
+    return nodes or [_text_node("")]
+
+
+def _consume_styled(text: str, index: int) -> tuple[list[dict[str, Any]], int] | None:
+    if text.startswith("`", index):
+        end = text.find("`", index + 1)
+        if end != -1:
+            node = _text_node(text[index + 1 : end])
+            node["code"] = True
+            return [node], end + 1
+    for delim, mark in (("**", "bold"), ("__", "bold"), ("~~", "strikethrough")):
+        parsed = _consume_delimited(text, index, delim, mark)
+        if parsed is not None:
+            return parsed
+    for delim, mark in (("*", "italic"), ("_", "italic")):
+        parsed = _consume_delimited(text, index, delim, mark, word_boundary=(delim == "_"))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _consume_delimited(
+    text: str,
+    index: int,
+    delim: str,
+    mark: str,
+    *,
+    word_boundary: bool = False,
+) -> tuple[list[dict[str, Any]], int] | None:
+    if not text.startswith(delim, index):
+        return None
+    if word_boundary and index > 0 and text[index - 1].isalnum():
+        return None
+    end = text.find(delim, index + len(delim))
+    if end == -1:
+        return None
+    inner = text[index + len(delim) : end]
+    if inner == "":
+        return None
+    if word_boundary and end + len(delim) < len(text) and text[end + len(delim)].isalnum():
+        return None
+    nodes = _parse_styled_text(inner)
+    for node in nodes:
+        if node.get("type") == "text":
+            node[mark] = True
+    return nodes, end + len(delim)
+
+
+def _escape_block_prefixes(text: str) -> str:
+    """Escape ATX / list / quote prefixes at the start of generated lines."""
+    if not text:
+        return text
+    return "\n".join(_escape_line_block_prefix(line) for line in text.split("\n"))
+
+
+def _escape_line_block_prefix(line: str) -> str:
+    if not line:
+        return line
+    if line.startswith("#") or line.startswith(">"):
+        return f"\\{line}"
+    if line[0] in "-+*" and (len(line) == 1 or line[1].isspace()):
+        return f"\\{line}"
+    ordered = _ORDERED_PREFIX_RE.match(line)
+    if ordered:
+        return f"{ordered.group(1)}\\.{line[ordered.end() :]}"
+    return line
 
 
 def _escape_markdown(text: str) -> str:
@@ -440,7 +595,7 @@ def _convert_block(node: object, reasons: _ReasonCollector, depth: int = 0) -> s
 
     ntype = node.get("type")
     if ntype == "paragraph":
-        return _convert_inlines(_iter_children(node), reasons, depth + 1)
+        return _escape_block_prefixes(_convert_inlines(_iter_children(node), reasons, depth + 1))
     if ntype == "heading":
         level = _heading_level(node.get("level"))
         if level is None or not 1 <= level <= 6:
@@ -481,11 +636,25 @@ def _convert_block(node: object, reasons: _ReasonCollector, depth: int = 0) -> s
 def _starts_block(line: str) -> bool:
     return bool(
         _HEADING_RE.match(line)
-        or _UL_RE.match(line)
-        or _OL_RE.match(line)
+        or _match_list_line(line) is not None
         or _FENCE_RE.match(line)
         or _QUOTE_RE.match(line)
     )
+
+
+def _match_list_line(line: str) -> tuple[int, str, bool] | None:
+    """Return ``(indent, item_text, ordered)`` when ``line`` is a list item."""
+    if not line.strip():
+        return None
+    indent = len(line) - len(line.lstrip(" "))
+    rest = line[indent:]
+    unordered = _UL_RE.match(rest)
+    if unordered:
+        return indent, unordered.group(1), False
+    ordered = _OL_RE.match(rest)
+    if ordered:
+        return indent, ordered.group(1), True
+    return None
 
 
 def _consume_fence(
@@ -513,23 +682,54 @@ def _consume_fence(
 
 
 def _consume_list(lines: list[str], start: int, *, ordered: bool) -> tuple[dict[str, Any], int]:
-    pattern = _OL_RE if ordered else _UL_RE
-    items: list[dict[str, Any]] = []
+    entries: list[tuple[int, str, bool]] = []
     index = start
     while index < len(lines):
-        line = lines[index]
-        if not line.strip():
+        parsed = _match_list_line(lines[index])
+        if parsed is None:
             break
-        match = pattern.match(line)
-        if not match:
+        indent, text, is_ordered = parsed
+        if entries and indent == entries[0][0] and is_ordered != entries[0][2]:
             break
-        items.append(_list_item_block(match.group(1)))
+        if not entries and is_ordered != ordered:
+            break
+        entries.append((indent, text, is_ordered))
         index += 1
-    return {
+    return _build_list_tree(entries, ordered), index
+
+
+def _build_list_tree(entries: list[tuple[int, str, bool]], ordered: bool) -> dict[str, Any]:
+    """Nest indented list items under the previous item as child lists."""
+    root: dict[str, Any] = {
         "type": "list",
         "format": "ordered" if ordered else "unordered",
-        "children": items,
-    }, index
+        "children": [],
+    }
+    if not entries:
+        return root
+
+    stack: list[tuple[int, dict[str, Any]]] = [(entries[0][0], root)]
+    for indent, text, is_ordered in entries:
+        item: dict[str, Any] = _list_item_block(text)
+        while len(stack) > 1 and indent < stack[-1][0]:
+            stack.pop()
+        current_indent, current_list = stack[-1]
+        if indent > current_indent:
+            nested: dict[str, Any] = {
+                "type": "list",
+                "format": "ordered" if is_ordered else "unordered",
+                "children": [item],
+            }
+            if current_list["children"]:
+                previous = current_list["children"][-1]
+                previous["children"].append(nested)
+            else:
+                current_list["children"].append(item)
+                continue
+            stack.append((indent, nested))
+        else:
+            current_list["children"].append(item)
+    return root
 
 
 def _consume_quote(lines: list[str], start: int) -> tuple[dict[str, Any], int]:
@@ -541,7 +741,7 @@ def _consume_quote(lines: list[str], start: int) -> tuple[dict[str, Any], int]:
             break
         parts.append(match.group(1))
         index += 1
-    return {"type": "quote", "children": [_text_node("\n".join(parts))]}, index
+    return {"type": "quote", "children": _parse_inlines("\n".join(parts))}, index
 
 
 def _consume_paragraph(lines: list[str], start: int) -> tuple[dict[str, Any], int]:

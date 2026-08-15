@@ -56,12 +56,29 @@ def collection_endpoint(content_type: object) -> str:
     return plural.strip()
 
 
+def join_document_path(collection: str, document_id: str) -> str:
+    """Join a collection name with a percent-encoded document id.
+
+    Shared by :func:`document_endpoint` and ``BaseClient.document_path`` so
+    slash-stripping, blank checks, and ``quote(..., safe="")`` cannot drift.
+    Collection names are not encoded (they come from ``pluralName``).
+    """
+    collection_name = collection.strip().strip("/")
+    if not collection_name:
+        raise ValidationError("collection is required")
+    raw_id = document_id.strip()
+    if not raw_id:
+        raise ValidationError("document_id is required")
+    encoded_id = quote(raw_id, safe="")
+    return f"{collection_name}/{encoded_id}"
+
+
 def document_endpoint(content_type: object, document_id: str | int) -> str:
     """Return ``{pluralName}/{percent-encoded document id}``.
 
-    Joins :func:`collection_endpoint` with a document id encoded via
-    ``urllib.parse.quote(..., safe="")`` so reserved characters (``/``, ``?``,
-    space, ``%``, …) are safe in ``get_one`` / ``update`` / ``remove`` paths.
+    Joins :func:`collection_endpoint` with :func:`join_document_path` so
+    reserved characters (``/``, ``?``, space, ``%``, …) are safe in
+    ``get_one`` / ``update`` / ``remove`` paths.
 
     Args:
         content_type: Content type model or schema dict that includes
@@ -86,7 +103,7 @@ def document_endpoint(content_type: object, document_id: str | int) -> str:
             "document_id is missing or blank",
             details=_uid_details(content_type),
         )
-    return f"{collection}/{quote(raw_id, safe='')}"
+    return join_document_path(collection, raw_id)
 
 
 def _extract_plural_name(content_type: object) -> str | None:

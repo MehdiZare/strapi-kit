@@ -482,6 +482,27 @@ class TestMetacharacterEscape:
         assert result.markdown == r"\[docs\](https://example.com)"
         assert result.lossy_reasons == ()
 
+    def test_paragraph_hash_is_not_a_heading(self) -> None:
+        result = blocks_to_markdown([_paragraph(_text("# not a heading"))])
+        assert result.markdown == r"\# not a heading"
+        assert result.lossy_reasons == ()
+
+    def test_paragraph_list_and_quote_prefixes_are_escaped(self) -> None:
+        dash = blocks_to_markdown([_paragraph(_text("- item"))])
+        quote = blocks_to_markdown([_paragraph(_text("> quote"))])
+        numbered = blocks_to_markdown([_paragraph(_text("1. item"))])
+        assert dash.markdown == r"\- item"
+        assert quote.markdown == r"\> quote"
+        assert numbered.markdown == r"1\. item"
+        assert dash.lossy_reasons == ()
+        assert quote.lossy_reasons == ()
+        assert numbered.lossy_reasons == ()
+
+    def test_hyphen_in_running_prose_is_not_escaped(self) -> None:
+        result = blocks_to_markdown([_paragraph(_text("foo-bar and - dash"))])
+        assert result.markdown == "foo-bar and - dash"
+        assert result.lossy_reasons == ()
+
 
 class TestMarkdownToBlocks:
     """Best-effort write path for heading/list/code/quote/paragraph."""
@@ -551,14 +572,47 @@ class TestMarkdownToBlocks:
             _paragraph(_text("second")),
         ]
 
-    def test_inline_markdown_stays_literal(self) -> None:
-        blocks = markdown_to_blocks("A **bold** [link](https://example.com)")
-        assert blocks == [_paragraph(_text("A **bold** [link](https://example.com)"))]
+    def test_inline_marks_become_text_marks(self) -> None:
+        blocks = markdown_to_blocks("**bold** _italic_ ~~strike~~ `code`")
+        children = blocks[0]["children"]
+        assert children[0] == _text("bold", bold=True)
+        assert children[2] == _text("italic", italic=True)
+        assert children[4] == _text("strike", strikethrough=True)
+        assert children[6] == _text("code", code=True)
 
-    def test_image_syntax_is_not_an_image_node(self) -> None:
+    def test_link_becomes_link_node(self) -> None:
+        blocks = markdown_to_blocks("[docs](https://example.com)")
+        assert blocks == [
+            _paragraph({"type": "link", "url": "https://example.com", "children": [_text("docs")]})
+        ]
+
+    def test_image_becomes_image_node(self) -> None:
         blocks = markdown_to_blocks("![alt](https://example.com/a.png)")
-        assert blocks == [_paragraph(_text("![alt](https://example.com/a.png)"))]
-        assert blocks[0]["type"] == "paragraph"
+        assert blocks == [
+            {
+                "type": "image",
+                "image": {"url": "https://example.com/a.png", "alternativeText": "alt"},
+            }
+        ]
+
+    def test_nested_indented_list(self) -> None:
+        blocks = markdown_to_blocks("- parent\n  - child")
+        assert blocks[0]["type"] == "list"
+        parent = blocks[0]["children"][0]
+        assert parent["type"] == "list-item"
+        nested = parent["children"][1]
+        assert nested["type"] == "list"
+        assert nested["children"][0]["children"][0]["text"] == "child"
+
+    def test_nested_list_then_same_level_sibling(self) -> None:
+        """A sibling after a nested child stays on the parent list."""
+        blocks = markdown_to_blocks("- parent\n  - child\n- sibling")
+        items = blocks[0]["children"]
+        assert items[0]["type"] == "list-item"
+        assert items[0]["children"][0]["text"] == "parent"
+        assert items[0]["children"][1]["type"] == "list"
+        assert items[1]["type"] == "list-item"
+        assert items[1]["children"][0]["text"] == "sibling"
 
     @pytest.mark.parametrize("src", ["", "   ", "\n", "\n\n", " \n \t "])
     def test_empty_input_pins_empty_paragraph(self, src: str) -> None:

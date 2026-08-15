@@ -17,9 +17,9 @@ class TestBulkCreateOperations:
     def test_bulk_create_articles(self, sync_client: SyncClient) -> None:
         """Test creating multiple articles in bulk."""
         articles_data = [
-            {"title": "Bulk Article 1", "slug": "bulk-article-1", "status": "draft"},
-            {"title": "Bulk Article 2", "slug": "bulk-article-2", "status": "draft"},
-            {"title": "Bulk Article 3", "slug": "bulk-article-3", "status": "draft"},
+            {"title": "Bulk Article 1", "slug": "bulk-article-1", "workflow_state": "draft"},
+            {"title": "Bulk Article 2", "slug": "bulk-article-2", "workflow_state": "draft"},
+            {"title": "Bulk Article 3", "slug": "bulk-article-3", "workflow_state": "draft"},
         ]
 
         result = sync_client.bulk_create("articles", articles_data)
@@ -114,7 +114,7 @@ class TestBulkUpdateOperations:
                 {
                     "title": f"Different Field {i}",
                     "slug": f"different-field-{i}",
-                    "status": "draft",
+                    "workflow_state": "draft",
                     "views": 0,
                 },
             )
@@ -123,7 +123,7 @@ class TestBulkUpdateOperations:
 
         # Update different fields (list of tuples: (id, data))
         updates = [
-            (created[0].document_id or str(created[0].id), {"status": "published"}),
+            (created[0].document_id or str(created[0].id), {"workflow_state": "published"}),
             (created[1].document_id or str(created[1].id), {"views": 500}),
         ]
 
@@ -135,7 +135,7 @@ class TestBulkUpdateOperations:
         id_0 = created[0].document_id or str(created[0].id)
         response1 = sync_client.get_one(f"articles/{id_0}")
         assert response1.data is not None
-        assert response1.data.attributes["status"] == "published"
+        assert response1.data.attributes["workflow_state"] == "published"
 
         # Verify second article
         id_1 = created[1].document_id or str(created[1].id)

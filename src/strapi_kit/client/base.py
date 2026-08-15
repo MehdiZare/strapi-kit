@@ -5,6 +5,7 @@ automatic response format detection, error handling, and authentication.
 """
 
 import logging
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
 from urllib.parse import quote
 
@@ -50,6 +51,7 @@ from ..models.response.normalized import (
 from ..operations.media import normalize_media_response
 from ..parsers import VersionDetectingParser
 from ..protocols import AuthProvider, ConfigProvider, ResponseParser
+from ..utils.endpoints import join_document_path
 from ..utils.schema import (
     extract_content_type_options,
     extract_draft_and_publish,
@@ -57,6 +59,12 @@ from ..utils.schema import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Per-task HTTP status for UnstructuredResponseError. Instance state would
+# race when one AsyncClient is used concurrently.
+_response_status_code: ContextVar[int | None] = ContextVar(
+    "strapi_kit_response_status_code", default=None
+)
 
 
 class BaseClient:
@@ -182,12 +190,7 @@ class BaseClient:
             >>> BaseClient.document_path("/articles/", "a/b?x=1")
             'articles/a%2Fb%3Fx%3D1'
         """
-        if not collection or not collection.strip("/"):
-            raise ValidationError("collection is required")
-        if not document_id or not document_id.strip():
-            raise ValidationError("document_id is required")
-        encoded_id = quote(document_id.strip(), safe="")
-        return f"{collection.strip('/')}/{encoded_id}"
+        return join_document_path(collection, document_id)
 
     def _document_endpoint(self, endpoint: str, document_id: str | None) -> str:
         """Resolve a typed CRUD path, encoding ``document_id`` when provided.
@@ -212,8 +215,9 @@ class BaseClient:
     def _single_segment_document_path(self, collection: str, document_id: str) -> str:
         """Build ``document_path`` after requiring a single collection segment.
 
-        Used by ``exists()`` so lookups share the CRUD encoder and cannot
-        walk out of the collection via ``/`` or ``\\`` in the name.
+        Used by ``exists()`` and ``publish()`` so lookups and stock REST
+        publish share the CRUD encoder and cannot walk out of the collection
+        via ``/`` or ``\\`` in the name.
         """
         collection_name = collection.strip().strip("/")
         if not collection_name:
@@ -282,6 +286,7 @@ class BaseClient:
         POST/PUT/GET — raise :class:`UnstructuredResponseError`.
         """
         verb = method.upper()
+        _response_status_code.set(response.status_code)
         empty = response.status_code == 204 or not response.content
         if empty:
             if verb == HttpMethod.DELETE:
@@ -546,8 +551,46 @@ class BaseClient:
             >>> normalized.data.id
             1
         """
-        # Delegate to injected parser
-        return self.parser.parse_single(response_data)
+        try:
+            return self.parser.parse_single(response_data)
+        except PydanticValidationError as e:
+            raise UnstructuredResponseError(
+                "Successful response did not match a single-entity document",
+                details={"errors": e.errors()},
+                status_code=_response_status_code.get(),
+            ) from e
+
+    def _require_write_data_object(self, response_data: dict[str, Any]) -> None:
+        """Raise if a typed write response has no JSON ``data`` object.
+
+        Stock REST create/update/publish bodies are ``{"data": {...}}``.
+        A 2xx ``{}`` or ``{"ok": true}`` must not look like a successful
+        entity write (no ``documentId``). Collection ``{"data": []}`` is
+        not a write body.
+        """
+        data = response_data.get("data")
+        if isinstance(data, dict):
+            return
+        raise UnstructuredResponseError(
+            "Successful write returned no data object",
+            details={
+                "has_data": "data" in response_data,
+                "parsed_type": type(data).__name__,
+            },
+            status_code=_response_status_code.get(),
+        )
+
+    def _publish_put_args(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Build stock REST publish path and query (PUT + ``status=published``)."""
+        path = self._single_segment_document_path(collection, document_id)
+        publish_query = query.copy() if query is not None else StrapiQuery()
+        publish_query = publish_query.with_document_status(DocumentStatus.PUBLISHED)
+        return path, publish_query.to_query_params()
 
     def _parse_collection_response(
         self, response_data: dict[str, Any]
@@ -811,6 +854,8 @@ class BaseClient:
     def _parse_components_response(
         self,
         response_data: dict[str, Any],
+        *,
+        skip_unparsable: bool = False,
     ) -> list["ComponentListItem"]:
         """Parse content-type-builder components response.
 
@@ -818,25 +863,57 @@ class BaseClient:
 
         Args:
             response_data: Raw JSON response from content-type-builder
+            skip_unparsable: If True, log and skip items that fail Pydantic
+                validation. If False (default), raise ValidationError.
 
         Returns:
             List of ComponentListItem instances
+
+        Raises:
+            ValidationError: If ``data`` is not a list, an item is not an
+                object, or an item cannot be parsed — unless skip_unparsable
+                is True (list items only)
         """
         from ..models.content_type import ComponentListItem
 
         data = response_data.get("data", [])
+        if data is None:
+            data = []
+        if not isinstance(data, list):
+            raise ValidationError(
+                "Invalid components response: 'data' must be a list",
+                details={"data_type": type(data).__name__},
+            )
+
         result = []
 
-        for item in data:
-            uid = item.get("uid", "")
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                if skip_unparsable:
+                    logger.warning(
+                        "Failed to parse component: expected object at index %s",
+                        index,
+                    )
+                    continue
+                raise ValidationError(
+                    "Failed to parse component: <unknown>",
+                    details={"index": index, "item_type": type(item).__name__},
+                )
+
+            uid_raw = item.get("uid")
+            uid = uid_raw if isinstance(uid_raw, str) else ""
             try:
                 normalized_item = self._normalize_component_item(item)
                 component = ComponentListItem.model_validate(normalized_item)
                 result.append(component)
             except PydanticValidationError as e:
-                # Skip malformed items
-                logger.warning(f"Failed to parse component: {uid}", exc_info=e)
-                continue
+                if skip_unparsable:
+                    logger.warning(f"Failed to parse component: {uid}", exc_info=e)
+                    continue
+                raise ValidationError(
+                    f"Failed to parse component: {uid or '<unknown>'}",
+                    details={"uid": uid or None, "errors": e.errors()},
+                ) from e
 
         return result
 

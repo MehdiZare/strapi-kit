@@ -153,6 +153,16 @@ class StrapiQuery:
         new_query._publication_filter = self._publication_filter
         return new_query
 
+    @property
+    def document_status(self) -> DocumentStatus | None:
+        """v5 ``status=`` value, or None if unset."""
+        return self._document_status
+
+    @property
+    def publication_state(self) -> PublicationState | None:
+        """v4 ``publicationState=`` value, or None if unset."""
+        return self._publication_state
+
     def filter(self, filters: FilterBuilder) -> StrapiQuery:
         """Add filter conditions to the query.
 
@@ -162,6 +172,10 @@ class StrapiQuery:
         Returns:
             Self for method chaining
 
+        Raises:
+            ValidationError: If ``filters`` is not a :class:`FilterBuilder`
+                instance (for example a raw dict)
+
         Examples:
             >>> query = StrapiQuery().filter(
             ...     FilterBuilder()
@@ -169,6 +183,12 @@ class StrapiQuery:
             ...         .gt("views", 100)
             ... )
         """
+        if not isinstance(filters, FilterBuilder):
+            raise ValidationError(
+                "filter() expected a FilterBuilder instance, "
+                f"got {type(filters).__name__}. "
+                "Use filter(FilterBuilder().eq(...))."
+            )
         self._filters = filters
         return self
 

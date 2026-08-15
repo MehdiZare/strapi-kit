@@ -452,6 +452,7 @@ class AsyncClient(BaseClient):
         # Wrap data in Strapi format
         payload = {"data": data}
         raw_response = await self.post(endpoint, json=payload, params=params, headers=headers)
+        self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
 
     async def update(
@@ -505,6 +506,7 @@ class AsyncClient(BaseClient):
             if classify_write_404:
                 await self._classify_write_404(path, original)
             raise
+        self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
 
     async def remove(
@@ -600,9 +602,11 @@ class AsyncClient(BaseClient):
         query: StrapiQuery | None = None,
         headers: dict[str, str] | None = None,
     ) -> NormalizedSingleResponse:
-        """Publish a Strapi v5 draft document.
+        """Publish a Strapi v5 draft via stock REST.
 
-        POST ``/api/{collection}/{documentId}/actions/publish``.
+        PUT ``/api/{collection}/{documentId}?status=published`` with
+        ``{"data": {}}``. Stock Strapi 5 does not register
+        ``POST /actions/publish``.
 
         Args:
             collection: Collection API id (e.g. ``"articles"``)
@@ -613,9 +617,9 @@ class AsyncClient(BaseClient):
         Returns:
             Normalized published entity
         """
-        endpoint = self._document_action_endpoint(collection, document_id, DocumentAction.PUBLISH)
-        params = query.to_query_params() if query else None
-        raw_response = await self.post(endpoint, json={}, params=params, headers=headers)
+        path, params = self._publish_put_args(collection, document_id, query)
+        raw_response = await self.put(path, json={"data": {}}, params=params, headers=headers)
+        self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
 
     async def unpublish(
@@ -628,6 +632,10 @@ class AsyncClient(BaseClient):
         """Unpublish a Strapi v5 live document.
 
         POST ``/api/{collection}/{documentId}/actions/unpublish``.
+
+        Stock Strapi 5 public REST does not register this route. This
+        helper is for instances that add a custom document-action
+        controller. There is no public REST unpublish.
 
         Args:
             collection: Collection API id (e.g. ``"articles"``)
@@ -653,6 +661,10 @@ class AsyncClient(BaseClient):
         """Discard a Strapi v5 draft and keep the published version.
 
         POST ``/api/{collection}/{documentId}/actions/discardDraft``.
+
+        Stock Strapi 5 public REST does not register this route. This
+        helper is for instances that add a custom document-action
+        controller. There is no public REST discardDraft.
 
         Args:
             collection: Collection API id (e.g. ``"articles"``)
@@ -1344,13 +1356,21 @@ class AsyncClient(BaseClient):
             raw_response, include_plugins, skip_unparsable=skip_unparsable
         )
 
-    async def get_components(self) -> list["ComponentListItem"]:
+    async def get_components(self, *, skip_unparsable: bool = False) -> list["ComponentListItem"]:
         """List all components from Content-Type Builder API.
 
         Retrieves schema information for all components defined in Strapi.
 
+        Args:
+            skip_unparsable: If True, log and skip items that fail validation.
+                Default False raises :class:`ValidationError`.
+
         Returns:
             List of ComponentListItem with uid, category, info, and attributes
+
+        Raises:
+            ValidationError: If an item cannot be parsed and skip_unparsable
+                is False.
 
         Examples:
             >>> components = await client.get_components()
@@ -1361,7 +1381,7 @@ class AsyncClient(BaseClient):
         """
 
         raw_response = await self.get("content-type-builder/components")
-        return self._parse_components_response(raw_response)
+        return self._parse_components_response(raw_response, skip_unparsable=skip_unparsable)
 
     async def get_content_type_schema(self, uid: str) -> "CTBContentTypeSchema":
         """Get full schema for a specific content type.

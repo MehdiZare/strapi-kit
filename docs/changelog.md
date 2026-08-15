@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Stock REST `publish()`** ([#65](https://github.com/MehdiZare/strapi-kit/issues/65)):
+  PUT `?status=published`. `unpublish` / `discard_draft` stay custom-route only.
+- **Stream/export completeness** ([#81](https://github.com/MehdiZare/strapi-kit/issues/81),
+  [#67](https://github.com/MehdiZare/strapi-kit/issues/67)): pagination echo in
+  streamers; default v5 `status=draft` with `include_drafts=False` opt-out.
+- **Inline `markdown_to_blocks`** ([#77](https://github.com/MehdiZare/strapi-kit/issues/77))
+  and line-prefix escaping in `blocks_to_markdown` ([#78](https://github.com/MehdiZare/strapi-kit/issues/78)).
+
+### Changed
+
+- `get_components()` raises unless `skip_unparsable=True` ([#79](https://github.com/MehdiZare/strapi-kit/issues/79)).
+- CTB options lift schema-root keys ([#80](https://github.com/MehdiZare/strapi-kit/issues/80)).
+- `filter()` fail-fast ([#60](https://github.com/MehdiZare/strapi-kit/issues/60));
+  shared document path encoder ([#82](https://github.com/MehdiZare/strapi-kit/issues/82));
+  write `data` object + parser wrap ([#58](https://github.com/MehdiZare/strapi-kit/issues/58),
+  [#59](https://github.com/MehdiZare/strapi-kit/issues/59)).
+
+### Fixed
+
+- Typed write/parse `UnstructuredResponseError.status_code` uses a contextvar
+  so concurrent `AsyncClient` requests cannot stamp the wrong HTTP status.
+- `join_document_path` rejects whitespace-only collection names.
+
+### Added
+
 - **First-class Content-Type Builder Draft & Publish** ([#45](https://github.com/MehdiZare/strapi-kit/issues/45)):
   `draft_and_publish` is `True` / `False` / `None` (absence is not `False`).
   `get_content_types()` raises on unparsable items unless `skip_unparsable=True`.
