@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   write `data` object + parser wrap ([#58](https://github.com/MehdiZare/strapi-kit/issues/58),
   [#59](https://github.com/MehdiZare/strapi-kit/issues/59)).
 
+### Fixed
+
+- Typed write/parse `UnstructuredResponseError.status_code` uses a contextvar
+  so concurrent `AsyncClient` requests cannot stamp the wrong HTTP status.
+- `join_document_path` rejects whitespace-only collection names.
+
 ### Added
 
 - **First-class Content-Type Builder Draft & Publish** ([#45](https://github.com/MehdiZare/strapi-kit/issues/45)):

@@ -26,7 +26,7 @@ def _with_default_draft_status(
     """Apply ``status=draft`` for v5 completeness unless the caller set status."""
     if not include_drafts:
         return query
-    if query._document_status is not None or query._publication_state is not None:
+    if query.document_status is not None or query.publication_state is not None:
         return query
     version = client.api_version or client.config.api_version
     if version == "v4":
@@ -50,8 +50,13 @@ def stream_entities(
     On Strapi 5, omitted ``status=`` means published, which hides
     never-published documents. ``include_drafts=True`` (the default)
     sets ``status=draft`` unless the caller already set a document
-    status or a v4 publication state. Pass ``include_drafts=False``
-    for published-only. v4 clients never send ``status=``.
+    status or a v4 publication state. That requests the **draft
+    version** of each document (published-plus-pending-edits, not a
+    union of published and draft rows). Pass ``include_drafts=False``
+    for published-only. Explicit ``api_version="v4"`` never sends
+    ``status=`` (v4 uses ``publicationState``; that mapping is not
+    applied here). ``api_version="auto"`` sends ``status=draft`` so
+    the first page is complete on v5 before version detection.
 
     Each page is checked with :func:`assert_pagination_echo`. The
     stream stops after ``total`` items (or raises if the echo is
@@ -64,7 +69,8 @@ def stream_entities(
         query: Optional query (filters, sorts, populate, etc.)
         page_size: Items per page (default: 100)
         include_drafts: If True (default), request ``status=draft`` on
-            v5 so unpublished documents are included.
+            v5 so unpublished documents are included. This selects the
+            draft version of each document.
 
     Yields:
         NormalizedEntity objects one at a time
@@ -137,7 +143,8 @@ async def stream_entities_async(
         query: Optional query (filters, sorts, populate, etc.)
         page_size: Items per page (default: 100)
         include_drafts: If True (default), request ``status=draft`` on
-            v5 so unpublished documents are included.
+            v5 so unpublished documents are included. This selects the
+            draft version of each document.
 
     Yields:
         NormalizedEntity objects one at a time

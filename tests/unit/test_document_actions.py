@@ -14,7 +14,7 @@ from strapi_kit.exceptions import (
     RateLimitError,
     UnstructuredResponseError,
 )
-from strapi_kit.models import StrapiQuery
+from strapi_kit.models import DocumentStatus, StrapiQuery
 
 
 class TestDocumentActions:
@@ -145,7 +145,7 @@ class TestDocumentActions:
     async def test_async_publish(
         self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
-        respx_mock.put("http://localhost:1337/api/articles/doc_test_001").mock(
+        route = respx_mock.put("http://localhost:1337/api/articles/doc_test_001").mock(
             return_value=Response(200, json=mock_v5_response)
         )
 
@@ -154,6 +154,9 @@ class TestDocumentActions:
 
         assert result.data is not None
         assert result.data.document_id == mock_v5_response["data"]["documentId"]
+        request = route.calls.last.request
+        assert request.url.params["status"] == "published"
+        assert request.content == b'{"data":{}}'
 
     @pytest.mark.respx
     async def test_async_unpublish(
@@ -294,6 +297,47 @@ class TestHonestSuccessBodies:
             with pytest.raises(UnstructuredResponseError) as exc_info:
                 client.create("articles", {"title": "x"})
             assert exc_info.value.status_code == 201
+
+    @pytest.mark.respx
+    def test_update_ok_true_raises(self, strapi_config, respx_mock: respx.Router) -> None:
+        respx_mock.put("http://localhost:1337/api/articles/doc_test_001").mock(
+            return_value=Response(200, json={"ok": True})
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
+                client.update("articles/doc_test_001", {"title": "x"})
+            assert exc_info.value.status_code == 200
+            assert exc_info.value.details.get("has_data") is False
+
+    @pytest.mark.respx
+    def test_publish_ok_true_raises(self, strapi_config, respx_mock: respx.Router) -> None:
+        respx_mock.put("http://localhost:1337/api/articles/doc_test_001").mock(
+            return_value=Response(200, json={"ok": True})
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(UnstructuredResponseError) as exc_info:
+                client.publish("articles", "doc_test_001")
+            assert exc_info.value.status_code == 200
+            assert exc_info.value.details.get("has_data") is False
+
+    @pytest.mark.respx
+    def test_publish_overwrites_caller_document_status(
+        self, strapi_config, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.put("http://localhost:1337/api/articles/doc_test_001").mock(
+            return_value=Response(200, json=mock_v5_response)
+        )
+
+        with SyncClient(strapi_config) as client:
+            client.publish(
+                "articles",
+                "doc_test_001",
+                query=StrapiQuery().with_document_status(DocumentStatus.DRAFT),
+            )
+
+        assert route.calls.last.request.url.params["status"] == "published"
 
     @pytest.mark.respx
     def test_write_ok_true_raises(self, strapi_config, respx_mock: respx.Router) -> None:

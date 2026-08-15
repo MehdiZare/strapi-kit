@@ -696,8 +696,13 @@ while True:
 
 `stream_entities` / `stream_entities_async` (and therefore `StrapiExporter`)
 already call `assert_pagination_echo` and default to v5 `status=draft`
-(`include_drafts=True`) so unpublished documents are not skipped. Pass
-`include_drafts=False` for published-only. v4 clients never send `status=`.
+(`include_drafts=True`) so unpublished documents are not skipped. That
+requests the **draft version** of each document, not a published∪draft
+union. Pass `include_drafts=False` for published-only. Explicit
+`api_version="v4"` never sends `status=` (v4 uses `publicationState`;
+the streamer does not map the flag yet). `api_version="auto"` sends
+`status=draft` on the first page so v5 exports are complete before
+detection.
 
 ### Check API Version
 

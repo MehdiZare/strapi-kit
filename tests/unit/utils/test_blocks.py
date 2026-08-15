@@ -604,6 +604,16 @@ class TestMarkdownToBlocks:
         assert nested["type"] == "list"
         assert nested["children"][0]["children"][0]["text"] == "child"
 
+    def test_nested_list_then_same_level_sibling(self) -> None:
+        """A sibling after a nested child stays on the parent list."""
+        blocks = markdown_to_blocks("- parent\n  - child\n- sibling")
+        items = blocks[0]["children"]
+        assert items[0]["type"] == "list-item"
+        assert items[0]["children"][0]["text"] == "parent"
+        assert items[0]["children"][1]["type"] == "list"
+        assert items[1]["type"] == "list-item"
+        assert items[1]["children"][0]["text"] == "sibling"
+
     @pytest.mark.parametrize("src", ["", "   ", "\n", "\n\n", " \n \t "])
     def test_empty_input_pins_empty_paragraph(self, src: str) -> None:
         assert markdown_to_blocks(src) == EMPTY_PARAGRAPH

@@ -210,6 +210,21 @@ class TestStrapiQuery:
         with pytest.raises(ValidationError, match="FilterBuilder"):
             StrapiQuery().filter("status=published")  # type: ignore[arg-type]
 
+    def test_filter_rejects_raw_dict_at_call_site(self) -> None:
+        """A raw Strapi filters dict must fail immediately (#60)."""
+        with pytest.raises(ValidationError, match="FilterBuilder"):
+            StrapiQuery().filter({"status": {"$eq": "published"}})  # type: ignore[arg-type]
+
+    def test_document_status_and_publication_state_are_readable(self) -> None:
+        """Streamers and callers can inspect D&P params without private fields."""
+        empty = StrapiQuery()
+        assert empty.document_status is None
+        assert empty.publication_state is None
+        draft = StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+        assert draft.document_status is DocumentStatus.DRAFT
+        preview = StrapiQuery().with_publication_state(PublicationState.PREVIEW)
+        assert preview.publication_state is PublicationState.PREVIEW
+
     def test_query_param_keys_come_from_enum(self) -> None:
         """Emitted REST keys must match QueryParam values."""
         query = (

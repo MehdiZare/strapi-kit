@@ -63,12 +63,14 @@ def join_document_path(collection: str, document_id: str) -> str:
     slash-stripping, blank checks, and ``quote(..., safe="")`` cannot drift.
     Collection names are not encoded (they come from ``pluralName``).
     """
-    if not collection or not collection.strip("/"):
+    collection_name = collection.strip().strip("/")
+    if not collection_name:
         raise ValidationError("collection is required")
-    if not document_id or not document_id.strip():
+    raw_id = document_id.strip()
+    if not raw_id:
         raise ValidationError("document_id is required")
-    encoded_id = quote(document_id.strip(), safe="")
-    return f"{collection.strip('/')}/{encoded_id}"
+    encoded_id = quote(raw_id, safe="")
+    return f"{collection_name}/{encoded_id}"
 
 
 def document_endpoint(content_type: object, document_id: str | int) -> str:

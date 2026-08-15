@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`blocks_to_markdown` escapes ATX/list/quote prefixes** at the start of generated lines ([#78](https://github.com/MehdiZare/strapi-kit/issues/78))
 - **E2E article attribute `status` renamed to `workflow_state`** ([#68](https://github.com/MehdiZare/strapi-kit/issues/68)); live D&P e2e covers stock `publish()` ([#44](https://github.com/MehdiZare/strapi-kit/issues/44))
 
+### Fixed
+
+- **Typed write/parse status isolation** — `UnstructuredResponseError.status_code` is stored in a contextvar so concurrent `AsyncClient` requests cannot stamp the wrong HTTP status
+- **`join_document_path` rejects whitespace-only collection names** (same as blank ids) so `"   /id"` cannot be emitted
+
 ### Added
 
 - **Strapi 5 relation write helper** ([#54](https://github.com/MehdiZare/strapi-kit/issues/54))

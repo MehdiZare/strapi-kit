@@ -5,6 +5,7 @@ automatic response format detection, error handling, and authentication.
 """
 
 import logging
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
 from urllib.parse import quote
 
@@ -59,6 +60,12 @@ from ..utils.schema import (
 
 logger = logging.getLogger(__name__)
 
+# Per-task HTTP status for UnstructuredResponseError. Instance state would
+# race when one AsyncClient is used concurrently.
+_response_status_code: ContextVar[int | None] = ContextVar(
+    "strapi_kit_response_status_code", default=None
+)
+
 
 class BaseClient:
     """Base HTTP client for Strapi API operations.
@@ -107,7 +114,6 @@ class BaseClient:
         self._api_version: Literal["v4", "v5"] | None = (
             None if config.api_version == "auto" else config.api_version
         )
-        self._last_status_code: int | None = None
 
         logger.info(
             f"Initialized Strapi client for {self.base_url} (version: {config.api_version})"
@@ -209,8 +215,9 @@ class BaseClient:
     def _single_segment_document_path(self, collection: str, document_id: str) -> str:
         """Build ``document_path`` after requiring a single collection segment.
 
-        Used by ``exists()`` so lookups share the CRUD encoder and cannot
-        walk out of the collection via ``/`` or ``\\`` in the name.
+        Used by ``exists()`` and ``publish()`` so lookups and stock REST
+        publish share the CRUD encoder and cannot walk out of the collection
+        via ``/`` or ``\\`` in the name.
         """
         collection_name = collection.strip().strip("/")
         if not collection_name:
@@ -279,7 +286,7 @@ class BaseClient:
         POST/PUT/GET — raise :class:`UnstructuredResponseError`.
         """
         verb = method.upper()
-        self._last_status_code = response.status_code
+        _response_status_code.set(response.status_code)
         empty = response.status_code == 204 or not response.content
         if empty:
             if verb == HttpMethod.DELETE:
@@ -550,7 +557,7 @@ class BaseClient:
             raise UnstructuredResponseError(
                 "Successful response did not match a single-entity document",
                 details={"errors": e.errors()},
-                status_code=self._last_status_code,
+                status_code=_response_status_code.get(),
             ) from e
 
     def _require_write_data_object(self, response_data: dict[str, Any]) -> None:
@@ -570,7 +577,7 @@ class BaseClient:
                 "has_data": "data" in response_data,
                 "parsed_type": type(data).__name__,
             },
-            status_code=self._last_status_code,
+            status_code=_response_status_code.get(),
         )
 
     def _publish_put_args(

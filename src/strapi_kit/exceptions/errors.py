@@ -149,12 +149,15 @@ class MethodNotAllowedError(StrapiError):
 
 
 class UnstructuredResponseError(StrapiError):
-    """Raised when a 2xx response is empty or not a JSON object.
+    """Raised when a 2xx response is not a usable structured document.
 
-    Strapi REST should return a JSON object for entry writes. Some
-    proxies or custom controllers return an empty body or a bare
-    string such as ``"Created"``. Callers must not treat that as a
-    successful entity — there is no ``documentId`` to continue with.
+    Covers empty bodies, non-JSON / non-object JSON, typed writes whose
+    JSON has no ``data`` object (``{}``, ``{"ok": true}``, ``{"data": []}``),
+    and Pydantic parse failures on a single-entity 2xx body.
+
+    Callers must not treat the call as a successful entity write or fetch —
+    there is no ``documentId`` to continue with. Empty 2xx DELETE bodies
+    are success, not this error.
     """
 
     pass

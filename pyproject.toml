@@ -139,6 +139,10 @@ strict_equality = true
 module = "tests.*"
 disallow_untyped_defs = false
 
+[[tool.mypy.overrides]]
+module = "strapi_kit._version"
+ignore_missing_imports = true
+
 [tool.coverage.run]
 source = ["src"]
 branch = true
