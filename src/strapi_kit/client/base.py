@@ -154,24 +154,29 @@ class BaseClient:
         ``document_id`` is percent-encoded so a corrupted id cannot address
         a different endpoint or inject query parameters.
         """
-        if not collection or not collection.strip("/"):
+        collection_name = collection.strip().strip("/")
+        if not collection_name:
             raise ValidationError("collection is required")
+        if "/" in collection_name or "\\" in collection_name:
+            raise ValidationError("collection must be a single path segment")
         if not document_id or not document_id.strip():
             raise ValidationError("document_id is required")
         encoded_id = quote(document_id.strip(), safe="")
-        return f"{collection.strip('/')}/{encoded_id}/actions/{action.value}"
+        encoded_collection = quote(collection_name, safe="")
+        return f"{encoded_collection}/{encoded_id}/actions/{action.value}"
 
     def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
         """Parse a 2xx response body.
 
-        204 and empty DELETE bodies are success with ``{}``. Other empty
-        or non-object 2xx bodies raise :class:`UnstructuredResponseError`
-        so callers cannot invent a ``documentId`` from silence.
+        Empty DELETE bodies (any 2xx) are success with ``{}``. Other empty
+        or non-object 2xx bodies — including 204 on POST/PUT/GET — raise
+        :class:`UnstructuredResponseError` so callers cannot invent a
+        ``documentId`` from silence.
         """
         verb = method.upper()
         empty = response.status_code == 204 or not response.content
         if empty:
-            if response.status_code == 204 or verb == HttpMethod.DELETE:
+            if verb == HttpMethod.DELETE:
                 logger.debug(f"Response: {response.status_code} (no content)")
                 return {}
             raise UnstructuredResponseError(
@@ -182,7 +187,7 @@ class BaseClient:
 
         try:
             data: Any = response.json()
-        except Exception as json_error:
+        except ValueError as json_error:
             content_type = response.headers.get("content-type", "unknown")
             body_preview = response.text[:500] if response.text else ""
             raise UnstructuredResponseError(

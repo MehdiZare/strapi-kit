@@ -29,8 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`MethodNotAllowedError`** for HTTP 405. HTTP **422** maps to
   `ValidationError` (same as 400).
 - **`UnstructuredResponseError`** for 2xx responses that are empty or not
-  a JSON object (the `"Created"` / empty-201 class). Empty **204** and
-  empty **DELETE** bodies stay success with `{}`.
+  a JSON object (the `"Created"` / empty-201 class). Empty **DELETE**
+  bodies (any 2xx, including 204) stay success with `{}`. A 204 on
+  POST/PUT/GET is treated as unstructured, not a created entity.
 
 ### Changed
 
