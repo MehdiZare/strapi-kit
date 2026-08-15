@@ -139,6 +139,41 @@ path = client.document_path("articles", "a/b?x=1")  # "articles/a%2Fb%3Fx%3D1"
 
 # Raw API (returns dict)
 response = client.get("articles")  # dict
+
+# Origin-rooted admin probe (no /api prefix)
+info = client.get_admin_information()
+print(info.strapi_version)  # str | None
+```
+
+## Admin Information and Origin Paths
+
+Content, Content-Type Builder, and upload stay under `/api`. `admin/` is origin-rooted.
+
+Default `get("admin/information")` **still** prefixes `/api` (no silent change):
+
+```python
+client.get("admin/information")  # GET {base}/api/admin/information
+```
+
+Opt out with `api_prefix=False`, or use the first-class helper:
+
+```python
+from strapi_kit.models import AdminInformation
+
+# Escape hatch (also on post/put/delete and the retry wrappers)
+client.request("GET", "admin/information", api_prefix=False)
+client.get("admin/information", api_prefix=False)
+
+# GET {base}/admin/information
+info: AdminInformation = client.get_admin_information()
+# info.strapi_version from top-level strapiVersion or data.strapiVersion
+# Missing version is still a successful probe (token worked)
+# info.raw is the original JSON dict
+```
+
+```python
+# Async
+info = await client.get_admin_information()
 ```
 
 ### Create

@@ -34,6 +34,7 @@ from .request.populate import Populate, PopulateField
 from .request.query import StrapiQuery
 from .request.relation_write import relation_write
 from .request.sort import Sort, SortField
+from .response.admin import AdminInformation
 from .response.base import (
     BaseStrapiResponse,
     StrapiCollectionResponse,
@@ -103,6 +104,8 @@ __all__ = [
     "BaseStrapiResponse",
     "StrapiSingleResponse",
     "StrapiCollectionResponse",
+    # Response models - Admin
+    "AdminInformation",
     # Response models - Meta
     "PaginationMeta",
     "ResponseMeta",

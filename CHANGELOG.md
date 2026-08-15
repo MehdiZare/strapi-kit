@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `format_validation_errors()` flattens `details.errors` to `path: message` lines
   - `ValidationError.field_errors` exposes parsed `(path, message)` pairs
   - HTTP 400/422 still maps to `ValidationError` (not `ConflictError`)
+- **Origin-path escape hatch and admin information probe** ([#46](https://github.com/MehdiZare/strapi-kit/issues/46))
+  - `request()`, `get()`, `post()`, `put()`, and `delete()` accept `api_prefix=True` (default keeps today's `/api` prefix)
+  - `api_prefix=False` sends the path from the origin (e.g. `{base}/admin/information`)
+  - `get_admin_information()` (sync + async) probes `GET {base}/admin/information`
+  - Returns `AdminInformation` with `strapi_version` parsed from `strapiVersion` or `data.strapiVersion` (missing version is still a successful probe)
+  - Content, Content-Type Builder, and upload endpoints remain under `/api`; `admin/` is origin-rooted
+  - Default `get("admin/information")` still prefixes `/api` (no silent behaviour change)
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
   `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
   v4 `with_publication_state()` raises `ValidationError`.

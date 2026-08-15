@@ -90,6 +90,10 @@ with SyncClient(config) as client:
     # Get raw JSON response
     response = client.get("articles")
     print(response)  # dict
+
+    # Origin-rooted admin probe (no /api prefix)
+    info = client.get_admin_information()
+    print(info.strapi_version)  # e.g. "5.11.0" or None
 ```
 
 ### Asynchronous Usage
@@ -689,6 +693,40 @@ asyncio.run(main())
 - Query media library with filters
 - Update metadata without re-uploading
 - Full support for both sync and async
+
+### Admin Information and Origin Paths
+
+Content API, Content-Type Builder, and upload endpoints stay under `/api`. Admin routes such as `/admin/information` are origin-rooted (not under `/api`).
+
+`get("admin/information")` still becomes `{base}/api/admin/information` so existing callers are unchanged. Use `api_prefix=False` or `get_admin_information()` for the real admin route:
+
+```python
+from strapi_kit import SyncClient, StrapiConfig
+from strapi_kit.models import AdminInformation
+
+config = StrapiConfig(base_url="http://localhost:1337", api_token="your-token")
+
+with SyncClient(config) as client:
+    # Unchanged: still prefixes /api
+    client.get("admin/information")  # GET {base}/api/admin/information
+
+    # Escape hatch for origin-rooted paths
+    client.request("GET", "admin/information", api_prefix=False)
+    client.get("admin/information", api_prefix=False)
+
+    # First-class probe: GET {base}/admin/information
+    info: AdminInformation = client.get_admin_information()
+    print(info.strapi_version)  # from strapiVersion or data.strapiVersion
+    print(info.raw)  # original JSON; missing version is still success
+```
+
+**Async version:**
+
+```python
+async with AsyncClient(config) as client:
+    info = await client.get_admin_information()
+    print(info.strapi_version)
+```
 
 ### Content-Type Builder API
 
