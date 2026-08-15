@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - CTB v5 flattening retains `options` and `draftAndPublish` instead of dropping them.
+- `get_content_types()` raises `ValidationError` when `data` is not a list or an item is not an object.
 - **Media Upload MIME Type Detection** ([#13](https://github.com/MehdiZare/strapi-kit/issues/13)): Fixed `upload_file()` to properly detect and set MIME type based on file extension instead of using `application/octet-stream` for all uploads. Also now sends actual filename instead of hardcoded "file".
 
 ### Changed

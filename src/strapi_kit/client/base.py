@@ -710,16 +710,38 @@ class BaseClient:
             List of ContentTypeListItem instances
 
         Raises:
-            ValidationError: If an item cannot be parsed and skip_unparsable
-                is False
+            ValidationError: If ``data`` is not a list, an item is not an
+                object, or an item cannot be parsed — unless skip_unparsable
+                is True (list items only)
         """
         from ..models.content_type import ContentTypeListItem
 
         data = response_data.get("data", [])
+        if data is None:
+            data = []
+        if not isinstance(data, list):
+            raise ValidationError(
+                "Invalid content types response: 'data' must be a list",
+                details={"data_type": type(data).__name__},
+            )
+
         result = []
 
-        for item in data:
-            uid = item.get("uid", "")
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                if skip_unparsable:
+                    logger.warning(
+                        "Failed to parse content type: expected object at index %s",
+                        index,
+                    )
+                    continue
+                raise ValidationError(
+                    "Failed to parse content type: <unknown>",
+                    details={"index": index, "item_type": type(item).__name__},
+                )
+
+            uid_raw = item.get("uid")
+            uid = uid_raw if isinstance(uid_raw, str) else ""
             # Filter out plugin content types if not requested
             if not include_plugins and uid.startswith("plugin::"):
                 continue
@@ -791,6 +813,11 @@ class BaseClient:
         from ..models.content_type import ContentTypeSchema as CTBContentTypeSchema
 
         data = response_data.get("data", response_data)
+        if not isinstance(data, dict):
+            raise ValidationError(
+                "Invalid content type schema response",
+                details={"data_type": type(data).__name__},
+            )
         try:
             normalized_data = self._normalize_content_type_item(data)
             return CTBContentTypeSchema.model_validate(normalized_data)

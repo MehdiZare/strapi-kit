@@ -1499,6 +1499,58 @@ class TestDraftAndPublishExtraction:
         }
         assert extract_draft_and_publish(item) is True
 
+    def test_extract_options_merges_schema_over_top_level(self) -> None:
+        """Nested schema.options wins on key conflicts; other keys are kept."""
+        from strapi_kit.utils.schema import extract_content_type_options
+
+        item = {
+            "options": {"draftAndPublish": True, "foo": 1},
+            "schema": {"options": {"draftAndPublish": False, "bar": 2}},
+        }
+        assert extract_content_type_options(item) == {
+            "draftAndPublish": False,
+            "foo": 1,
+            "bar": 2,
+        }
+
+    def test_apply_sources_merges_options_when_top_level_exists(self) -> None:
+        """Direct model_validate still merges schema.options into options."""
+        from strapi_kit.utils.schema import apply_draft_and_publish_sources
+
+        payload = apply_draft_and_publish_sources(
+            {
+                "uid": "api::article.article",
+                "info": {"displayName": "Article"},
+                "options": {"foo": 1},
+                "schema": {"options": {"draftAndPublish": True, "bar": 2}},
+            }
+        )
+        assert payload["draftAndPublish"] is True
+        assert payload["options"] == {"foo": 1, "draftAndPublish": True, "bar": 2}
+
+    def test_apply_sources_leaves_non_dict_unchanged(self) -> None:
+        """Non-dict payloads are returned as-is."""
+        from strapi_kit.utils.schema import apply_draft_and_publish_sources
+
+        assert apply_draft_and_publish_sources(None) is None
+        assert apply_draft_and_publish_sources(["x"]) == ["x"]
+
+    def test_list_item_merges_options_layers(self) -> None:
+        """ContentTypeListItem merges top-level and schema.options."""
+        item = ContentTypeListItem.model_validate(
+            {
+                "uid": "api::article.article",
+                "info": {"displayName": "Article"},
+                "options": {"populateCreatorFields": True},
+                "schema": {"options": {"draftAndPublish": False}},
+            }
+        )
+        assert item.draft_and_publish is False
+        assert item.options == {
+            "populateCreatorFields": True,
+            "draftAndPublish": False,
+        }
+
     def test_list_item_none_by_default(self) -> None:
         """ContentTypeListItem defaults draft_and_publish to None."""
         item = ContentTypeListItem.model_validate(
@@ -1737,6 +1789,65 @@ class TestDraftAndPublishWireShapes:
         assert normalized["options"] is None
         assert normalized["info"]["displayName"] == "Article"
 
+    @pytest.mark.respx
+    def test_live_strapi_format_content_type_shape(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        """Stock formatContentType spreads getOptions() onto schema (not options)."""
+        item = {
+            "uid": "api::article.article",
+            "apiID": "article",
+            "schema": {
+                "draftAndPublish": True,
+                "populateCreatorFields": True,
+                "displayName": "Article",
+                "singularName": "article",
+                "pluralName": "articles",
+                "description": "",
+                "kind": "collectionType",
+                "collectionName": "articles",
+                "attributes": {"title": {"type": "string"}},
+                "visible": True,
+                "restrictRelationsTo": None,
+            },
+        }
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+            return_value=Response(200, json={"data": [item]})
+        )
+
+        with SyncClient(strapi_config) as client:
+            content_types = client.get_content_types()
+
+        article = content_types[0]
+        assert article.draft_and_publish is True
+        # Extra option keys live on schema root in this wire shape, not options.
+        assert article.options is None
+
+    @pytest.mark.respx
+    def test_get_content_types_top_level_options_on_nested_item(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        """Top-level item.options is a D&P source even when schema has no options."""
+        item = make_v5_content_type_item()
+        item["options"] = {"draftAndPublish": True, "populateCreatorFields": True}
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+            return_value=Response(200, json={"data": [item]})
+        )
+
+        with SyncClient(strapi_config) as client:
+            content_types = client.get_content_types()
+
+        article = content_types[0]
+        assert article.draft_and_publish is True
+        assert article.options == {
+            "draftAndPublish": True,
+            "populateCreatorFields": True,
+        }
+
 
 class TestUnparsableContentTypes:
     """Unparsable CTB items raise unless skip_unparsable is set (Issue #45)."""
@@ -1814,3 +1925,86 @@ class TestUnparsableContentTypes:
 
         assert len(content_types) == 1
         assert content_types[0].uid == "api::article.article"
+
+    @pytest.mark.respx
+    def test_non_object_item_raises_by_default(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        """A non-object list item raises ValidationError, not AttributeError."""
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+            return_value=Response(
+                200,
+                json={"data": [make_v5_content_type_item(), "not-an-object"]},
+            )
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="Failed to parse content type"):
+                client.get_content_types()
+
+    @pytest.mark.respx
+    def test_non_object_item_skipped_when_opted_in(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        """skip_unparsable=True skips non-object items."""
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+            return_value=Response(
+                200,
+                json={"data": [make_v5_content_type_item(), "not-an-object"]},
+            )
+        )
+
+        with SyncClient(strapi_config) as client:
+            content_types = client.get_content_types(skip_unparsable=True)
+
+        assert len(content_types) == 1
+        assert content_types[0].uid == "api::article.article"
+
+    @pytest.mark.respx
+    def test_non_list_data_raises_validation_error(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        """A dict (or other non-list) data payload raises ValidationError."""
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+            return_value=Response(200, json={"data": {"uid": "api::article.article"}})
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="must be a list"):
+                client.get_content_types()
+
+    @pytest.mark.respx
+    def test_null_data_is_empty_list(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        """data: null is treated as an empty list."""
+        respx_mock.get("http://localhost:1337/api/content-type-builder/content-types").mock(
+            return_value=Response(200, json={"data": None})
+        )
+
+        with SyncClient(strapi_config) as client:
+            assert client.get_content_types() == []
+
+    @pytest.mark.respx
+    def test_schema_response_non_object_raises(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+    ) -> None:
+        """get_content_type_schema raises ValidationError when data is not an object."""
+        uid = "api::article.article"
+        respx_mock.get(f"http://localhost:1337/api/content-type-builder/content-types/{uid}").mock(
+            return_value=Response(200, json={"data": ["not-an-object"]})
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="Invalid content type schema response"):
+                client.get_content_type_schema(uid)

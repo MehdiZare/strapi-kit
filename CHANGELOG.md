@@ -91,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `_normalize_content_type_item()` no longer drops Draft & Publish sources when flattening Strapi v5 CTB payloads
+- `get_content_types()` raises `ValidationError` (not `AttributeError`/`TypeError`) when `data` is not a list or an item is not an object
 
 ### Changed
 

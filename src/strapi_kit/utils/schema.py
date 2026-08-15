@@ -122,8 +122,9 @@ def extract_draft_and_publish(item: dict[str, Any]) -> bool | None:
 def apply_draft_and_publish_sources(data: Any) -> Any:
     """Copy a payload and populate first-class Draft & Publish fields.
 
-    Sets ``draftAndPublish`` from all known wire locations. When ``options`` is
-    missing, copies it from nested schema options so extra keys are retained.
+    Sets ``draftAndPublish`` from all known wire locations. Merges top-level
+    ``options`` with ``schema.options`` (nested keys win) so extra keys are
+    retained even when both objects are present.
 
     Args:
         data: Raw model payload (typically a dict)
@@ -135,8 +136,7 @@ def apply_draft_and_publish_sources(data: Any) -> Any:
         return data
     payload = dict(data)
     payload["draftAndPublish"] = extract_draft_and_publish(payload)
-    if not isinstance(payload.get("options"), dict):
-        options = extract_content_type_options(payload)
-        if options is not None:
-            payload["options"] = options
+    options = extract_content_type_options(payload)
+    if options is not None:
+        payload["options"] = options
     return payload
