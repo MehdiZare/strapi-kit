@@ -125,11 +125,19 @@ class BaseClient:
 
         return headers
 
-    def _build_url(self, endpoint: str) -> str:
+    def _build_url(self, endpoint: str, *, api_prefix: bool = True) -> str:
         """Build full URL for an endpoint.
 
+        Content, Content-Type Builder, and upload routes stay under ``/api``.
+        Admin routes such as ``/admin/information`` are origin-rooted; pass
+        ``api_prefix=False`` to skip the default prefix.
+
         Args:
-            endpoint: API endpoint path (e.g., "articles" or "/api/articles")
+            endpoint: API endpoint path (e.g., "articles", "/api/articles",
+                or "/admin/information")
+            api_prefix: When True (default), prefix the path with ``api/``
+                unless it already starts with ``api/``. When False, join the
+                stripped path to the origin as-is.
 
         Returns:
             Complete URL
@@ -137,8 +145,8 @@ class BaseClient:
         # Remove leading and trailing slashes from endpoint
         endpoint = endpoint.strip("/")
 
-        # Ensure /api prefix for content endpoints
-        if not endpoint.startswith("api/"):
+        # Ensure /api prefix for content endpoints unless explicitly opted out
+        if api_prefix and not endpoint.startswith("api/"):
             endpoint = f"api/{endpoint}"
 
         return f"{self.base_url}/{endpoint}"

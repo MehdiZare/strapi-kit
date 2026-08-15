@@ -29,6 +29,7 @@ from ..exceptions import (
 from ..models.bulk import BulkOperationFailure, BulkOperationResult
 from ..models.enums import DocumentAction, HttpMethod
 from ..models.request.query import StrapiQuery
+from ..models.response.admin import AdminInformation
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
     NormalizedCollectionResponse,
@@ -138,6 +139,8 @@ class AsyncClient(BaseClient):
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make an HTTP request to the Strapi API with automatic retry.
 
@@ -153,6 +156,8 @@ class AsyncClient(BaseClient):
             params: URL query parameters
             json: JSON request body
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
+                Set False for origin-rooted routes such as ``/admin/information``.
 
         Returns:
             Response JSON data
@@ -172,7 +177,7 @@ class AsyncClient(BaseClient):
             if self._rate_limiter:
                 await self._rate_limiter.acquire()
 
-            url = self._build_url(endpoint)
+            url = self._build_url(endpoint, api_prefix=api_prefix)
             request_headers = self._get_headers(headers)
 
             logger.debug(f"{method} {url} params={params}")
@@ -191,7 +196,8 @@ class AsyncClient(BaseClient):
                     self._handle_error_response(response)
 
                 data = self._parse_success_response(response, method=method)
-                if data and isinstance(data, dict):
+                # Origin-rooted routes are not content-API payloads.
+                if api_prefix and data and isinstance(data, dict):
                     self._detect_api_version(data)
 
                 logger.debug(f"Response: {response.status_code}")
@@ -211,6 +217,8 @@ class AsyncClient(BaseClient):
         endpoint: str,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make a GET request.
 
@@ -218,11 +226,14 @@ class AsyncClient(BaseClient):
             endpoint: API endpoint path
             params: URL query parameters
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
 
         Returns:
             Response JSON data
         """
-        return await self.request(HttpMethod.GET, endpoint, params=params, headers=headers)
+        return await self.request(
+            HttpMethod.GET, endpoint, params=params, headers=headers, api_prefix=api_prefix
+        )
 
     async def post(
         self,
@@ -230,6 +241,8 @@ class AsyncClient(BaseClient):
         json: dict[str, Any],
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make a POST request.
 
@@ -238,12 +251,18 @@ class AsyncClient(BaseClient):
             json: JSON request body
             params: URL query parameters
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
 
         Returns:
             Response JSON data
         """
         return await self.request(
-            HttpMethod.POST, endpoint, params=params, json=json, headers=headers
+            HttpMethod.POST,
+            endpoint,
+            params=params,
+            json=json,
+            headers=headers,
+            api_prefix=api_prefix,
         )
 
     async def put(
@@ -252,6 +271,8 @@ class AsyncClient(BaseClient):
         json: dict[str, Any],
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make a PUT request.
 
@@ -260,12 +281,18 @@ class AsyncClient(BaseClient):
             json: JSON request body
             params: URL query parameters
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
 
         Returns:
             Response JSON data
         """
         return await self.request(
-            HttpMethod.PUT, endpoint, params=params, json=json, headers=headers
+            HttpMethod.PUT,
+            endpoint,
+            params=params,
+            json=json,
+            headers=headers,
+            api_prefix=api_prefix,
         )
 
     async def delete(
@@ -273,6 +300,8 @@ class AsyncClient(BaseClient):
         endpoint: str,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make a DELETE request.
 
@@ -280,11 +309,42 @@ class AsyncClient(BaseClient):
             endpoint: API endpoint path
             params: URL query parameters
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
 
         Returns:
             Response JSON data
         """
-        return await self.request(HttpMethod.DELETE, endpoint, params=params, headers=headers)
+        return await self.request(
+            HttpMethod.DELETE, endpoint, params=params, headers=headers, api_prefix=api_prefix
+        )
+
+    async def get_admin_information(self) -> AdminInformation:
+        """GET ``{base}/admin/information`` (origin-rooted, no ``/api`` prefix).
+
+        Use this to probe a Strapi instance. Content, Content-Type Builder, and
+        upload endpoints remain under ``/api``. Default ``get("admin/information")``
+        still prefixes ``/api`` for backward compatibility.
+
+        Version is read from ``strapiVersion`` or ``data.strapiVersion``. A
+        missing version is still a successful probe.
+
+        Returns:
+            Structured admin information including the raw JSON payload.
+
+        Raises:
+            AuthenticationError: If the request is unauthorized (401)
+            AuthorizationError: If the token lacks permission (403)
+            NotFoundError: If the endpoint does not exist (404)
+            UnstructuredResponseError: If a 2xx body is empty, non-JSON, or not an object
+            StrapiError: On other API errors
+
+        Examples:
+            >>> info = await client.get_admin_information()
+            >>> info.strapi_version
+            '5.11.0'
+        """
+        raw_response = await self.get("admin/information", api_prefix=False)
+        return AdminInformation.from_response(raw_response)
 
     # Typed methods for normalized responses
 
