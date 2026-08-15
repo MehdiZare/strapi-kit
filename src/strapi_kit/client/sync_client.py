@@ -20,7 +20,9 @@ from ..exceptions import (
 )
 from ..exceptions import (
     MediaError,
+    NotFoundError,
     StrapiError,
+    ValidationError,
 )
 from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
@@ -453,6 +455,7 @@ class SyncClient(BaseClient):
         headers: dict[str, str] | None = None,
         *,
         document_id: str | None = None,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Update an existing entity with typed, normalized response.
 
@@ -465,6 +468,10 @@ class SyncClient(BaseClient):
             headers: Additional headers
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
+            classify_write_404: If True, a write ``NotFoundError`` is probed
+                with one draft GET. A readable document is remapped to
+                ``AuthorizationError`` (token likely lacks Update/Publish).
+                Default False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response
@@ -485,7 +492,12 @@ class SyncClient(BaseClient):
         params = query.to_query_params() if query else None
         # Wrap data in Strapi format
         payload = {"data": data}
-        raw_response = self.put(path, json=payload, params=params, headers=headers)
+        try:
+            raw_response = self.put(path, json=payload, params=params, headers=headers)
+        except NotFoundError as original:
+            if classify_write_404:
+                self._classify_write_404(path, original)
+            raise
         return self._parse_single_response(raw_response)
 
     def remove(
@@ -494,6 +506,7 @@ class SyncClient(BaseClient):
         headers: dict[str, str] | None = None,
         *,
         document_id: str | None = None,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Delete an entity with typed, normalized response.
 
@@ -504,6 +517,10 @@ class SyncClient(BaseClient):
             headers: Additional headers
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
+            classify_write_404: If True, a write ``NotFoundError`` is probed
+                with one draft GET. A readable document is remapped to
+                ``AuthorizationError`` (token likely lacks Update/Publish).
+                Default False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response (deleted entity)
@@ -520,8 +537,52 @@ class SyncClient(BaseClient):
             1
         """
         path = self._document_endpoint(endpoint, document_id)
-        raw_response = self.delete(path, headers=headers)
+        try:
+            raw_response = self.delete(path, headers=headers)
+        except NotFoundError as original:
+            if classify_write_404:
+                self._classify_write_404(path, original)
+            raise
         return self._parse_single_response(raw_response)
+
+    def exists(self, collection: str, document_id: str) -> bool:
+        """Return whether a document exists as published or draft.
+
+        Strapi 5 omitted ``status=`` means published, so a draft-only
+        document 404s on the default GET. A published miss is retried
+        once with ``status=draft``. A draft ``ValidationError`` (Draft &
+        Publish off / unknown param) keeps the published miss as False.
+        Auth, 5xx, and network errors on either read raise.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId`` (or numeric id)
+
+        Returns:
+            True if a published or draft version is readable
+        """
+        endpoint = self.document_path(collection, document_id)
+        try:
+            self.get_one(endpoint)
+            return True
+        except NotFoundError:
+            pass
+
+        try:
+            self.get_one(endpoint, query=self._draft_status_query())
+        except NotFoundError:
+            return False
+        except ValidationError:
+            return False
+        return True
+
+    def _classify_write_404(self, endpoint: str, original: NotFoundError) -> None:
+        """Probe one draft GET after a write 404; never mask the original error."""
+        try:
+            response = self.get_one(endpoint, query=self._draft_status_query())
+        except Exception:
+            raise original from None
+        self._reraise_classified_write_404(original, response.data)
 
     def publish(
         self,

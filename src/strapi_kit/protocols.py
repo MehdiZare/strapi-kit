@@ -385,6 +385,7 @@ class StrapiClient(Protocol):
         headers: dict[str, str] | None = None,
         *,
         document_id: str | None = None,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Update an existing entity.
 
@@ -394,6 +395,8 @@ class StrapiClient(Protocol):
             query: Optional query configuration
             headers: Additional headers
             document_id: Optional document ID (percent-encoded onto the path)
+            classify_write_404: Opt-in remapping of write 404s when a draft GET
+                shows the document still exists
 
         Returns:
             Normalized single entity response
@@ -406,6 +409,7 @@ class StrapiClient(Protocol):
         headers: dict[str, str] | None = None,
         *,
         document_id: str | None = None,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Delete an entity.
 
@@ -413,9 +417,23 @@ class StrapiClient(Protocol):
             endpoint: API endpoint path, or collection name when document_id is set
             headers: Additional headers
             document_id: Optional document ID (percent-encoded onto the path)
+            classify_write_404: Opt-in remapping of write 404s when a draft GET
+                shows the document still exists
 
         Returns:
             Normalized single entity response
+        """
+        ...
+
+    def exists(self, collection: str, document_id: str) -> bool:
+        """Return whether a published or draft document exists.
+
+        Args:
+            collection: Collection API id
+            document_id: Document id
+
+        Returns:
+            True if a published or draft version is readable
         """
         ...
 

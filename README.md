@@ -541,14 +541,19 @@ with SyncClient(config) as client:
     data = {"title": "Updated Title"}
     response = client.update("articles", data, document_id=created_id)
 
+    # Draft-inclusive existence (v5 omitted status= is published)
+    if document_id and client.exists("articles", document_id):
+        print("document is published or draft")
+
     # v5 Draft & Publish actions (documentId, not numeric id)
     if document_id:
         client.publish("articles", document_id)
         client.unpublish("articles", document_id)
         client.discard_draft("articles", document_id)
 
-    # Delete
-    response = client.remove("articles", document_id=created_id)
+    # Delete. classify_write_404 remaps a 404 to AuthorizationError when
+    # a draft GET still finds the document (token likely lacks Update/Publish).
+    response = client.remove("articles", document_id=created_id, classify_write_404=True)
 
     # String endpoints still work (caller must encode special characters):
     # client.get_one("articles/abc")
@@ -1400,7 +1405,7 @@ This project is in active development. Currently implemented:
 - **Request Models**: Filters (24 operators), sorting, pagination, population, field selection
 - **Response Models**: V4/V5 parsing with automatic normalization
 - **Query Builder**: `StrapiQuery` fluent API with full type safety
-- **Typed Client Methods**: `get_one()`, `get_many()`, `create()`, `update()`, `remove()`, `publish()`, `unpublish()`, `discard_draft()`
+- **Typed Client Methods**: `get_one()`, `get_many()`, `create()`, `update()`, `remove()`, `exists()`, `publish()`, `unpublish()`, `discard_draft()`
 - **Dependency Injection**: Full DI support with protocols for testability
 - **Full test coverage** with type-safe query building
 

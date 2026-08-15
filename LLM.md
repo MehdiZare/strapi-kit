@@ -208,6 +208,10 @@ new_id = response.data.document_id or str(response.data.id)
 data = {"title": "Updated Title"}
 response = client.update("articles", data, document_id="abc123")
 # Also valid: client.update("articles/1", data)
+
+# Opt-in: write 404 while the draft is still readable → AuthorizationError
+# (token likely lacks Update/Publish). Original status_code=404 is in details.
+client.update("articles", data, document_id="abc123", classify_write_404=True)
 ```
 
 ### Delete
@@ -215,6 +219,19 @@ response = client.update("articles", data, document_id="abc123")
 ```python
 response = client.remove("articles", document_id="abc123")
 # Also valid: client.remove("articles/1")
+client.remove("articles", document_id="abc123", classify_write_404=True)
+```
+
+### Exists (published, then draft)
+
+Strapi 5 omitted `status=` means published. Draft-only documents 404 on
+the default GET. `exists()` retries once with `status=draft`. A draft
+`ValidationError` (Draft & Publish off) is `False`. Auth / 5xx / network
+on either read raise.
+
+```python
+if client.exists("articles", document_id):
+    ...
 ```
 
 ### Publish / Unpublish (Strapi v5)

@@ -64,6 +64,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including diagnostic `published-without-draft` / `published-with-draft`)
   and `StrapiQuery.with_publication_filter()`. Combines with `status=`.
   Mixing with v4 `with_publication_state()` raises `ValidationError`.
+- **Draft-inclusive `exists()`** — `SyncClient.exists` / `AsyncClient.exists`
+  (`collection`, `document_id`). Default GET (published), then one
+  `status=draft` retry on `NotFoundError` only. Draft `NotFoundError` or
+  `ValidationError` (Draft & Publish off) is `False`. Auth / 5xx / network
+  on either read raise.
+- **Opt-in write-404 classification** — `update(..., classify_write_404=True)`
+  and `remove(..., classify_write_404=True)`. After a write `NotFoundError`,
+  one draft GET: if the document is readable, raise `AuthorizationError`
+  (token likely lacks Update/Publish) with original `status_code=404` in
+  details; otherwise re-raise the original `NotFoundError`. Default `False`
+  keeps today's mapping.
 - **v5 document actions** — `SyncClient.publish` / `unpublish` /
   `discard_draft` and the async equivalents.
   `POST /api/{collection}/{documentId}/actions/{publish|unpublish|discardDraft}`.
