@@ -59,6 +59,7 @@ from .protocols import (
     ResponseParser,
     SchemaProvider,
 )
+from .utils.pagination import assert_pagination_echo
 
 __all__ = [
     "__version__",
@@ -87,6 +88,8 @@ __all__ = [
     # Streaming
     "stream_entities",
     "stream_entities_async",
+    # Pagination
+    "assert_pagination_echo",
     # Export/Import
     "StrapiExporter",
     "StrapiImporter",

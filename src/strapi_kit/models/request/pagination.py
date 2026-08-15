@@ -34,7 +34,11 @@ class PagePagination(BaseModel):
 
     Attributes:
         page: Page number (1-indexed, must be >= 1)
-        page_size: Number of items per page (must be between 1 and 100)
+        page_size: Number of items per page (must be between 1 and 100).
+            Stock Strapi also silently caps ``pageSize`` at ``maxLimit``
+            (default 100); requesting more is unsafe unless that server
+            limit is raised. After collection reads, use
+            ``assert_pagination_echo`` to detect a silent cap.
         with_count: Include total count in response (default: True)
     """
 

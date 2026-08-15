@@ -47,6 +47,7 @@ from .response.normalized import (
     NormalizedEntity,
     NormalizedSingleResponse,
 )
+from .response.pagination import assert_pagination_echo
 from .response.relation import RelationData
 from .response.v4 import V4Attributes, V4CollectionResponse, V4Entity, V4SingleResponse
 from .response.v5 import V5CollectionResponse, V5Entity, V5SingleResponse
@@ -105,6 +106,7 @@ __all__ = [
     # Response models - Meta
     "PaginationMeta",
     "ResponseMeta",
+    "assert_pagination_echo",
     # Response models - V4
     "V4Attributes",
     "V4Entity",

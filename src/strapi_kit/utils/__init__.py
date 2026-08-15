@@ -4,8 +4,10 @@ This package contains helper utilities including:
 - Rate limiting
 - UID handling
 - SEO detection
+- Pagination echo / maxLimit guards
 """
 
+from strapi_kit.utils.pagination import assert_pagination_echo
 from strapi_kit.utils.rate_limiter import AsyncTokenBucketRateLimiter, TokenBucketRateLimiter
 from strapi_kit.utils.schema import extract_info_from_schema
 from strapi_kit.utils.seo import SEOConfiguration, detect_seo_configuration
@@ -34,4 +36,6 @@ __all__ = [
     "SEOConfiguration",
     # Schema utilities
     "extract_info_from_schema",
+    # Pagination
+    "assert_pagination_echo",
 ]

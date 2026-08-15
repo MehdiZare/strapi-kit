@@ -360,6 +360,22 @@ query = StrapiQuery().paginate(start=0, limit=50)
 query = StrapiQuery().paginate(page=1, page_size=100, with_count=False)
 ```
 
+Stock Strapi silently caps `pagination[pageSize]` at the server `maxLimit`
+(default **100**). Requesting `page_size > 100` is unsafe unless that limit is
+raised. `PagePagination` stays capped at 100; `get_many()` does not verify the
+echo. For import/export (or any completeness-sensitive read), check the echo:
+
+```python
+from strapi_kit import assert_pagination_echo
+
+response = client.get_many("articles", query)
+total = assert_pagination_echo(
+    response.meta,
+    requested_page=1,
+    requested_page_size=25,
+)
+```
+
 ### Population (Relations)
 
 Expand relations, components, and dynamic zones:

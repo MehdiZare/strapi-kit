@@ -293,6 +293,27 @@ query = StrapiQuery().paginate(page=1, page_size=25)
 query = StrapiQuery().paginate(start=0, limit=50)
 ```
 
+Stock Strapi silently caps `pageSize` at `maxLimit` (default 100).
+`PagePagination` is already `le=100`. `get_many()` does **not** verify the
+echo — use the opt-in helper for import/export completeness:
+
+```python
+from strapi_kit import assert_pagination_echo
+
+response = client.get_many("articles", query)
+total = assert_pagination_echo(
+    response.meta,
+    requested_page=1,
+    requested_page_size=25,
+)
+```
+
+`page_size > 100` is unsafe unless the server `maxLimit` is raised. Digit
+strings (`"12"`) are accepted; `bool` is not an int. Signed digit strings
+(`"-1"`) are readable negatives and fail the non-negative `total` check.
+Absent `page`/`pageSize` keys are tolerated; a present but unreadable echo
+raises `ValidationError`.
+
 ### Population (Relations)
 
 ```python
@@ -516,15 +537,23 @@ def uid_to_endpoint(uid: str) -> str:
 ### Iterate All Pages
 
 ```python
+from strapi_kit import assert_pagination_echo
+
 page = 1
+page_size = 100
 while True:
-    query = StrapiQuery().paginate(page=page, page_size=100)
+    query = StrapiQuery().paginate(page=page, page_size=page_size)
     response = client.get_many("articles", query=query)
+    total = assert_pagination_echo(
+        response.meta,
+        requested_page=page,
+        requested_page_size=page_size,
+    )
 
     for item in response.data:
         process(item)
 
-    if page >= response.meta.pagination.page_count:
+    if page * page_size >= total:
         break
     page += 1
 ```
@@ -555,6 +584,7 @@ with SyncClient(config) as client:
 | `src/strapi_kit/models/request/relation_write.py` | v5 relation write helper |
 | `src/strapi_kit/models/request/filters.py` | FilterBuilder |
 | `src/strapi_kit/models/response/normalized.py` | Response models |
+| `src/strapi_kit/models/response/pagination.py` | Pagination echo / maxLimit guard |
 | `src/strapi_kit/operations/media.py` | Media utilities |
 | `src/strapi_kit/exceptions/errors.py` | Exception hierarchy |
 | `src/strapi_kit/models/config.py` | Configuration models |
