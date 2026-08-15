@@ -3,9 +3,23 @@
 Includes configuration models and request/response models for Strapi API interactions.
 """
 
+from .blocks import (
+    BlockNode,
+    CodeNode,
+    HeadingNode,
+    ImageAsset,
+    ImageNode,
+    InlineNode,
+    LinkNode,
+    ListItemNode,
+    ListNode,
+    ParagraphNode,
+    QuoteNode,
+    TextNode,
+)
 from .bulk import BulkOperationFailure, BulkOperationResult
 from .config import RetryConfig, StrapiConfig
-from .content_type import ComponentListItem, ContentTypeListItem
+from .content_type import ComponentListItem, ContentTypeListItem, ContentTypeOptions
 from .content_type import ContentTypeInfo as CTBContentTypeInfo
 from .content_type import ContentTypeSchema as CTBContentTypeSchema
 from .enums import (
@@ -139,5 +153,19 @@ __all__ = [
     "CTBContentTypeInfo",
     "CTBContentTypeSchema",
     "ContentTypeListItem",
+    "ContentTypeOptions",
     "ComponentListItem",
+    # Blocks JSON nodes
+    "BlockNode",
+    "InlineNode",
+    "TextNode",
+    "LinkNode",
+    "ImageNode",
+    "ImageAsset",
+    "ParagraphNode",
+    "HeadingNode",
+    "QuoteNode",
+    "CodeNode",
+    "ListNode",
+    "ListItemNode",
 ]

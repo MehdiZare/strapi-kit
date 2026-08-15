@@ -39,8 +39,10 @@ from .exceptions import (
 )
 from .export import StrapiExporter, StrapiImporter
 from .models import (
+    BlockNode,
     BulkOperationFailure,
     BulkOperationResult,
+    ContentTypeOptions,
     DocumentAction,
     DocumentStatus,
     FieldType,
@@ -51,6 +53,7 @@ from .models import (
     RelationWriteOp,
     RetryConfig,
     StrapiConfig,
+    TextNode,
     relation_write,
 )
 from .operations.streaming import stream_entities, stream_entities_async
@@ -86,6 +89,9 @@ __all__ = [
     "MarkdownConversion",
     "blocks_to_markdown",
     "markdown_to_blocks",
+    "BlockNode",
+    "TextNode",
+    "ContentTypeOptions",
     "ConfigFactory",
     "load_config",
     "create_config",

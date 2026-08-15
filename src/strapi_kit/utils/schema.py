@@ -66,13 +66,16 @@ def extract_content_type_options(item: dict[str, Any]) -> dict[str, Any] | None:
       ``getOptions()`` onto the schema root)
     * ``schema.options``
 
-    ``draft_and_publish`` remains the first-class source of truth.
+    ``draftAndPublish`` / ``draft_and_publish`` are stripped so
+    ``draft_and_publish`` on the content-type model is the only source
+    of truth.
 
     Args:
         item: Raw content-type item (v4 flat or v5 nested schema)
 
     Returns:
-        A shallow copy of the options dict, or None if no option keys exist.
+        A shallow copy of the options dict without D&P keys, or None if
+        nothing remains.
     """
     merged: dict[str, Any] = {}
 
@@ -87,6 +90,9 @@ def extract_content_type_options(item: dict[str, Any]) -> dict[str, Any] | None:
         nested = schema.get("options")
         if isinstance(nested, dict):
             merged.update(nested)
+
+    for key in _DRAFT_AND_PUBLISH_KEYS:
+        merged.pop(key, None)
 
     return merged or None
 
@@ -159,7 +165,7 @@ def apply_draft_and_publish_sources(data: Any) -> Any:
         return data
     payload = dict(data)
     payload["draftAndPublish"] = extract_draft_and_publish(payload)
-    options = extract_content_type_options(payload)
-    if options is not None:
-        payload["options"] = options
+    # Always assign: None clears a D&P-only options object so the first-class
+    # field is the only remaining source of truth.
+    payload["options"] = extract_content_type_options(payload)
     return payload

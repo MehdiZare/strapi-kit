@@ -87,7 +87,7 @@ from strapi_kit.models import (
 # Strapi 5 relation writes (also exported from strapi_kit)
 from strapi_kit import RelationWriteOp, relation_write
 # Strapi v5 Blocks (rich text JSON) ↔ Markdown
-from strapi_kit import FieldType, MarkdownConversion, blocks_to_markdown, markdown_to_blocks
+from strapi_kit import FieldType, MarkdownConversion, BlockNode, blocks_to_markdown, markdown_to_blocks
 
 # For SecretStr (API tokens)
 from pydantic import SecretStr
@@ -444,7 +444,7 @@ md = conversion.markdown
 # types, malformed nodes, and trees deeper than 32 are recorded — never
 # silent. A depth guard prevents recursion bombs and cyclic children.
 
-# Write: documented CommonMark subset → blocks (marks, links, images)
+# Write: documented CommonMark subset → list[BlockNode] (JSON dicts, not models)
 body = markdown_to_blocks("# Title\n\nA paragraph with **bold**\n\n- item")
 client.create("articles", {"title": "Hello", "body": body})
 
@@ -596,7 +596,8 @@ schema = client.get_content_type_schema("api::article.article")
 # Tri-state: True / False / None. Absence is NOT False.
 ct.draft_and_publish      # bool | None
 schema.draft_and_publish  # bool | None
-ct.options                # dict | None (other option keys kept)
+ct.options                # ContentTypeOptions | None (D&P is not stored here)
+# ct.options.populate_creator_fields, .visible, extra plugin keys via extra="allow"
 
 # Do not infer D&P from publishedAt.
 # True if any of item / options / schema / schema.options has boolean
