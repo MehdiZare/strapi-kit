@@ -11,7 +11,12 @@ This package contains helper utilities including:
 from strapi_kit.utils.endpoints import collection_endpoint, document_endpoint
 from strapi_kit.utils.pagination import assert_pagination_echo
 from strapi_kit.utils.rate_limiter import AsyncTokenBucketRateLimiter, TokenBucketRateLimiter
-from strapi_kit.utils.schema import extract_info_from_schema
+from strapi_kit.utils.schema import (
+    apply_draft_and_publish_sources,
+    extract_content_type_options,
+    extract_draft_and_publish,
+    extract_info_from_schema,
+)
 from strapi_kit.utils.seo import SEOConfiguration, detect_seo_configuration
 from strapi_kit.utils.uid import (
     api_id_to_singular,
@@ -43,4 +48,7 @@ __all__ = [
     "extract_info_from_schema",
     # Pagination
     "assert_pagination_echo",
+    "extract_content_type_options",
+    "extract_draft_and_publish",
+    "apply_draft_and_publish_sources",
 ]

@@ -1239,17 +1239,29 @@ class AsyncClient(BaseClient):
         self,
         *,
         include_plugins: bool = False,
+        skip_unparsable: bool = False,
     ) -> list["ContentTypeListItem"]:
         """List all content types from Content-Type Builder API.
 
         Retrieves schema information for all content types defined in Strapi.
 
+        Each item exposes ``draft_and_publish`` as ``True`` / ``False`` when
+        Strapi declared Draft & Publish, or ``None`` when the flag was absent.
+        Absence is not ``False``.
+
         Args:
             include_plugins: Whether to include plugin content types
                             (e.g., users-permissions). Defaults to False.
+            skip_unparsable: If True, log and skip items that fail validation.
+                            If False (default), raise ValidationError.
 
         Returns:
-            List of ContentTypeListItem with uid, kind, info, and attributes
+            List of ContentTypeListItem with uid, kind, info, attributes,
+            options, and draft_and_publish
+
+        Raises:
+            ValidationError: If an item cannot be parsed and skip_unparsable
+                is False
 
         Examples:
             >>> # Get only API content types
@@ -1265,7 +1277,9 @@ class AsyncClient(BaseClient):
         """
 
         raw_response = await self.get("content-type-builder/content-types")
-        return self._parse_content_types_response(raw_response, include_plugins)
+        return self._parse_content_types_response(
+            raw_response, include_plugins, skip_unparsable=skip_unparsable
+        )
 
     async def get_components(self) -> list["ComponentListItem"]:
         """List all components from Content-Type Builder API.
@@ -1295,10 +1309,13 @@ class AsyncClient(BaseClient):
             uid: Content type UID (e.g., "api::article.article")
 
         Returns:
-            CTBContentTypeSchema with complete field definitions
+            CTBContentTypeSchema with complete field definitions, including
+            ``draft_and_publish`` (True / False / None; absence is not False)
+            and retained ``options``
 
         Raises:
             NotFoundError: If content type doesn't exist
+            ValidationError: If the schema payload cannot be parsed
 
         Examples:
             >>> schema = await client.get_content_type_schema("api::article.article")

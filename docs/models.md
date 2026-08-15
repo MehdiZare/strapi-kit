@@ -9,6 +9,7 @@ Complete reference for strapi-kit's type-safe models and query builder.
 - [Filter Operators](#filter-operators)
 - [Response Models](#response-models)
 - [Normalization](#normalization)
+- [Content-Type Builder Models](#content-type-builder-models)
 - [Advanced Patterns](#advanced-patterns)
 
 ## Overview
@@ -489,6 +490,34 @@ normalized = NormalizedEntity.from_v5(v5_entity)
 ```
 
 The client handles this automatically based on version detection.
+
+## Content-Type Builder Models
+
+`get_content_types()` and `get_content_type_schema()` return CTB models with a
+first-class Draft & Publish flag. Flattening still lifts `displayName` /
+attributes out of the v5 `schema` object, but **does not drop** D&P sources.
+
+```python
+from strapi_kit.models import ContentTypeListItem, CTBContentTypeSchema
+
+# After client.get_content_types() / get_content_type_schema():
+ct.draft_and_publish   # True | False | None
+ct.options             # dict | None  (other option keys retained)
+schema.draft_and_publish
+schema.options
+```
+
+| Wire | `draft_and_publish` | Meaning |
+| --- | --- | --- |
+| boolean `true` on `options`, `schema`, `schema.options`, or the item | `True` | Draft & Publish is on |
+| boolean `false` seen, and no `true` | `False` | Explicitly off |
+| flag not mentioned | `None` | **Unknown** — do not treat as `False` |
+
+`publishedAt` on attributes is never used to guess this flag.
+
+Malformed list items raise `ValidationError` by default. Pass
+`skip_unparsable=True` to `get_content_types()` only if you explicitly want
+the old skip-and-log behavior.
 
 ## Advanced Patterns
 

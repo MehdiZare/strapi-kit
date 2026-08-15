@@ -48,7 +48,11 @@ from ..models.response.normalized import (
 from ..operations.media import normalize_media_response
 from ..parsers import VersionDetectingParser
 from ..protocols import AuthProvider, ConfigProvider, ResponseParser
-from ..utils.schema import extract_info_from_schema
+from ..utils.schema import (
+    extract_content_type_options,
+    extract_draft_and_publish,
+    extract_info_from_schema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -629,8 +633,14 @@ class BaseClient:
         Or with flat schema properties (actual v5 API - Issue #28):
         {"uid": "...", "apiID": "...", "schema": {"kind": "...", "displayName": "...", ...}}
 
-        This method flattens it to v4 format:
-        {"uid": "...", "kind": "...", "info": {...}, "attributes": {...}}
+        This method flattens names/attributes to v4 format and retains Draft &
+        Publish sources (``options``, ``schema.draftAndPublish``,
+        ``schema.options.draftAndPublish``, top-level item flag):
+        {"uid": "...", "kind": "...", "info": {...}, "attributes": {...},
+         "options": {...} | None, "draftAndPublish": True | False | None}
+
+        ``draftAndPublish`` is ``None`` when the flag is absent. Absence is not
+        ``False``. ``publishedAt`` is never used to infer Draft & Publish.
 
         Args:
             item: Raw content type item from API response
@@ -646,6 +656,8 @@ class BaseClient:
                 "info": extract_info_from_schema(schema),
                 "attributes": schema.get("attributes", {}),
                 "pluginOptions": schema.get("pluginOptions"),
+                "options": extract_content_type_options(item),
+                "draftAndPublish": extract_draft_and_publish(item),
             }
         return item
 
@@ -681,6 +693,8 @@ class BaseClient:
         self,
         response_data: dict[str, Any],
         include_plugins: bool = False,
+        *,
+        skip_unparsable: bool = False,
     ) -> list["ContentTypeListItem"]:
         """Parse content-type-builder content types response.
 
@@ -689,17 +703,45 @@ class BaseClient:
         Args:
             response_data: Raw JSON response from content-type-builder
             include_plugins: Whether to include plugin content types
+            skip_unparsable: If True, log and skip items that fail Pydantic
+                validation. If False (default), raise ValidationError.
 
         Returns:
             List of ContentTypeListItem instances
+
+        Raises:
+            ValidationError: If ``data`` is not a list, an item is not an
+                object, or an item cannot be parsed — unless skip_unparsable
+                is True (list items only)
         """
         from ..models.content_type import ContentTypeListItem
 
         data = response_data.get("data", [])
+        if data is None:
+            data = []
+        if not isinstance(data, list):
+            raise ValidationError(
+                "Invalid content types response: 'data' must be a list",
+                details={"data_type": type(data).__name__},
+            )
+
         result = []
 
-        for item in data:
-            uid = item.get("uid", "")
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                if skip_unparsable:
+                    logger.warning(
+                        "Failed to parse content type: expected object at index %s",
+                        index,
+                    )
+                    continue
+                raise ValidationError(
+                    "Failed to parse content type: <unknown>",
+                    details={"index": index, "item_type": type(item).__name__},
+                )
+
+            uid_raw = item.get("uid")
+            uid = uid_raw if isinstance(uid_raw, str) else ""
             # Filter out plugin content types if not requested
             if not include_plugins and uid.startswith("plugin::"):
                 continue
@@ -709,9 +751,13 @@ class BaseClient:
                 content_type = ContentTypeListItem.model_validate(normalized_item)
                 result.append(content_type)
             except PydanticValidationError as e:
-                # Skip malformed items
-                logger.warning(f"Failed to parse content type: {uid}", exc_info=e)
-                continue
+                if skip_unparsable:
+                    logger.warning(f"Failed to parse content type: {uid}", exc_info=e)
+                    continue
+                raise ValidationError(
+                    f"Failed to parse content type: {uid or '<unknown>'}",
+                    details={"uid": uid or None, "errors": e.errors()},
+                ) from e
 
         return result
 
@@ -767,6 +813,11 @@ class BaseClient:
         from ..models.content_type import ContentTypeSchema as CTBContentTypeSchema
 
         data = response_data.get("data", response_data)
+        if not isinstance(data, dict):
+            raise ValidationError(
+                "Invalid content type schema response",
+                details={"data_type": type(data).__name__},
+            )
         try:
             normalized_data = self._normalize_content_type_item(data)
             return CTBContentTypeSchema.model_validate(normalized_data)

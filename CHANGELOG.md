@@ -44,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `document_endpoint(content_type, document_id)` joins the collection id with a percent-encoded document id (`urllib.parse.quote(..., safe="")`); blank `document_id` raises `ValidationError`
   - Pass the returned string to `get_many` / `create` / `get_one` (the UID is schema identity, not a URL path)
   - Accepts `ContentTypeListItem`, `ContentTypeSchema`, or a dict with `info.pluralName` / `info.plural_name`
+- **First-class Content-Type Builder Draft & Publish** ([#45](https://github.com/MehdiZare/strapi-kit/issues/45))
+  - `ContentTypeListItem.draft_and_publish` and `ContentTypeSchema.draft_and_publish` are `bool | None`
+  - `True` if any boolean `draftAndPublish` / `draft_and_publish` is `True` on the item, `options`, `schema`, or `schema.options`
+  - `False` only when a boolean `False` was seen and no `True` was seen
+  - `None` when the flag is absent — absence is not `False` and is never inferred from `publishedAt`
+  - `ContentTypeListItem.options` retains other option keys (not only D&P)
+  - `get_content_types(..., skip_unparsable=False)` raises `ValidationError` on malformed items; skip-and-log is opt-in
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
   `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
   v4 `with_publication_state()` raises `ValidationError`.
@@ -80,6 +87,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Blank collection or document ID raises `ValidationError`
   - Existing single-string endpoints such as `get_one("articles/abc")` remain supported
   - Document-action helpers reuse `document_path` so CRUD and actions share one encoder
+
+### Fixed
+
+- `_normalize_content_type_item()` no longer drops Draft & Publish sources when flattening Strapi v5 CTB payloads
+- `get_content_types()` raises `ValidationError` (not `AttributeError`/`TypeError`) when `data` is not a list or an item is not an object
 
 ### Changed
 

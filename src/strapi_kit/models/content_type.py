@@ -6,7 +6,9 @@ Strapi's Content-Type Builder API.
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from ..utils.schema import apply_draft_and_publish_sources
 
 
 class ContentTypeInfo(BaseModel):
@@ -27,6 +29,10 @@ class ContentTypeListItem(BaseModel):
     """Content type list item from Content-Type Builder API.
 
     Represents a single content type in the list response.
+
+    ``draft_and_publish`` is a tri-state: ``True`` / ``False`` when Strapi
+    declared Draft & Publish, ``None`` when the flag was absent. Absence is
+    not ``False``.
     """
 
     uid: str
@@ -34,8 +40,23 @@ class ContentTypeListItem(BaseModel):
     info: ContentTypeInfo
     attributes: dict[str, Any] = Field(default_factory=dict)
     plugin_options: dict[str, Any] | None = Field(None, alias="pluginOptions")
+    options: dict[str, Any] | None = None
+    draft_and_publish: bool | None = Field(
+        default=None,
+        alias="draftAndPublish",
+        description=(
+            "Draft & Publish setting. True if enabled, False if explicitly "
+            "disabled, None if the flag was not present. Absence is not False."
+        ),
+    )
 
     model_config = {"populate_by_name": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_draft_and_publish(cls, data: Any) -> Any:
+        """Populate draft_and_publish and options from all known wire locations."""
+        return apply_draft_and_publish_sources(data)
 
 
 class ComponentListItem(BaseModel):
@@ -57,6 +78,10 @@ class ContentTypeSchema(BaseModel):
 
     Contains complete schema information including all attributes
     and their configurations.
+
+    ``draft_and_publish`` is a tri-state: ``True`` / ``False`` when Strapi
+    declared Draft & Publish, ``None`` when the flag was absent. Absence is
+    not ``False``.
     """
 
     uid: str
@@ -65,8 +90,22 @@ class ContentTypeSchema(BaseModel):
     attributes: dict[str, Any] = Field(default_factory=dict)
     plugin_options: dict[str, Any] | None = Field(None, alias="pluginOptions")
     options: dict[str, Any] | None = None
+    draft_and_publish: bool | None = Field(
+        default=None,
+        alias="draftAndPublish",
+        description=(
+            "Draft & Publish setting. True if enabled, False if explicitly "
+            "disabled, None if the flag was not present. Absence is not False."
+        ),
+    )
 
     model_config = {"populate_by_name": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_draft_and_publish(cls, data: Any) -> Any:
+        """Populate draft_and_publish and options from all known wire locations."""
+        return apply_draft_and_publish_sources(data)
 
     @property
     def display_name(self) -> str:

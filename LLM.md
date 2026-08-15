@@ -518,6 +518,25 @@ entity.updated_at    # datetime | None
 entity.locale        # str | None
 ```
 
+### Content-Type Builder (Draft & Publish)
+
+```python
+content_types = client.get_content_types()
+schema = client.get_content_type_schema("api::article.article")
+
+# Tri-state: True / False / None. Absence is NOT False.
+ct.draft_and_publish      # bool | None
+schema.draft_and_publish  # bool | None
+ct.options                # dict | None (other option keys kept)
+
+# Do not infer D&P from publishedAt.
+# True if any of item / options / schema / schema.options has boolean
+# draftAndPublish or draft_and_publish == True.
+
+# Unparsable list items raise ValidationError unless you opt in:
+client.get_content_types(skip_unparsable=True)
+```
+
 ### Pagination Metadata
 
 ```python
