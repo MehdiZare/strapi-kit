@@ -5,7 +5,7 @@ automatic response format detection, error handling, and authentication.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 from urllib.parse import quote
 
 if TYPE_CHECKING:
@@ -39,10 +39,12 @@ from ..exceptions import (
 from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
-from ..models.enums import DocumentAction, HttpMethod
+from ..models.enums import DocumentAction, DocumentStatus, HttpMethod
+from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
     NormalizedCollectionResponse,
+    NormalizedEntity,
     NormalizedSingleResponse,
 )
 from ..operations.media import normalize_media_response
@@ -207,6 +209,19 @@ class BaseClient:
             return endpoint
         return self.document_path(endpoint, document_id)
 
+    def _single_segment_document_path(self, collection: str, document_id: str) -> str:
+        """Build ``document_path`` after requiring a single collection segment.
+
+        Used by ``exists()`` so lookups share the CRUD encoder and cannot
+        walk out of the collection via ``/`` or ``\\`` in the name.
+        """
+        collection_name = collection.strip().strip("/")
+        if not collection_name:
+            raise ValidationError("collection is required")
+        if "/" in collection_name or "\\" in collection_name:
+            raise ValidationError("collection must be a single path segment")
+        return self.document_path(collection_name, document_id)
+
     def _document_action_endpoint(
         self,
         collection: str,
@@ -225,6 +240,38 @@ class BaseClient:
             raise ValidationError("collection must be a single path segment")
         encoded_collection = quote(collection_name, safe="")
         return f"{self.document_path(encoded_collection, document_id)}/actions/{action.value}"
+
+    def _draft_status_query(self) -> StrapiQuery:
+        """Query that requests the Strapi 5 draft version (``status=draft``)."""
+        return StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+
+    def _entity_identifies_document(self, entity: NormalizedEntity | None) -> bool:
+        """Return True if a GET body identifies a document (``documentId`` or ``id``)."""
+        if entity is None:
+            return False
+        return entity.document_id is not None or entity.id is not None
+
+    def _authorization_error_for_write_404(self, original: NotFoundError) -> AuthorizationError:
+        """Map a write 404 to AuthorizationError when the document is readable."""
+        status_code = original.status_code if original.status_code is not None else 404
+        details = dict(original.details)
+        details["status_code"] = status_code
+        details["classified_from"] = "write_404"
+        return AuthorizationError(
+            "document exists; token likely lacks Update/Publish.",
+            details=details,
+            status_code=status_code,
+        )
+
+    def _reraise_classified_write_404(
+        self,
+        original: NotFoundError,
+        probe_entity: NormalizedEntity | None,
+    ) -> NoReturn:
+        """Raise AuthorizationError if the draft probe found a document, else original."""
+        if self._entity_identifies_document(probe_entity):
+            raise self._authorization_error_for_write_404(original) from original
+        raise original
 
     def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
         """Parse a 2xx response body.
