@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Verifies Strapi `meta.pagination` echo so a silent server `pageSize` cap (stock `maxLimit` default 100) cannot drop a collection window
   - Accepts `ResponseMeta`, `PaginationMeta`, or a raw meta/pagination dict
   - Digit-string totals/pages (`"12"`) are accepted; `bool` is not an int
+  - Signed digit-string totals (`"-1"`) parse as negative ints and raise
+    `ValidationError` for non-negative `total` (not "unreadable")
   - Absent `page` / `pageSize` keys are tolerated; a present but unreadable echo raises `ValidationError`
   - `get_many()` is unchanged by default — use the helper on import/export collection reads
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and

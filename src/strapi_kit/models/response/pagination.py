@@ -179,7 +179,8 @@ def _optional_page_size(pagination: Mapping[str, Any]) -> int | None:
 def _parse_int(value: object, field: str, *, non_negative: bool = False) -> int:
     """Parse a pagination echo value as an int.
 
-    Digit strings (``"12"``) are accepted. ``bool`` is not an int.
+    Digit strings (``"12"``) are accepted. A leading minus (``"-1"``) is a
+    negative int, not unreadable. ``bool`` is not an int.
 
     Args:
         value: Raw echo value.
@@ -197,8 +198,15 @@ def _parse_int(value: object, field: str, *, non_negative: bool = False) -> int:
         parsed = None
     elif isinstance(value, int):
         parsed = value
-    elif isinstance(value, str) and value.isdigit():
-        parsed = int(value)
+    elif isinstance(value, str):
+        # Optional ASCII minus: "-1" is a negative int, not "unreadable".
+        # isdigit() is False for signed strings, which hid the non-negative path.
+        digits = value[1:] if value.startswith("-") else value
+        if digits.isdigit():
+            try:
+                parsed = int(value)
+            except ValueError:
+                parsed = None
 
     if parsed is None:
         raise ValidationError(

@@ -110,6 +110,37 @@ class TestAssertPaginationEcho:
 
         assert assert_pagination_echo(meta, requested_page=1, requested_page_size=25) == 0
 
+    def test_negative_int_total_rejected(self) -> None:
+        """Integer -1 is readable but not a non-negative total."""
+        meta = {"pagination": {"total": -1}}
+
+        with pytest.raises(ValidationError, match="non-negative"):
+            assert_pagination_echo(meta, requested_page=1, requested_page_size=25)
+
+    def test_negative_string_total_rejected(self) -> None:
+        """String '-1' is a readable negative, not unreadable."""
+        meta = {"pagination": {"total": "-1"}}
+
+        with pytest.raises(ValidationError, match="non-negative") as exc_info:
+            assert_pagination_echo(meta, requested_page=1, requested_page_size=25)
+
+        assert "unreadable" not in str(exc_info.value)
+
+    def test_snake_case_page_size_matching(self) -> None:
+        """Raw mappings may use page_size instead of pageSize."""
+        meta = {"page": 1, "page_size": 25, "total": 8}
+
+        assert assert_pagination_echo(meta, requested_page=1, requested_page_size=25) == 8
+
+    def test_snake_case_page_size_mismatch(self) -> None:
+        """Present snake_case page_size must equal requested_page_size."""
+        meta = {"pagination": {"page": 1, "page_size": 100, "total": 250}}
+
+        with pytest.raises(ValidationError, match="pageSize echo") as exc_info:
+            assert_pagination_echo(meta, requested_page=1, requested_page_size=250)
+
+        assert exc_info.value.details["echo_page_size"] == 100
+
     def test_pagination_meta_direct(self) -> None:
         """PaginationMeta is accepted as meta input."""
         pagination = PaginationMeta(page=1, page_size=10, total=3)

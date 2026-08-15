@@ -309,8 +309,10 @@ total = assert_pagination_echo(
 ```
 
 `page_size > 100` is unsafe unless the server `maxLimit` is raised. Digit
-strings (`"12"`) are accepted; `bool` is not an int. Absent `page`/`pageSize`
-keys are tolerated; a present but unreadable echo raises `ValidationError`.
+strings (`"12"`) are accepted; `bool` is not an int. Signed digit strings
+(`"-1"`) are readable negatives and fail the non-negative `total` check.
+Absent `page`/`pageSize` keys are tolerated; a present but unreadable echo
+raises `ValidationError`.
 
 ### Population (Relations)
 
