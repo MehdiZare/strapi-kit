@@ -9,6 +9,7 @@ from .errors import (
     FormatError,
     ImportExportError,
     MediaError,
+    MethodNotAllowedError,
     NetworkError,
     NotFoundError,
     RateLimitError,
@@ -16,6 +17,7 @@ from .errors import (
     ServerError,
     StrapiError,
     TimeoutError,
+    UnstructuredResponseError,
     ValidationError,
 )
 
@@ -27,6 +29,8 @@ __all__ = [
     "NotFoundError",
     "ValidationError",
     "ConflictError",
+    "MethodNotAllowedError",
+    "UnstructuredResponseError",
     "NetworkError",
     "ConnectionError",
     "TimeoutError",

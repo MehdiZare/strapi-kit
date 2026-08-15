@@ -24,12 +24,14 @@ from .exceptions import (
     FormatError,
     ImportExportError,
     MediaError,
+    MethodNotAllowedError,
     NetworkError,
     NotFoundError,
     RateLimitError,
     RelationError,
     ServerError,
     StrapiError,
+    UnstructuredResponseError,
     ValidationError,
 )
 from .export import StrapiExporter, StrapiImporter
@@ -87,6 +89,8 @@ __all__ = [
     "NotFoundError",
     "ValidationError",
     "ConflictError",
+    "MethodNotAllowedError",
+    "UnstructuredResponseError",
     "NetworkError",
     "RateLimitError",
     "ServerError",

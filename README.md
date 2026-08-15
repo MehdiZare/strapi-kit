@@ -413,8 +413,13 @@ from strapi_kit.models import StrapiQuery, PublicationState
 # Set locale
 query = StrapiQuery().with_locale("fr")
 
-# Set publication state
+# Set publication state (Strapi v4)
 query = StrapiQuery().with_publication_state(PublicationState.LIVE)
+
+# Set document status (Strapi v5 Draft & Publish). Omitted status
+# defaults to published and hides drafts.
+from strapi_kit.models import DocumentStatus
+query = StrapiQuery().with_document_status(DocumentStatus.DRAFT)
 ```
 
 ### Complete Example

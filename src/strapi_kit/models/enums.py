@@ -81,10 +81,10 @@ class SortDirection(StrEnum):
 
 
 class PublicationState(StrEnum):
-    """Content publication state filter.
+    """v4 content publication state filter (``publicationState``).
 
     Only applicable to content types with draft & publish enabled.
-    Used to filter between draft and published versions.
+    Strapi v5 uses :class:`DocumentStatus` (``status``) instead.
 
     Examples:
         >>> PublicationState.LIVE.value
@@ -95,3 +95,24 @@ class PublicationState(StrEnum):
 
     LIVE = "live"  # Only published content
     PREVIEW = "preview"  # Both draft and published content
+
+
+class DocumentStatus(StrEnum):
+    """v5 document status filter (``status``).
+
+    Strapi 5 Draft & Publish lists default to the published version when
+    ``status`` is omitted. Every document has a draft version (a published
+    document has both, sharing one ``documentId``), so ``draft`` enumerates
+    every document regardless of publication state.
+
+    Do not mix this with :class:`PublicationState` on the same query.
+
+    Examples:
+        >>> DocumentStatus.DRAFT.value
+        'draft'
+        >>> DocumentStatus.PUBLISHED.value
+        'published'
+    """
+
+    DRAFT = "draft"
+    PUBLISHED = "published"

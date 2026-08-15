@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
+  `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
+  v4 `with_publication_state()` raises `ValidationError`.
+- **v5 document actions** — `SyncClient.publish` / `unpublish` and the
+  async equivalents. `POST /api/{collection}/{documentId}/actions/{publish|unpublish}`.
+  `documentId` is percent-encoded.
+- **`MethodNotAllowedError`** for HTTP 405. HTTP **422** maps to
+  `ValidationError` (same as 400).
+- **`UnstructuredResponseError`** for 2xx responses that are empty or not
+  a JSON object (the `"Created"` / empty-201 class). Empty **204** and
+  empty **DELETE** bodies stay success with `{}`.
+
+### Changed
+
+- Every HTTP error now carries `status_code` on the exception (`401`,
+  `404`, `429`, …), not only `ServerError`.
+- Non-JSON 2xx responses raise `UnstructuredResponseError` instead of
+  `FormatError`. `FormatError` remains for import/export payloads.
+
 ## [0.1.0] - 2026-02-04
 
 ### Fixed

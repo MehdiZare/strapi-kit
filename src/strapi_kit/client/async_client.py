@@ -20,7 +20,6 @@ from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
 from ..exceptions import (
-    FormatError,
     MediaError,
     StrapiError,
 )
@@ -190,24 +189,8 @@ class AsyncClient(BaseClient):
                 if not response.is_success:
                     self._handle_error_response(response)
 
-                # Handle 204 No Content (common for DELETE operations)
-                if response.status_code == 204 or not response.content:
-                    logger.debug(f"Response: {response.status_code} (no content)")
-                    return {}
-
-                # Parse and return JSON with proper error handling for non-JSON responses
-                try:
-                    data: dict[str, Any] = response.json()
-                except Exception as json_error:
-                    content_type = response.headers.get("content-type", "unknown")
-                    body_preview = response.text[:500] if response.text else ""
-                    raise FormatError(
-                        f"Received non-JSON response (content-type: {content_type})",
-                        details={"body_preview": body_preview},
-                    ) from json_error
-
-                # Detect API version from response
-                if data and isinstance(data, dict):
+                data = self._parse_success_response(response, method=method)
+                if data:
                     self._detect_api_version(data)
 
                 logger.debug(f"Response: {response.status_code}")
@@ -444,6 +427,56 @@ class AsyncClient(BaseClient):
             1
         """
         raw_response = await self.delete(endpoint, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    async def publish(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Publish a Strapi v5 draft document.
+
+        POST ``/api/{collection}/{documentId}/actions/publish``.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields after publish)
+            headers: Additional headers
+
+        Returns:
+            Normalized published entity
+        """
+        endpoint = self._document_action_endpoint(collection, document_id, "publish")
+        params = query.to_query_params() if query else None
+        raw_response = await self.post(endpoint, json={}, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    async def unpublish(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Unpublish a Strapi v5 live document.
+
+        POST ``/api/{collection}/{documentId}/actions/unpublish``.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields after unpublish)
+            headers: Additional headers
+
+        Returns:
+            Normalized unpublished entity
+        """
+        endpoint = self._document_action_endpoint(collection, document_id, "unpublish")
+        params = query.to_query_params() if query else None
+        raw_response = await self.post(endpoint, json={}, params=params, headers=headers)
         return self._parse_single_response(raw_response)
 
     # Media Operations

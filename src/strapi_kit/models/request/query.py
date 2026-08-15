@@ -37,7 +37,7 @@ import copy
 from typing import Any
 
 from strapi_kit.exceptions import ValidationError
-from strapi_kit.models.enums import PublicationState, SortDirection
+from strapi_kit.models.enums import DocumentStatus, PublicationState, SortDirection
 from strapi_kit.models.request.fields import FieldSelection
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.pagination import OffsetPagination, PagePagination, Pagination
@@ -118,6 +118,7 @@ class StrapiQuery:
         self._fields: FieldSelection | None = None
         self._locale: str | None = None
         self._publication_state: PublicationState | None = None
+        self._document_status: DocumentStatus | None = None
 
     def copy(self) -> StrapiQuery:
         """Create a deep copy of this query.
@@ -141,6 +142,7 @@ class StrapiQuery:
         new_query._fields = copy.deepcopy(self._fields)
         new_query._locale = self._locale
         new_query._publication_state = self._publication_state
+        new_query._document_status = self._document_status
         return new_query
 
     def filter(self, filters: FilterBuilder) -> StrapiQuery:
@@ -343,7 +345,10 @@ class StrapiQuery:
         return self
 
     def with_publication_state(self, state: PublicationState) -> StrapiQuery:
-        """Set publication state filter (draft & publish).
+        """Set the v4 ``publicationState`` filter (draft & publish).
+
+        Do not combine with :meth:`with_document_status` — that emits the
+        v5 ``status`` param instead.
 
         Args:
             state: Publication state (LIVE or PREVIEW)
@@ -351,10 +356,47 @@ class StrapiQuery:
         Returns:
             Self for method chaining
 
+        Raises:
+            ValidationError: If :meth:`with_document_status` was already set
+
         Examples:
             >>> query = StrapiQuery().with_publication_state(PublicationState.LIVE)
         """
+        if self._document_status is not None:
+            raise ValidationError(
+                "Cannot mix with_document_status (v5 status=) and "
+                "with_publication_state (v4 publicationState=)"
+            )
         self._publication_state = state
+        return self
+
+    def with_document_status(self, status: DocumentStatus) -> StrapiQuery:
+        """Set the v5 ``status`` filter (Draft & Publish).
+
+        Strapi 5 defaults omitted ``status`` to published, which hides
+        unpublished documents. Use ``DocumentStatus.DRAFT`` to see every
+        document (each has a draft version sharing one ``documentId``).
+
+        Do not combine with :meth:`with_publication_state`.
+
+        Args:
+            status: Document status (DRAFT or PUBLISHED)
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            ValidationError: If :meth:`with_publication_state` was already set
+
+        Examples:
+            >>> query = StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+        """
+        if self._publication_state is not None:
+            raise ValidationError(
+                "Cannot mix with_document_status (v5 status=) and "
+                "with_publication_state (v4 publicationState=)"
+            )
+        self._document_status = status
         return self
 
     def to_query_params(self) -> dict[str, Any]:
@@ -409,9 +451,11 @@ class StrapiQuery:
         if self._locale:
             params["locale"] = self._locale
 
-        # Add publication state
+        # Add publication state (v4) or document status (v5)
         if self._publication_state:
             params["publicationState"] = self._publication_state.value
+        if self._document_status:
+            params["status"] = self._document_status.value
 
         return params
 

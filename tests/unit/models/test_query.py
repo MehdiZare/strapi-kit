@@ -3,7 +3,7 @@
 import pytest
 
 from strapi_kit import ValidationError
-from strapi_kit.models.enums import PublicationState, SortDirection
+from strapi_kit.models.enums import DocumentStatus, PublicationState, SortDirection
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.populate import Populate
 from strapi_kit.models.request.query import StrapiQuery
@@ -118,6 +118,38 @@ class TestStrapiQuery:
         params = query.to_query_params()
 
         assert params["publicationState"] == "live"
+
+    def test_with_document_status_draft(self) -> None:
+        """v5 status=draft is a first-class query param."""
+        query = StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+        params = query.to_query_params()
+
+        assert params["status"] == "draft"
+        assert "publicationState" not in params
+
+    def test_with_document_status_published(self) -> None:
+        """v5 status=published is a first-class query param."""
+        query = StrapiQuery().with_document_status(DocumentStatus.PUBLISHED)
+        assert query.to_query_params()["status"] == "published"
+
+    def test_document_status_survives_copy(self) -> None:
+        """copy() must keep the v5 status so paginators cannot drop it."""
+        query = StrapiQuery().with_document_status(DocumentStatus.DRAFT).paginate(page=1)
+        cloned = query.copy().paginate(page=2)
+        assert cloned.to_query_params()["status"] == "draft"
+        assert cloned.to_query_params()["pagination[page]"] == 2
+        assert query.to_query_params()["pagination[page]"] == 1
+
+    def test_cannot_mix_document_status_and_publication_state(self) -> None:
+        """v4 publicationState and v5 status must not share a query."""
+        with pytest.raises(ValidationError, match="Cannot mix"):
+            StrapiQuery().with_document_status(DocumentStatus.DRAFT).with_publication_state(
+                PublicationState.PREVIEW
+            )
+        with pytest.raises(ValidationError, match="Cannot mix"):
+            StrapiQuery().with_publication_state(PublicationState.PREVIEW).with_document_status(
+                DocumentStatus.DRAFT
+            )
 
     def test_simple_complete_query(self) -> None:
         """Test simple complete query with multiple parameters."""
