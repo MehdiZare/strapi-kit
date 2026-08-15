@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `404`, `429`, …), not only `ServerError`.
 - Non-JSON 2xx responses raise `UnstructuredResponseError` instead of
   `FormatError`. `FormatError` remains for import/export payloads.
+  A 2xx JSON **array** (stock Upload `GET /upload/files`) is still
+  success and is wrapped as `{"data": [...]}`.
 - **Dependency refresh** ([#33](https://github.com/MehdiZare/strapi-kit/issues/33),
   [#34](https://github.com/MehdiZare/strapi-kit/issues/34),
   [#35](https://github.com/MehdiZare/strapi-kit/issues/35),
