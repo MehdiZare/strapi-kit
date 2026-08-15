@@ -209,6 +209,19 @@ class BaseClient:
             return endpoint
         return self.document_path(endpoint, document_id)
 
+    def _single_segment_document_path(self, collection: str, document_id: str) -> str:
+        """Build ``document_path`` after requiring a single collection segment.
+
+        Used by ``exists()`` so lookups share the CRUD encoder and cannot
+        walk out of the collection via ``/`` or ``\\`` in the name.
+        """
+        collection_name = collection.strip().strip("/")
+        if not collection_name:
+            raise ValidationError("collection is required")
+        if "/" in collection_name or "\\" in collection_name:
+            raise ValidationError("collection must be a single path segment")
+        return self.document_path(collection_name, document_id)
+
     def _document_action_endpoint(
         self,
         collection: str,
@@ -240,12 +253,14 @@ class BaseClient:
 
     def _authorization_error_for_write_404(self, original: NotFoundError) -> AuthorizationError:
         """Map a write 404 to AuthorizationError when the document is readable."""
+        status_code = original.status_code if original.status_code is not None else 404
         details = dict(original.details)
-        details["status_code"] = original.status_code if original.status_code is not None else 404
+        details["status_code"] = status_code
+        details["classified_from"] = "write_404"
         return AuthorizationError(
             "document exists; token likely lacks Update/Publish.",
             details=details,
-            status_code=original.status_code,
+            status_code=status_code,
         )
 
     def _reraise_classified_write_404(

@@ -210,7 +210,8 @@ response = client.update("articles", data, document_id="abc123")
 # Also valid: client.update("articles/1", data)
 
 # Opt-in: write 404 while the draft is still readable → AuthorizationError
-# (token likely lacks Update/Publish). Original status_code=404 is in details.
+# (token likely lacks Update/Publish). status_code=404 and
+# details["classified_from"] == "write_404".
 client.update("articles", data, document_id="abc123", classify_write_404=True)
 ```
 
@@ -227,7 +228,8 @@ client.remove("articles", document_id="abc123", classify_write_404=True)
 Strapi 5 omitted `status=` means published. Draft-only documents 404 on
 the default GET. `exists()` retries once with `status=draft`. A draft
 `ValidationError` (Draft & Publish off) is `False`. Auth / 5xx / network
-on either read raise.
+on either read raise. Collection must be one path segment; `document_id`
+is percent-encoded. A 200 with no `id` / `documentId` is `False`.
 
 ```python
 if client.exists("articles", document_id):

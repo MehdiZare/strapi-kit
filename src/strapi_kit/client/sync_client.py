@@ -7,7 +7,7 @@ and applications that don't require concurrency.
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 if TYPE_CHECKING:
     from ..models.content_type import ComponentListItem, ContentTypeListItem
@@ -552,7 +552,9 @@ class SyncClient(BaseClient):
         document 404s on the default GET. A published miss is retried
         once with ``status=draft``. A draft ``ValidationError`` (Draft &
         Publish off / unknown param) keeps the published miss as False.
-        Auth, 5xx, and network errors on either read raise.
+        Auth, 5xx, and network errors on either read raise. Collection
+        must be a single path segment; ``document_id`` is percent-encoded
+        via :meth:`document_path`.
 
         Args:
             collection: Collection API id (e.g. ``"articles"``)
@@ -561,22 +563,22 @@ class SyncClient(BaseClient):
         Returns:
             True if a published or draft version is readable
         """
-        endpoint = self.document_path(collection, document_id)
+        endpoint = self._single_segment_document_path(collection, document_id)
         try:
-            self.get_one(endpoint)
-            return True
+            response = self.get_one(endpoint)
+            return self._entity_identifies_document(response.data)
         except NotFoundError:
             pass
 
         try:
-            self.get_one(endpoint, query=self._draft_status_query())
+            response = self.get_one(endpoint, query=self._draft_status_query())
         except NotFoundError:
             return False
         except ValidationError:
             return False
-        return True
+        return self._entity_identifies_document(response.data)
 
-    def _classify_write_404(self, endpoint: str, original: NotFoundError) -> None:
+    def _classify_write_404(self, endpoint: str, original: NotFoundError) -> NoReturn:
         """Probe one draft GET after a write 404; never mask the original error."""
         try:
             response = self.get_one(endpoint, query=self._draft_status_query())

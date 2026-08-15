@@ -8,7 +8,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 if TYPE_CHECKING:
     from ..models.content_type import ComponentListItem, ContentTypeListItem
@@ -559,7 +559,9 @@ class AsyncClient(BaseClient):
         document 404s on the default GET. A published miss is retried
         once with ``status=draft``. A draft ``ValidationError`` (Draft &
         Publish off / unknown param) keeps the published miss as False.
-        Auth, 5xx, and network errors on either read raise.
+        Auth, 5xx, and network errors on either read raise. Collection
+        must be a single path segment; ``document_id`` is percent-encoded
+        via :meth:`document_path`.
 
         Args:
             collection: Collection API id (e.g. ``"articles"``)
@@ -568,22 +570,22 @@ class AsyncClient(BaseClient):
         Returns:
             True if a published or draft version is readable
         """
-        endpoint = self.document_path(collection, document_id)
+        endpoint = self._single_segment_document_path(collection, document_id)
         try:
-            await self.get_one(endpoint)
-            return True
+            response = await self.get_one(endpoint)
+            return self._entity_identifies_document(response.data)
         except NotFoundError:
             pass
 
         try:
-            await self.get_one(endpoint, query=self._draft_status_query())
+            response = await self.get_one(endpoint, query=self._draft_status_query())
         except NotFoundError:
             return False
         except ValidationError:
             return False
-        return True
+        return self._entity_identifies_document(response.data)
 
-    async def _classify_write_404(self, endpoint: str, original: NotFoundError) -> None:
+    async def _classify_write_404(self, endpoint: str, original: NotFoundError) -> NoReturn:
         """Probe one draft GET after a write 404; never mask the original error."""
         try:
             response = await self.get_one(endpoint, query=self._draft_status_query())

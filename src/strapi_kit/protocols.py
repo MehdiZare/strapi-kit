@@ -429,8 +429,8 @@ class StrapiClient(Protocol):
         """Return whether a published or draft document exists.
 
         Args:
-            collection: Collection API id
-            document_id: Document id
+            collection: Collection API id (single path segment)
+            document_id: Document id (percent-encoded via document_path)
 
         Returns:
             True if a published or draft version is readable

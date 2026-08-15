@@ -68,13 +68,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`collection`, `document_id`). Default GET (published), then one
   `status=draft` retry on `NotFoundError` only. Draft `NotFoundError` or
   `ValidationError` (Draft & Publish off) is `False`. Auth / 5xx / network
-  on either read raise.
+  on either read raise. Collection must be a single path segment;
+  `document_id` is percent-encoded. A 200 with no `id` / `documentId`
+  is treated as absent.
 - **Opt-in write-404 classification** — `update(..., classify_write_404=True)`
   and `remove(..., classify_write_404=True)`. After a write `NotFoundError`,
   one draft GET: if the document is readable, raise `AuthorizationError`
-  (token likely lacks Update/Publish) with original `status_code=404` in
-  details; otherwise re-raise the original `NotFoundError`. Default `False`
-  keeps today's mapping.
+  (token likely lacks Update/Publish) with original `status_code=404` on
+  the exception and in details (`classified_from=write_404`); otherwise
+  re-raise the original `NotFoundError`. Default `False` keeps today's
+  mapping.
 - **v5 document actions** — `SyncClient.publish` / `unpublish` /
   `discard_draft` and the async equivalents.
   `POST /api/{collection}/{documentId}/actions/{publish|unpublish|discardDraft}`.
