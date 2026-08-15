@@ -61,8 +61,8 @@ from .protocols import (
     ResponseParser,
     SchemaProvider,
 )
-from .utils.pagination import assert_pagination_echo
 from .utils.endpoints import collection_endpoint, document_endpoint
+from .utils.pagination import assert_pagination_echo
 
 __all__ = [
     "__version__",

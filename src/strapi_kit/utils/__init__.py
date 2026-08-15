@@ -8,8 +8,8 @@ This package contains helper utilities including:
 - Pagination echo / maxLimit guards
 """
 
-from strapi_kit.utils.pagination import assert_pagination_echo
 from strapi_kit.utils.endpoints import collection_endpoint, document_endpoint
+from strapi_kit.utils.pagination import assert_pagination_echo
 from strapi_kit.utils.rate_limiter import AsyncTokenBucketRateLimiter, TokenBucketRateLimiter
 from strapi_kit.utils.schema import extract_info_from_schema
 from strapi_kit.utils.seo import SEOConfiguration, detect_seo_configuration
