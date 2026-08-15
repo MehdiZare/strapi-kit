@@ -427,9 +427,11 @@ from strapi_kit.exceptions import (
     AuthenticationError,  # 401
     AuthorizationError,   # 403
     NotFoundError,        # 404
-    ValidationError,      # 400
+    ValidationError,      # 400/422 (including unique-index collisions)
     ServerError,          # 5xx
     NetworkError,         # Connection issues
+    is_uniqueness_violation,
+    format_validation_errors,
 )
 
 try:
@@ -438,6 +440,12 @@ except NotFoundError:
     print("Article not found")
 except AuthenticationError:
     print("Invalid API token")
+except ValidationError as e:
+    # Unique-index collisions stay ValidationError (HTTP 400/422), not ConflictError
+    if is_uniqueness_violation(e):
+        print(format_validation_errors(e) or str(e))
+    else:
+        print(f"Invalid payload: {e}")
 except StrapiError as e:
     print(f"Strapi error: {e}")
 ```

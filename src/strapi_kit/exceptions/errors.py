@@ -90,9 +90,22 @@ class ValidationError(StrapiError):
     This typically means the request data doesn't match the expected schema
     or contains invalid values. Client-side query/argument checks use the
     same type (no HTTP status).
+
+    Strapi unique-index collisions also arrive as HTTP 400 or 422 with this
+    type. Use :func:`is_uniqueness_violation` to distinguish them from
+    malformed payloads, and :attr:`field_errors` /
+    :func:`format_validation_errors` to read per-field messages from
+    ``details["errors"]``.
     """
 
-    pass
+    @property
+    def field_errors(self) -> list[tuple[str, str]]:
+        """Parsed field-level errors as ``(path, message)`` pairs.
+
+        Reads ``details["errors"]``. Empty messages are skipped. Returns an
+        empty list when there are no nested field errors.
+        """
+        return _parse_field_errors(self.details)
 
 
 class ConflictError(StrapiError):
@@ -246,3 +259,87 @@ class MediaError(ImportExportError):
     """
 
     pass
+
+
+# ValidationError helpers (unique-index 400s stay ValidationError, not ConflictError)
+
+
+_UNIQUENESS_SUBSTRING = "must be unique"
+
+
+def _format_error_path(path: object) -> str:
+    """Normalize a Strapi error path to a dotted string."""
+    if isinstance(path, str):
+        return path
+    if isinstance(path, (list, tuple)):
+        return ".".join(str(part) for part in path)
+    if path is None:
+        return ""
+    return str(path)
+
+
+def _parse_field_errors(details: object) -> list[tuple[str, str]]:
+    """Extract ``(path, message)`` pairs from ``details["errors"]``.
+
+    Returns an empty list when ``details`` is not a mapping (HTTP payloads
+    are normally a dict, but a non-dict ``error.details`` must not raise).
+    """
+    if not isinstance(details, dict):
+        return []
+    errors = details.get("errors")
+    if not isinstance(errors, list):
+        return []
+
+    parsed: list[tuple[str, str]] = []
+    for entry in errors:
+        if not isinstance(entry, dict):
+            continue
+        message = entry.get("message")
+        if not isinstance(message, str) or not message.strip():
+            continue
+        parsed.append((_format_error_path(entry.get("path")), message))
+    return parsed
+
+
+def is_uniqueness_violation(exc: ValidationError) -> bool:
+    """Return True if ``exc`` is a Strapi unique-index collision.
+
+    True when any ``exc.details["errors"]`` entry has a message containing
+    ``must be unique`` (case-insensitive), or when ``exc.message`` itself
+    contains that substring (details-less variants). ``str(exc)`` is not
+    used: it dumps ``details`` and would false-positive on unrelated keys.
+
+    HTTP status is not inspected beyond ``exc`` already being a
+    :class:`ValidationError`. Other 400/422s (required fields, type errors)
+    return False.
+
+    Args:
+        exc: Validation error raised from a Strapi 400 or 422 response.
+
+    Returns:
+        Whether the error represents a uniqueness constraint violation.
+    """
+    for _path, message in exc.field_errors:
+        if _UNIQUENESS_SUBSTRING in message.lower():
+            return True
+    return _UNIQUENESS_SUBSTRING in exc.message.lower()
+
+
+def format_validation_errors(exc: ValidationError) -> str | None:
+    """Flatten ``details.errors`` to ``path: message`` lines.
+
+    ``path`` may be a list (``["slug"]`` → ``slug``) or a string. Nested
+    list paths are joined with ``.``. Empty messages are skipped. Entries
+    with an empty path emit just the message (no leading ``: ``).
+
+    Args:
+        exc: Validation error raised from a Strapi 400 or 422 response.
+
+    Returns:
+        Newline-joined ``path: message`` lines, or ``None`` when there
+        are no nested field errors (caller should keep ``str(exc)``).
+    """
+    lines = [f"{path}: {message}" if path else message for path, message in exc.field_errors]
+    if not lines:
+        return None
+    return "\n".join(lines)

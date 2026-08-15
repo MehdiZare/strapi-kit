@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `ValidationError` for non-negative `total` (not "unreadable")
   - Absent `page` / `pageSize` keys are tolerated; a present but unreadable echo raises `ValidationError`
   - `get_many()` is unchanged by default — use the helper on import/export collection reads
+- **Uniqueness 400 classifier and field-error flattening** ([#53](https://github.com/MehdiZare/strapi-kit/issues/53))
+  - `is_uniqueness_violation()` detects Strapi unique-index collisions on `ValidationError` (message contains `must be unique`)
+  - `format_validation_errors()` flattens `details.errors` to `path: message` lines
+  - `ValidationError.field_errors` exposes parsed `(path, message)` pairs
+  - HTTP 400/422 still maps to `ValidationError` (not `ConflictError`)
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
   `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
   v4 `with_publication_state()` raises `ValidationError`.

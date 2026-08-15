@@ -33,6 +33,8 @@ from .exceptions import (
     StrapiError,
     UnstructuredResponseError,
     ValidationError,
+    format_validation_errors,
+    is_uniqueness_violation,
 )
 from .export import StrapiExporter, StrapiImporter
 from .models import (
@@ -108,6 +110,8 @@ __all__ = [
     "AuthorizationError",
     "NotFoundError",
     "ValidationError",
+    "is_uniqueness_violation",
+    "format_validation_errors",
     "ConflictError",
     "MethodNotAllowedError",
     "UnstructuredResponseError",
