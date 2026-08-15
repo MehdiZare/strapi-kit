@@ -282,16 +282,26 @@ class SyncClient(BaseClient):
         endpoint: str,
         query: StrapiQuery | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
     ) -> NormalizedSingleResponse:
         """Get a single entity with typed, normalized response.
 
         Args:
-            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123")
+            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123").
+                When ``document_id`` is provided, this is the collection name
+                (e.g., "articles").
             query: Optional query configuration (populate, fields, locale, etc.)
             headers: Additional headers
+            document_id: Optional document ID. When provided, ``endpoint`` is
+                treated as the collection name and the ID is percent-encoded.
 
         Returns:
             Normalized single entity response
+
+        Raises:
+            ValidationError: If ``document_id`` is provided and collection or
+                document ID is blank.
 
         Examples:
             >>> from strapi_kit.models import StrapiQuery, Populate
@@ -299,12 +309,14 @@ class SyncClient(BaseClient):
             ...     .populate_fields(["author", "category"])
             ...     .select(["title", "content"]))
             >>> response = client.get_one("articles/1", query=query)
+            >>> response = client.get_one("articles", document_id="abc123")
             >>> article = response.data
             >>> article.attributes["title"]
             'My Article'
         """
+        path = self._document_endpoint(endpoint, document_id)
         params = query.to_query_params() if query else None
-        raw_response = self.get(endpoint, params=params, headers=headers)
+        raw_response = self.get(path, params=params, headers=headers)
         return self._parse_single_response(raw_response)
 
     def get_many(
@@ -375,52 +387,76 @@ class SyncClient(BaseClient):
         data: dict[str, Any],
         query: StrapiQuery | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
     ) -> NormalizedSingleResponse:
         """Update an existing entity with typed, normalized response.
 
         Args:
-            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123")
+            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123").
+                When ``document_id`` is provided, this is the collection name
+                (e.g., "articles").
             data: Entity data to update (wrapped in {"data": {...}} automatically)
             query: Optional query configuration (populate, fields, etc.)
             headers: Additional headers
+            document_id: Optional document ID. When provided, ``endpoint`` is
+                treated as the collection name and the ID is percent-encoded.
 
         Returns:
             Normalized single entity response
 
+        Raises:
+            ValidationError: If ``document_id`` is provided and collection or
+                document ID is blank.
+
         Examples:
             >>> data = {"title": "Updated Title"}
             >>> response = client.update("articles/1", data)
+            >>> response = client.update("articles", data, document_id="abc123")
             >>> updated = response.data
             >>> updated.attributes["title"]
             'Updated Title'
         """
+        path = self._document_endpoint(endpoint, document_id)
         params = query.to_query_params() if query else None
         # Wrap data in Strapi format
         payload = {"data": data}
-        raw_response = self.put(endpoint, json=payload, params=params, headers=headers)
+        raw_response = self.put(path, json=payload, params=params, headers=headers)
         return self._parse_single_response(raw_response)
 
     def remove(
         self,
         endpoint: str,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
     ) -> NormalizedSingleResponse:
         """Delete an entity with typed, normalized response.
 
         Args:
-            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123")
+            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123").
+                When ``document_id`` is provided, this is the collection name
+                (e.g., "articles").
             headers: Additional headers
+            document_id: Optional document ID. When provided, ``endpoint`` is
+                treated as the collection name and the ID is percent-encoded.
 
         Returns:
             Normalized single entity response (deleted entity)
 
+        Raises:
+            ValidationError: If ``document_id`` is provided and collection or
+                document ID is blank.
+
         Examples:
             >>> response = client.remove("articles/1")
+            >>> response = client.remove("articles", document_id="abc123")
             >>> deleted = response.data
             >>> deleted.id
             1
         """
-        raw_response = self.delete(endpoint, headers=headers)
+        path = self._document_endpoint(endpoint, document_id)
+        raw_response = self.delete(path, headers=headers)
         return self._parse_single_response(raw_response)
 
     def publish(

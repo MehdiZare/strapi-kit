@@ -323,13 +323,16 @@ class StrapiClient(Protocol):
         endpoint: str,
         query: Any = None,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
     ) -> NormalizedSingleResponse:
         """Get a single entity.
 
         Args:
-            endpoint: API endpoint path
+            endpoint: API endpoint path, or collection name when document_id is set
             query: Optional query configuration
             headers: Additional headers
+            document_id: Optional document ID (percent-encoded onto the path)
 
         Returns:
             Normalized single entity response
@@ -380,14 +383,17 @@ class StrapiClient(Protocol):
         data: dict[str, Any],
         query: Any = None,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
     ) -> NormalizedSingleResponse:
         """Update an existing entity.
 
         Args:
-            endpoint: API endpoint path
+            endpoint: API endpoint path, or collection name when document_id is set
             data: Entity data to update
             query: Optional query configuration
             headers: Additional headers
+            document_id: Optional document ID (percent-encoded onto the path)
 
         Returns:
             Normalized single entity response
@@ -398,12 +404,15 @@ class StrapiClient(Protocol):
         self,
         endpoint: str,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
     ) -> NormalizedSingleResponse:
         """Delete an entity.
 
         Args:
-            endpoint: API endpoint path
+            endpoint: API endpoint path, or collection name when document_id is set
             headers: Additional headers
+            document_id: Optional document ID (percent-encoded onto the path)
 
         Returns:
             Normalized single entity response

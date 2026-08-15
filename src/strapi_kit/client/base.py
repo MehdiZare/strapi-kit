@@ -143,6 +143,58 @@ class BaseClient:
 
         return f"{self.base_url}/{endpoint}"
 
+    @staticmethod
+    def document_path(collection: str, document_id: str) -> str:
+        """Build a collection/document path with a percent-encoded document ID.
+
+        The collection name is stripped of leading/trailing slashes and left
+        unencoded (it comes from ``pluralName``, not user data). ``document_id``
+        is encoded with ``quote(..., safe="")`` so characters such as ``/``,
+        ``?``, ``#``, and ``%`` cannot change the request path.
+
+        Args:
+            collection: Collection plural name (e.g., ``"articles"``).
+            document_id: Document ID or numeric id as a string.
+
+        Returns:
+            Path of the form ``{collection}/{encoded_document_id}``.
+
+        Raises:
+            ValidationError: If ``collection`` or ``document_id`` is blank.
+
+        Examples:
+            >>> BaseClient.document_path("articles", "abc123")
+            'articles/abc123'
+            >>> BaseClient.document_path("/articles/", "a/b?x=1")
+            'articles/a%2Fb%3Fx%3D1'
+        """
+        if not collection or not collection.strip("/"):
+            raise ValidationError("collection is required")
+        if not document_id or not document_id.strip():
+            raise ValidationError("document_id is required")
+        encoded_id = quote(document_id.strip(), safe="")
+        return f"{collection.strip('/')}/{encoded_id}"
+
+    def _document_endpoint(self, endpoint: str, document_id: str | None) -> str:
+        """Resolve a typed CRUD path, encoding ``document_id`` when provided.
+
+        Args:
+            endpoint: Full path (e.g., ``"articles/abc"``) or collection name
+                when ``document_id`` is set.
+            document_id: Optional document ID. When provided, ``endpoint`` is
+                treated as the collection name.
+
+        Returns:
+            Endpoint path to pass to HTTP helpers.
+
+        Raises:
+            ValidationError: If ``document_id`` is provided and collection or
+                document ID is blank.
+        """
+        if document_id is None:
+            return endpoint
+        return self.document_path(endpoint, document_id)
+
     def _document_action_endpoint(
         self,
         collection: str,
@@ -151,19 +203,16 @@ class BaseClient:
     ) -> str:
         """Build a Strapi v5 document-action path.
 
-        ``document_id`` is percent-encoded so a corrupted id cannot address
-        a different endpoint or inject query parameters.
+        Uses :meth:`document_path` so action helpers and typed CRUD share one
+        document-ID encoder. Collection must be a single path segment.
         """
         collection_name = collection.strip().strip("/")
         if not collection_name:
             raise ValidationError("collection is required")
         if "/" in collection_name or "\\" in collection_name:
             raise ValidationError("collection must be a single path segment")
-        if not document_id or not document_id.strip():
-            raise ValidationError("document_id is required")
-        encoded_id = quote(document_id.strip(), safe="")
         encoded_collection = quote(collection_name, safe="")
-        return f"{encoded_collection}/{encoded_id}/actions/{action.value}"
+        return f"{self.document_path(encoded_collection, document_id)}/actions/{action.value}"
 
     def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
         """Parse a 2xx response body.

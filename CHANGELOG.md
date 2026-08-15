@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a JSON object (the `"Created"` / empty-201 class). Empty **DELETE**
   bodies (any 2xx, including 204) stay success with `{}`. A 204 on
   POST/PUT/GET is treated as unstructured, not a created entity.
+- **Percent-encoded document IDs on typed CRUD** ([#50](https://github.com/MehdiZare/strapi-kit/issues/50))
+  - `BaseClient.document_path(collection, document_id)` builds `{collection}/{quote(document_id, safe="")}`
+  - `get_one()`, `update()`, and `remove()` (sync and async) accept `document_id=` so the collection name and ID are joined safely
+  - Blank collection or document ID raises `ValidationError`
+  - Existing single-string endpoints such as `get_one("articles/abc")` remain supported
+  - Document-action helpers reuse `document_path` so CRUD and actions share one encoder
 
 ### Changed
 
@@ -73,6 +79,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `https://cms.example.com/api` and `https://cms.example.com/api/` now normalize to `https://cms.example.com`
   - Prevents `_build_url` from producing `/api/api/...` when operators paste the REST root
   - Does not strip `/api` from the middle of a path (`https://host/api/v1` stays) or `/admin`
+- **Document ID path injection on typed CRUD** ([#50](https://github.com/MehdiZare/strapi-kit/issues/50))
+  - IDs containing `/`, `?`, `#`, or `%` no longer change the request path or inject query parameters when passed via `document_id=`
 
 ## [0.1.0] - 2026-02-04
 

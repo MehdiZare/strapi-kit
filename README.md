@@ -505,11 +505,11 @@ with SyncClient(config) as client:
     # Create
     data = {"title": "New Article", "content": "Article body"}
     response = client.create("articles", data)
-    created_id = response.data.id
+    created_id = response.data.document_id or str(response.data.id)
     document_id = response.data.document_id
 
-    # Read one
-    response = client.get_one(f"articles/{created_id}")
+    # Read one — pass document_id separately so `/`, `?`, `#`, `%` are encoded
+    response = client.get_one("articles", document_id=created_id)
     article = response.data
 
     # Read many
@@ -518,7 +518,7 @@ with SyncClient(config) as client:
 
     # Update
     data = {"title": "Updated Title"}
-    response = client.update(f"articles/{created_id}", data)
+    response = client.update("articles", data, document_id=created_id)
 
     # v5 Draft & Publish actions (documentId, not numeric id)
     if document_id:
@@ -527,7 +527,11 @@ with SyncClient(config) as client:
         client.discard_draft("articles", document_id)
 
     # Delete
-    response = client.remove(f"articles/{created_id}")
+    response = client.remove("articles", document_id=created_id)
+
+    # String endpoints still work (caller must encode special characters):
+    # client.get_one("articles/abc")
+    # client.document_path("articles", created_id)  # articles/a%2Fb
 ```
 
 ### Relation Writes (Strapi 5)
