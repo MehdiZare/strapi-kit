@@ -168,10 +168,10 @@ class BaseClient:
     def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
         """Parse a 2xx response body.
 
-        Empty DELETE bodies (any 2xx) are success with ``{}``. Other empty
-        or non-object 2xx bodies — including 204 on POST/PUT/GET — raise
-        :class:`UnstructuredResponseError` so callers cannot invent a
-        ``documentId`` from silence.
+        Empty DELETE bodies (any 2xx) are success with ``{}``. JSON
+        objects and arrays are success (Upload ``GET /upload/files`` is a
+        raw array). Other empty or scalar 2xx bodies — including 204 on
+        POST/PUT/GET — raise :class:`UnstructuredResponseError`.
         """
         verb = method.upper()
         empty = response.status_code == 204 or not response.content
@@ -197,6 +197,8 @@ class BaseClient:
                 status_code=response.status_code,
             ) from json_error
 
+        if isinstance(data, list):
+            return {"data": data}
         if not isinstance(data, dict):
             body_preview = response.text[:500] if response.text else ""
             raise UnstructuredResponseError(

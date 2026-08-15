@@ -184,7 +184,7 @@ class SyncClient(BaseClient):
                     self._handle_error_response(response)
 
                 data = self._parse_success_response(response, method=method)
-                if data:
+                if data and isinstance(data, dict):
                     self._detect_api_version(data)
 
                 logger.debug(f"Response: {response.status_code}")
