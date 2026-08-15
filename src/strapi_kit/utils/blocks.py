@@ -173,23 +173,23 @@ def markdown_to_blocks(markdown: str) -> list[dict[str, Any]]:
 
         heading = _HEADING_RE.match(line)
         if heading:
-            blocks.append(_heading_block(len(heading.group(1)), heading.group(2).rstrip()))
+            blocks.extend(_heading_blocks(len(heading.group(1)), heading.group(2).rstrip()))
             index += 1
             continue
 
         list_line = _match_list_line(line)
         if list_line is not None:
-            block, index = _consume_list(lines, index, ordered=list_line[2])
-            blocks.append(block)
+            list_blocks, index = _consume_list(lines, index, ordered=list_line[2])
+            blocks.extend(list_blocks)
             continue
 
         if _QUOTE_RE.match(line):
-            block, index = _consume_quote(lines, index)
-            blocks.append(block)
+            quote_blocks, index = _consume_quote(lines, index)
+            blocks.extend(quote_blocks)
             continue
 
-        block, index = _consume_paragraph(lines, index)
-        blocks.append(block)
+        paragraph_blocks, index = _consume_paragraph(lines, index)
+        blocks.extend(paragraph_blocks)
 
     return blocks if blocks else [_empty_paragraph()]
 
@@ -205,15 +205,48 @@ def _text_node(text: str) -> dict[str, Any]:
     return {"type": "text", "text": text}
 
 
-def _heading_block(level: int, text: str) -> dict[str, Any]:
-    return {"type": "heading", "level": level, "children": _parse_inlines(text)}
+def _split_around_images(children: Sequence[object]) -> list[tuple[str, Any]]:
+    """Split inline children into ``("inlines", ... )`` / ``("image", node)``."""
+    segments: list[tuple[str, Any]] = []
+    buf: list[object] = []
+    for child in children:
+        if isinstance(child, Mapping) and child.get("type") == "image":
+            if buf:
+                segments.append(("inlines", buf))
+                buf = []
+            segments.append(("image", child))
+        else:
+            buf.append(child)
+    if buf:
+        segments.append(("inlines", buf))
+    return segments
 
 
-def _paragraph_block(text: str) -> dict[str, Any]:
-    children = _parse_inlines(text)
-    if len(children) == 1 and children[0].get("type") == "image":
-        return children[0]
-    return {"type": "paragraph", "children": children}
+def _blocks_from_inlines(
+    block_type: str, children: Sequence[object], extra: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """Emit parent blocks around official root ``image`` siblings."""
+    extra = extra or {}
+    segments = _split_around_images(children)
+    if not segments:
+        node: dict[str, Any] = {"type": block_type, "children": [_text_node("")], **extra}
+        return [node]
+    result: list[dict[str, Any]] = []
+    for kind, payload in segments:
+        if kind == "image":
+            result.append(dict(payload))
+            continue
+        node = {"type": block_type, "children": list(payload), **extra}
+        result.append(node)
+    return result
+
+
+def _heading_blocks(level: int, text: str) -> list[dict[str, Any]]:
+    return _blocks_from_inlines("heading", _parse_inlines(text), {"level": level})
+
+
+def _paragraph_blocks(text: str) -> list[dict[str, Any]]:
+    return _blocks_from_inlines("paragraph", _parse_inlines(text))
 
 
 def _list_item_block(text: str) -> dict[str, Any]:
@@ -682,7 +715,9 @@ def _consume_fence(
     return {"type": "code", "children": [_text_node("\n".join(body))]}, index
 
 
-def _consume_list(lines: list[str], start: int, *, ordered: bool) -> tuple[dict[str, Any], int]:
+def _consume_list(
+    lines: list[str], start: int, *, ordered: bool
+) -> tuple[list[dict[str, Any]], int]:
     entries: list[tuple[int, str, bool]] = []
     index = start
     while index < len(lines):
@@ -696,7 +731,7 @@ def _consume_list(lines: list[str], start: int, *, ordered: bool) -> tuple[dict[
             break
         entries.append((indent, text, is_ordered))
         index += 1
-    return _build_list_tree(entries, ordered), index
+    return _lift_images_from_list(_build_list_tree(entries, ordered)), index
 
 
 def _build_list_tree(entries: list[tuple[int, str, bool]], ordered: bool) -> dict[str, Any]:
@@ -733,7 +768,54 @@ def _build_list_tree(entries: list[tuple[int, str, bool]], ordered: bool) -> dic
     return root
 
 
-def _consume_quote(lines: list[str], start: int) -> tuple[dict[str, Any], int]:
+def _lift_images_from_list(list_node: dict[str, Any]) -> list[dict[str, Any]]:
+    """Hoist official image nodes out of list items to root siblings."""
+    result: list[dict[str, Any]] = []
+    current_items: list[dict[str, Any]] = []
+    fmt = list_node.get("format", "unordered")
+
+    def flush() -> None:
+        if current_items:
+            result.append({"type": "list", "format": fmt, "children": current_items[:]})
+            current_items.clear()
+
+    for item in list_node.get("children", []):
+        if not isinstance(item, Mapping) or item.get("type") != "list-item":
+            if isinstance(item, dict):
+                current_items.append(item)
+            continue
+        inline_children: list[object] = []
+        nested_lists: list[dict[str, Any]] = []
+        for child in item.get("children", ()):
+            if isinstance(child, Mapping) and child.get("type") == "list":
+                nested_lists.extend(_lift_images_from_list(dict(child)))
+            else:
+                inline_children.append(child)
+
+        segments = _split_around_images(inline_children)
+        if not segments:
+            current_items.append({"type": "list-item", "children": [_text_node("")]})
+        for kind, payload in segments:
+            if kind == "image":
+                flush()
+                result.append(dict(payload))
+            else:
+                current_items.append({"type": "list-item", "children": list(payload)})
+
+        for nested in nested_lists:
+            if nested.get("type") == "image":
+                flush()
+                result.append(nested)
+            elif current_items:
+                current_items[-1]["children"].append(nested)
+            else:
+                result.append(nested)
+
+    flush()
+    return result
+
+
+def _consume_quote(lines: list[str], start: int) -> tuple[list[dict[str, Any]], int]:
     parts: list[str] = []
     index = start
     while index < len(lines):
@@ -742,10 +824,10 @@ def _consume_quote(lines: list[str], start: int) -> tuple[dict[str, Any], int]:
             break
         parts.append(match.group(1))
         index += 1
-    return {"type": "quote", "children": _parse_inlines("\n".join(parts))}, index
+    return _blocks_from_inlines("quote", _parse_inlines("\n".join(parts))), index
 
 
-def _consume_paragraph(lines: list[str], start: int) -> tuple[dict[str, Any], int]:
+def _consume_paragraph(lines: list[str], start: int) -> tuple[list[dict[str, Any]], int]:
     parts: list[str] = []
     index = start
     while index < len(lines):
@@ -754,4 +836,4 @@ def _consume_paragraph(lines: list[str], start: int) -> tuple[dict[str, Any], in
             break
         parts.append(line.strip())
         index += 1
-    return _paragraph_block(" ".join(parts)), index
+    return _paragraph_blocks(" ".join(parts)), index

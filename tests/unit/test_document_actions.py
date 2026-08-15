@@ -13,6 +13,7 @@ from strapi_kit.exceptions import (
     NotFoundError,
     RateLimitError,
     UnstructuredResponseError,
+    UnstructuredResponseReason,
 )
 from strapi_kit.models import DocumentStatus, StrapiQuery
 
@@ -235,6 +236,7 @@ class TestHonestSuccessBodies:
             with pytest.raises(UnstructuredResponseError) as exc_info:
                 client.post("articles", json={"data": {"title": "x"}})
             assert exc_info.value.status_code == 201
+            assert exc_info.value.reason is UnstructuredResponseReason.EMPTY_BODY
             assert "empty body" in str(exc_info.value)
 
     @pytest.mark.respx
@@ -349,6 +351,7 @@ class TestHonestSuccessBodies:
             with pytest.raises(UnstructuredResponseError) as exc_info:
                 client.create("articles", {"title": "x"})
             assert exc_info.value.status_code == 200
+            assert exc_info.value.reason is UnstructuredResponseReason.MISSING_DATA
             assert exc_info.value.details.get("has_data") is False
 
     @pytest.mark.respx

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Stream/export `document_status` ([#84](https://github.com/MehdiZare/strapi-kit/issues/84),
+  [#85](https://github.com/MehdiZare/strapi-kit/issues/85)) replaces `include_drafts`.
+- `UnstructuredResponseError.reason` ([#86](https://github.com/MehdiZare/strapi-kit/issues/86)).
+
+### Changed
+
+- `markdown_to_blocks` lifts images to root siblings ([#89](https://github.com/MehdiZare/strapi-kit/issues/89)).
+
+### Added
+
 - **Stock REST `publish()`** ([#65](https://github.com/MehdiZare/strapi-kit/issues/65)):
   PUT `?status=published`. `unpublish` / `discard_draft` stay custom-route only.
 - **Stream/export completeness** ([#81](https://github.com/MehdiZare/strapi-kit/issues/81),

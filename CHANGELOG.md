@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Stream/export `document_status`** ([#84](https://github.com/MehdiZare/strapi-kit/issues/84), [#85](https://github.com/MehdiZare/strapi-kit/issues/85))
+  - Replaces the `include_drafts` bool. Default `DocumentStatus.DRAFT` (v5 `status=draft`, confirmed v4 `publicationState=preview`)
+  - `document_status=None` is published-only. `StrapiExporter.export_content_types` / `export_to_jsonl` take the same argument
+- **`UnstructuredResponseError.reason`** ([#86](https://github.com/MehdiZare/strapi-kit/issues/86))
+  - Closed `UnstructuredResponseReason`: `empty_body`, `non_json`, `non_object`, `missing_data`, `unparseable_entity`
+
+### Changed
+
+- **`markdown_to_blocks` lifts images to root siblings** ([#89](https://github.com/MehdiZare/strapi-kit/issues/89)) so mixed text+image is not nested under paragraph/list/quote
+
+### Added
+
 - **Stock REST `publish()`** ([#65](https://github.com/MehdiZare/strapi-kit/issues/65))
   - `publish()` is `PUT /api/{collection}/{documentId}?status=published` with `{"data": {}}`
   - `unpublish()` / `discard_draft()` stay on custom `POST /actions/*` routes (not registered by stock Strapi 5 REST)

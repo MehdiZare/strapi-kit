@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..exceptions import ValidationError
 from ..models import StrapiQuery
-from ..models.enums import DocumentStatus
+from ..models.enums import DocumentStatus, PublicationState
 from ..models.response.normalized import NormalizedEntity
 from ..models.response.pagination import PaginationEchoMeta, assert_pagination_echo
 
@@ -18,24 +18,46 @@ if TYPE_CHECKING:
     from ..client.sync_client import SyncClient
 
 
-def _with_default_draft_status(
+def _apply_stream_document_status(
     query: StrapiQuery,
     client: Any,
-    include_drafts: bool,
+    document_status: DocumentStatus | None,
 ) -> tuple[StrapiQuery, bool]:
-    """Apply ``status=draft`` for v5 completeness unless the caller set status.
+    """Apply the stream version contract unless the caller already set one.
 
-    Returns the query and whether this helper added ``status=draft`` so a
+    v5 / auto: ``status=``. Confirmed v4: ``publicationState=`` (preview for
+    draft completeness, live for published). Never sends ``status=`` on a
+    confirmed v4 client.
+
+    Returns the query and whether this helper applied a default so a
     first-page ``ValidationError`` (Draft & Publish off) can drop it.
     """
-    if not include_drafts:
+    if document_status is None:
         return query, False
     if query.document_status is not None or query.publication_state is not None:
         return query, False
     version = client.api_version or client.config.api_version
     if version == "v4":
-        return query, False
-    return query.with_document_status(DocumentStatus.DRAFT), True
+        state = (
+            PublicationState.PREVIEW
+            if document_status is DocumentStatus.DRAFT
+            else PublicationState.LIVE
+        )
+        return query.with_publication_state(state), True
+    return query.with_document_status(document_status), True
+
+
+def _reconcile_v4_after_detect(
+    caller_query: StrapiQuery,
+    client: Any,
+    document_status: DocumentStatus | None,
+) -> tuple[StrapiQuery, bool]:
+    """After the first page, drop ``status=`` if the client is now v4."""
+    if document_status is None or client.api_version != "v4":
+        return caller_query, False
+    if caller_query.document_status is not None or caller_query.publication_state is not None:
+        return caller_query, False
+    return _apply_stream_document_status(caller_query.copy(), client, document_status)
 
 
 def _should_stop_after_page(
@@ -80,41 +102,41 @@ def stream_entities(
     query: StrapiQuery | None = None,
     page_size: int = 100,
     *,
-    include_drafts: bool = True,
+    document_status: DocumentStatus | None = DocumentStatus.DRAFT,
 ) -> Generator[NormalizedEntity, None, None]:
     """Stream entities from endpoint with automatic pagination.
 
     This generator automatically fetches pages as needed, yielding
     entities one at a time without loading the entire dataset into memory.
 
-    On Strapi 5, omitted ``status=`` means published, which hides
-    never-published documents. ``include_drafts=True`` (the default)
-    sets ``status=draft`` unless the caller already set a document
-    status or a v4 publication state. That requests the **draft
-    version** of each document (published-plus-pending-edits, not a
-    union of published and draft rows). Pass ``include_drafts=False``
-    for published-only. Explicit ``api_version="v4"`` never sends
-    ``status=`` (v4 uses ``publicationState``; that mapping is not
-    applied here). ``api_version="auto"`` sends ``status=draft`` so
-    the first page is complete on v5 before version detection.
+    ``document_status`` defaults to :attr:`DocumentStatus.DRAFT` so
+    unpublished documents are not skipped. On v5 that is ``status=draft``
+    (the **draft version** of each document, not a published∪draft
+    union). On a confirmed v4 client it is ``publicationState=preview``.
+    Pass ``document_status=None`` to omit both params (v5 published-only).
+    ``DocumentStatus.PUBLISHED`` sends ``status=published`` / v4
+    ``publicationState=live``. A caller query that already set
+    ``status=`` or ``publicationState=`` is left alone.
+
+    ``api_version="auto"`` may send ``status=draft`` on the first page
+    before detection. After a v4 detect, later pages use
+    ``publicationState`` and never ``status=``. If the applied default
+    400s (Draft & Publish off), the first page is retried without it.
 
     Each page is checked with :func:`assert_pagination_echo`. The
     stream stops after ``total`` items (or raises if the echo is
     missing, unreadable, silently capped, or a later page is empty
     while ``total`` is still unmet). An empty first page with
     ``total == 0`` is a complete empty collection. ``get_many()``
-    itself does not call the helper. If the default ``status=draft``
-    400s (Draft & Publish off), the first page is retried without
-    ``status=``.
+    itself does not call the helper.
 
     Args:
         client: SyncClient instance
         endpoint: API endpoint (e.g., "articles")
         query: Optional query (filters, sorts, populate, etc.)
         page_size: Items per page (default: 100)
-        include_drafts: If True (default), request ``status=draft`` on
-            v5 so unpublished documents are included. This selects the
-            draft version of each document.
+        document_status: Version to request. Default draft completeness.
+            ``None`` omits ``status=`` / ``publicationState=``.
 
     Yields:
         NormalizedEntity objects one at a time
@@ -137,8 +159,8 @@ def stream_entities(
 
     # Build base query - create copy to avoid mutating caller's query
     caller_query = query.copy() if query is not None else StrapiQuery()
-    base_query, applied_default_draft = _with_default_draft_status(
-        caller_query.copy(), client, include_drafts
+    base_query, applied_default_draft = _apply_stream_document_status(
+        caller_query.copy(), client, document_status
     )
 
     while True:
@@ -158,6 +180,13 @@ def stream_entities(
         yield from response.data
         yielded += len(response.data)
 
+        if current_page == 1 and applied_default_draft:
+            reconciled, still_applied = _reconcile_v4_after_detect(
+                caller_query.copy(), client, document_status
+            )
+            base_query = reconciled
+            applied_default_draft = still_applied
+
         if _should_stop_after_page(
             data_len=len(response.data),
             yielded=yielded,
@@ -176,25 +205,22 @@ async def stream_entities_async(
     query: StrapiQuery | None = None,
     page_size: int = 100,
     *,
-    include_drafts: bool = True,
+    document_status: DocumentStatus | None = DocumentStatus.DRAFT,
 ) -> AsyncGenerator[NormalizedEntity, None]:
     """Async version of stream_entities.
 
     This async generator automatically fetches pages as needed, yielding
     entities one at a time without loading the entire dataset into memory.
 
-    On Strapi 5, ``include_drafts=True`` (default) sets ``status=draft``
-    unless the caller already set a document status. See
-    :func:`stream_entities`.
+    See :func:`stream_entities` for the ``document_status`` contract.
 
     Args:
         client: AsyncClient instance
         endpoint: API endpoint (e.g., "articles")
         query: Optional query (filters, sorts, populate, etc.)
         page_size: Items per page (default: 100)
-        include_drafts: If True (default), request ``status=draft`` on
-            v5 so unpublished documents are included. This selects the
-            draft version of each document.
+        document_status: Version to request. Default draft completeness.
+            ``None`` omits ``status=`` / ``publicationState=``.
 
     Yields:
         NormalizedEntity objects one at a time
@@ -217,8 +243,8 @@ async def stream_entities_async(
 
     # Build base query - create copy to avoid mutating caller's query
     caller_query = query.copy() if query is not None else StrapiQuery()
-    base_query, applied_default_draft = _with_default_draft_status(
-        caller_query.copy(), client, include_drafts
+    base_query, applied_default_draft = _apply_stream_document_status(
+        caller_query.copy(), client, document_status
     )
 
     while True:
@@ -237,6 +263,13 @@ async def stream_entities_async(
         for entity in response.data:
             yield entity
         yielded += len(response.data)
+
+        if current_page == 1 and applied_default_draft:
+            reconciled, still_applied = _reconcile_v4_after_detect(
+                caller_query.copy(), client, document_status
+            )
+            base_query = reconciled
+            applied_default_draft = still_applied
 
         if _should_stop_after_page(
             data_len=len(response.data),

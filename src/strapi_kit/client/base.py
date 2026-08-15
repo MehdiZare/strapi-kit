@@ -35,6 +35,7 @@ from ..exceptions import (
     ServerError,
     StrapiError,
     UnstructuredResponseError,
+    UnstructuredResponseReason,
     ValidationError,
 )
 from ..exceptions import (
@@ -296,6 +297,7 @@ class BaseClient:
                 f"Successful HTTP {response.status_code} returned an empty body",
                 details={"method": verb, "body_preview": ""},
                 status_code=response.status_code,
+                reason=UnstructuredResponseReason.EMPTY_BODY,
             )
 
         try:
@@ -308,6 +310,7 @@ class BaseClient:
                 f"(content-type: {content_type})",
                 details={"method": verb, "body_preview": body_preview},
                 status_code=response.status_code,
+                reason=UnstructuredResponseReason.NON_JSON,
             ) from json_error
 
         if isinstance(data, list):
@@ -322,6 +325,7 @@ class BaseClient:
                     "parsed_type": type(data).__name__,
                 },
                 status_code=response.status_code,
+                reason=UnstructuredResponseReason.NON_OBJECT,
             )
         return data
 
@@ -558,6 +562,7 @@ class BaseClient:
                 "Successful response did not match a single-entity document",
                 details={"errors": e.errors()},
                 status_code=_response_status_code.get(),
+                reason=UnstructuredResponseReason.UNPARSEABLE_ENTITY,
             ) from e
 
     def _require_write_data_object(self, response_data: dict[str, Any]) -> None:
@@ -578,6 +583,7 @@ class BaseClient:
                 "parsed_type": type(data).__name__,
             },
             status_code=_response_status_code.get(),
+            reason=UnstructuredResponseReason.MISSING_DATA,
         )
 
     def _publish_put_args(

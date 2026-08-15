@@ -596,6 +596,23 @@ class TestMarkdownToBlocks:
             }
         ]
 
+    def test_mixed_paragraph_image_is_split_to_root(self) -> None:
+        blocks = markdown_to_blocks("See ![alt](https://example.com/a.png) after")
+        assert blocks[0] == _paragraph(_text("See "))
+        assert blocks[1]["type"] == "image"
+        assert blocks[1]["image"]["url"] == "https://example.com/a.png"
+        assert blocks[2] == _paragraph(_text(" after"))
+
+    def test_list_item_image_is_root_sibling(self) -> None:
+        blocks = markdown_to_blocks("- ![alt](https://example.com/a.png)")
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "image"
+
+    def test_quote_image_is_root_sibling(self) -> None:
+        blocks = markdown_to_blocks("> ![alt](https://example.com/a.png)")
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "image"
+
     def test_nested_indented_list(self) -> None:
         blocks = markdown_to_blocks("- parent\n  - child")
         assert blocks[0]["type"] == "list"

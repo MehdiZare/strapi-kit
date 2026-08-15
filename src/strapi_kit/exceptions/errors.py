@@ -4,6 +4,7 @@ This module defines all custom exceptions used throughout the package,
 organized in a clear hierarchy for better error handling.
 """
 
+from enum import StrEnum
 from typing import Any
 
 
@@ -148,6 +149,16 @@ class MethodNotAllowedError(StrapiError):
     pass
 
 
+class UnstructuredResponseReason(StrEnum):
+    """Closed reason for :class:`UnstructuredResponseError`."""
+
+    EMPTY_BODY = "empty_body"
+    NON_JSON = "non_json"
+    NON_OBJECT = "non_object"
+    MISSING_DATA = "missing_data"
+    UNPARSEABLE_ENTITY = "unparseable_entity"
+
+
 class UnstructuredResponseError(StrapiError):
     """Raised when a 2xx response is not a usable structured document.
 
@@ -155,12 +166,24 @@ class UnstructuredResponseError(StrapiError):
     JSON has no ``data`` object (``{}``, ``{"ok": true}``, ``{"data": []}``),
     and Pydantic parse failures on a single-entity 2xx body.
 
-    Callers must not treat the call as a successful entity write or fetch —
+    Branch on :attr:`reason` rather than matching ``message``. Callers
+    must not treat the call as a successful entity write or fetch —
     there is no ``documentId`` to continue with. Empty 2xx DELETE bodies
     are success, not this error.
     """
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        details: dict[str, Any] | None = None,
+        *,
+        status_code: int | None = None,
+        reason: UnstructuredResponseReason,
+    ) -> None:
+        """Initialize with a closed ``reason``."""
+        super().__init__(message, details, status_code=status_code)
+        self.reason = reason
+        self.details.setdefault("reason", reason.value)
 
 
 # Network Related Errors

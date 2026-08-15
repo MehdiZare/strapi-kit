@@ -148,6 +148,34 @@ def test_export_requests_status_draft(
 
 
 @pytest.mark.respx
+def test_export_published_only_omits_status(
+    strapi_config: StrapiConfig, mock_article_schema_response: dict, respx_mock: respx.Router
+) -> None:
+    """document_status=None is published-only (no status=)."""
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
+    route = respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [{"id": 1, "documentId": "doc1", "title": "Live"}],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}},
+            },
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        StrapiExporter(client).export_content_types(
+            ["api::article.article"],
+            include_media=False,
+            document_status=None,
+        )
+
+    assert "status" not in route.calls.last.request.url.params
+
+
+@pytest.mark.respx
 def test_export_with_progress_callback(
     strapi_config: StrapiConfig, mock_article_schema_response: dict, respx_mock: respx.Router
 ) -> None:

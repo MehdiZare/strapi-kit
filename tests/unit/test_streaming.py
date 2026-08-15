@@ -52,7 +52,7 @@ def test_stream_entities_single_page(strapi_config: StrapiConfig, respx_mock: re
     )
 
     with SyncClient(strapi_config) as client:
-        entities = list(stream_entities(client, "articles", page_size=100, include_drafts=False))
+        entities = list(stream_entities(client, "articles", page_size=100, document_status=None))
 
         assert len(entities) == 3
         assert entities[0].id == 1
@@ -137,7 +137,7 @@ def test_stream_entities_multiple_pages(
     )
 
     with SyncClient(strapi_config) as client:
-        entities = list(stream_entities(client, "articles", page_size=2, include_drafts=False))
+        entities = list(stream_entities(client, "articles", page_size=2, document_status=None))
 
         assert len(entities) == 5
         assert entities[0].id == 1
@@ -224,7 +224,7 @@ def test_stream_entities_no_pagination_metadata(
 
     with SyncClient(strapi_config) as client:
         with pytest.raises(ValidationError, match="Pagination total is required"):
-            list(stream_entities(client, "articles", include_drafts=False))
+            list(stream_entities(client, "articles", document_status=None))
 
 
 @pytest.mark.respx
@@ -371,7 +371,7 @@ async def test_async_stream_entities_multiple_pages(
     async with AsyncClient(strapi_config) as client:
         entities = []
         async for entity in stream_entities_async(
-            client, "articles", page_size=2, include_drafts=False
+            client, "articles", page_size=2, document_status=None
         ):
             entities.append(entity)
 
@@ -483,7 +483,7 @@ def test_stream_continues_when_page_count_missing(
     )
 
     with SyncClient(strapi_config) as client:
-        entities = list(stream_entities(client, "articles", page_size=2, include_drafts=False))
+        entities = list(stream_entities(client, "articles", page_size=2, document_status=None))
 
     assert [entity.id for entity in entities] == [1, 2, 3]
 
@@ -522,7 +522,7 @@ def test_stream_stops_on_total_when_page_count_is_low(
     )
 
     with SyncClient(strapi_config) as client:
-        entities = list(stream_entities(client, "articles", page_size=2, include_drafts=False))
+        entities = list(stream_entities(client, "articles", page_size=2, document_status=None))
 
     assert [entity.id for entity in entities] == [1, 2, 3]
 
@@ -544,7 +544,7 @@ def test_stream_capped_page_size_raises(
 
     with SyncClient(strapi_config) as client:
         with pytest.raises(ValidationError, match="pageSize"):
-            list(stream_entities(client, "articles", page_size=100, include_drafts=False))
+            list(stream_entities(client, "articles", page_size=100, document_status=None))
 
 
 @pytest.mark.respx
@@ -570,10 +570,10 @@ def test_stream_defaults_to_status_draft(
 
 
 @pytest.mark.respx
-def test_stream_include_drafts_false_omits_status(
+def test_stream_document_status_none_omits_status(
     strapi_config: StrapiConfig, respx_mock: respx.Router
 ) -> None:
-    """Opt out keeps published-only REST (omitted status=)."""
+    """document_status=None keeps published-only REST (omitted status=)."""
     route = respx_mock.get("http://localhost:1337/api/articles").mock(
         return_value=httpx.Response(
             200,
@@ -585,7 +585,7 @@ def test_stream_include_drafts_false_omits_status(
     )
 
     with SyncClient(strapi_config) as client:
-        list(stream_entities(client, "articles", include_drafts=False))
+        list(stream_entities(client, "articles", document_status=None))
 
     assert "status" not in route.calls.last.request.url.params
 
@@ -638,7 +638,7 @@ def test_stream_does_not_mutate_caller_query(
 def test_stream_v4_never_sends_status(
     strapi_config: StrapiConfig, respx_mock: respx.Router
 ) -> None:
-    """Explicit v4 clients omit status= even when include_drafts is True."""
+    """Explicit v4 clients send publicationState=preview, never status=."""
     v4_config = StrapiConfig(
         base_url=strapi_config.base_url,
         api_token=strapi_config.api_token,
@@ -662,7 +662,9 @@ def test_stream_v4_never_sends_status(
     with SyncClient(v4_config) as client:
         list(stream_entities(client, "articles"))
 
-    assert "status" not in route.calls.last.request.url.params
+    params = route.calls.last.request.url.params
+    assert "status" not in params
+    assert params["publicationState"] == "preview"
 
 
 @pytest.mark.respx
@@ -751,7 +753,7 @@ def test_stream_empty_later_page_raises(
 
     with SyncClient(strapi_config) as client:
         with pytest.raises(ValidationError, match="Empty page"):
-            list(stream_entities(client, "articles", page_size=2, include_drafts=False))
+            list(stream_entities(client, "articles", page_size=2, document_status=None))
 
 
 @pytest.mark.respx
@@ -771,7 +773,7 @@ def test_stream_empty_first_page_with_nonzero_total_raises(
 
     with SyncClient(strapi_config) as client:
         with pytest.raises(ValidationError, match="Empty first page"):
-            list(stream_entities(client, "articles", include_drafts=False))
+            list(stream_entities(client, "articles", document_status=None))
 
 
 @pytest.mark.respx
