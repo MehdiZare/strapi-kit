@@ -9,6 +9,7 @@ This module defines core enums used throughout the models package:
 - DocumentAction: v5 ``/actions/{publish|unpublish|discardDraft}``
 - QueryParam: closed REST query-parameter keys
 - HttpMethod: HTTP verbs used by the client
+- RelationWriteOp: Strapi 5 REST relation write operations
 """
 
 from enum import StrEnum
@@ -203,3 +204,30 @@ class HttpMethod(StrEnum):
     PUT = "PUT"
     PATCH = "PATCH"
     DELETE = "DELETE"
+
+
+class RelationWriteOp(StrEnum):
+    """Strapi 5 REST relation write operations.
+
+    v5 many-side writes use a closed vocabulary on the relation field:
+
+    * ``set`` — replace the full relation list
+    * ``connect`` — add documentIds without removing existing links
+    * ``disconnect`` — remove documentIds without touching other links
+
+    One-side writes take a documentId string or ``None`` and do not use this
+    object shape. v5 relation writes take **documentId** strings, not numeric
+    ``id``. This enum does not model v4 ``{ connect: [{ id: 1 }] }`` payloads.
+
+    Examples:
+        >>> RelationWriteOp.SET.value
+        'set'
+        >>> RelationWriteOp.CONNECT.value
+        'connect'
+        >>> RelationWriteOp.DISCONNECT.value
+        'disconnect'
+    """
+
+    SET = "set"
+    CONNECT = "connect"
+    DISCONNECT = "disconnect"

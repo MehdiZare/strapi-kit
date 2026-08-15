@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Strapi 5 relation write helper** ([#54](https://github.com/MehdiZare/strapi-kit/issues/54))
+  - `RelationWriteOp` StrEnum (`set`, `connect`, `disconnect`)
+  - `relation_write()` builds v5 REST relation payloads from documentId strings
+  - One-side: documentId string or `None` (raises `ValidationError` on 2+ ids)
+  - Many-side: `{op: [documentIds]}` for set / connect / disconnect
+  - Accepts `{"documentId": "..."}` objects and normalizes to the short string form
+  - v5 writes take **documentId** strings, not numeric `id`; no v4 connect shapes
 - **v5 document status query** — `DocumentStatus` (`draft` / `published`) and
   `StrapiQuery.with_document_status()`. Emits `status=`. Mixing it with
   v4 `with_publication_state()` raises `ValidationError`.

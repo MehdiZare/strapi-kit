@@ -530,6 +530,49 @@ with SyncClient(config) as client:
     response = client.remove(f"articles/{created_id}")
 ```
 
+### Relation Writes (Strapi 5)
+
+v5 REST relation writes take **documentId** strings, not numeric `id`. One-side
+fields are a documentId or `None`. Many-side fields use `set` / `connect` /
+`disconnect`. This helper does not emit v4 `{ connect: [{ id: 1 }] }` shapes.
+
+```python
+from strapi_kit import RelationWriteOp, SyncClient, relation_write
+
+with SyncClient(config) as client:
+    # One-side: documentId string or None
+    client.create("articles", {
+        "title": "New Article",
+        "author": relation_write(document_ids=["authorDocId"], multiple=False),
+    })
+
+    # Many-side replace (default op is set)
+    client.update("articles/articleDocId", {
+        "categories": relation_write(
+            document_ids=["catDoc1", "catDoc2"],
+            multiple=True,
+        ),
+    })
+
+    # Incremental many-side updates
+    client.update("articles/articleDocId", {
+        "categories": relation_write(
+            document_ids=["catDoc3"],
+            multiple=True,
+            op=RelationWriteOp.CONNECT,
+        ),
+    })
+    client.update("articles/articleDocId", {
+        "categories": relation_write(
+            document_ids=["catDoc1"],
+            multiple=True,
+            op=RelationWriteOp.DISCONNECT,
+        ),
+    })
+```
+
+`{"documentId": "..."}` objects are accepted and normalized to short strings.
+
 ### Media Upload/Download
 
 Upload, download, and manage media files in Strapi's media library:

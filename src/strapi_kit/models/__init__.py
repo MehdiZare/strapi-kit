@@ -16,6 +16,7 @@ from .enums import (
     PublicationFilter,
     PublicationState,
     QueryParam,
+    RelationWriteOp,
     SortDirection,
 )
 from .export_format import (
@@ -31,6 +32,7 @@ from .request.filters import FilterBuilder, FilterCondition, FilterGroup
 from .request.pagination import OffsetPagination, PagePagination, Pagination
 from .request.populate import Populate, PopulateField
 from .request.query import StrapiQuery
+from .request.relation_write import relation_write
 from .request.sort import Sort, SortField
 from .response.base import (
     BaseStrapiResponse,
@@ -75,6 +77,7 @@ __all__ = [
     "DocumentAction",
     "QueryParam",
     "HttpMethod",
+    "RelationWriteOp",
     # Request models - Filters
     "FilterBuilder",
     "FilterCondition",
@@ -93,6 +96,8 @@ __all__ = [
     "PopulateField",
     # Request models - Query (Main API)
     "StrapiQuery",
+    # Request models - Relation writes (Strapi 5)
+    "relation_write",
     # Response models - Base
     "BaseStrapiResponse",
     "StrapiSingleResponse",
