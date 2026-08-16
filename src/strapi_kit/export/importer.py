@@ -140,12 +140,14 @@ class StrapiImporter:
             if options.progress_callback:
                 options.progress_callback(40, 100, "Importing entities")
 
+            pending_publish: list[tuple[str, Any, str]] = []
             self._import_entities(
                 export_data,
                 content_types_to_import,
                 media_id_mapping,
                 options,
                 result,
+                pending_publish,
             )
 
             # Step 5: Import relations (if not skipped)
@@ -159,6 +161,10 @@ class StrapiImporter:
                     options,
                     result,
                 )
+
+            # Publish after relations so stock v5 PUT ?status=published
+            # is not overwritten by a later draft relation write.
+            self._publish_pending(pending_publish, options, result)
 
             if options.progress_callback:
                 options.progress_callback(100, 100, "Import complete")
@@ -273,6 +279,7 @@ class StrapiImporter:
         media_id_mapping: dict[int, int],
         options: ImportOptions,
         result: ImportResult,
+        pending_publish: list[tuple[str, Any, str]],
     ) -> None:
         """Import entities for specified content types.
 
@@ -294,7 +301,6 @@ class StrapiImporter:
         for content_type in content_types:
             entities = export_data.entities.get(content_type, [])
 
-            # Get endpoint from schema (prefers plural_name) or fallback to UID
             endpoint = self._get_endpoint(content_type)
 
             # Process entities in batches for progress reporting
@@ -324,23 +330,17 @@ class StrapiImporter:
                             # Entity already exists - handle according to conflict resolution
                             if options.conflict_resolution == ConflictResolution.SKIP:
                                 result.entities_skipped += 1
-                                # Still track the ID mapping for relations
-                                if content_type not in result.id_mapping:
-                                    result.id_mapping[content_type] = {}
-                                result.id_mapping[content_type][entity.id] = existing_id
-                                # Track document_id mappings for v5
-                                if entity.document_id:
-                                    if content_type not in result.doc_id_mapping:
-                                        result.doc_id_mapping[content_type] = {}
-                                    result.doc_id_mapping[content_type][entity.id] = (
-                                        entity.document_id
-                                    )
-                                    # Track reverse mapping for v5 string relation resolution
-                                    if content_type not in result.doc_id_to_new_id:
-                                        result.doc_id_to_new_id[content_type] = {}
-                                    result.doc_id_to_new_id[content_type][entity.document_id] = (
-                                        existing_id
-                                    )
+                                self._record_entity_mappings(
+                                    content_type=content_type,
+                                    entity_id=entity.id,
+                                    source_document_id=entity.document_id,
+                                    new_id=existing_id,
+                                    dest_document_id=entity.document_id,
+                                    id_mapping=result.id_mapping,
+                                    doc_id_mapping=result.doc_id_mapping,
+                                    doc_id_to_new_id=result.doc_id_to_new_id,
+                                    doc_id_to_new_document_id=result.doc_id_to_new_document_id,
+                                )
                                 continue
 
                             elif options.conflict_resolution == ConflictResolution.FAIL:
@@ -357,57 +357,48 @@ class StrapiImporter:
                                     query=write_query,
                                     document_id=entity.document_id,
                                 )
-                                self._maybe_publish(endpoint, response, entity, write_query)
                                 if response.data:
-                                    if content_type not in result.id_mapping:
-                                        result.id_mapping[content_type] = {}
-                                    result.id_mapping[content_type][entity.id] = response.data.id
-                                    # Track document_id mappings for v5
-                                    if entity.document_id:
-                                        if content_type not in result.doc_id_mapping:
-                                            result.doc_id_mapping[content_type] = {}
-                                        result.doc_id_mapping[content_type][entity.id] = (
-                                            entity.document_id
-                                        )
-                                        # Track reverse mapping for v5 string relation resolution
-                                        if content_type not in result.doc_id_to_new_id:
-                                            result.doc_id_to_new_id[content_type] = {}
-                                        result.doc_id_to_new_id[content_type][
-                                            entity.document_id
-                                        ] = response.data.id
+                                    dest_document_id = (
+                                        response.data.document_id or entity.document_id
+                                    )
+                                    self._record_entity_mappings(
+                                        content_type=content_type,
+                                        entity_id=entity.id,
+                                        source_document_id=entity.document_id,
+                                        new_id=response.data.id,
+                                        dest_document_id=dest_document_id,
+                                        id_mapping=result.id_mapping,
+                                        doc_id_mapping=result.doc_id_mapping,
+                                        doc_id_to_new_id=result.doc_id_to_new_id,
+                                        doc_id_to_new_document_id=result.doc_id_to_new_document_id,
+                                    )
+                                    self._queue_publish(
+                                        pending_publish, content_type, entity, dest_document_id
+                                    )
                                     result.entities_updated += 1
                                 continue
 
                         write_query = self._write_query(entity)
                         response = self.client.create(endpoint, entity_data, query=write_query)
-                        self._maybe_publish(endpoint, response, entity, write_query)
 
                         if response.data:
-                            # Track ID mapping for relation resolution
-                            if content_type not in result.id_mapping:
-                                result.id_mapping[content_type] = {}
-                            result.id_mapping[content_type][entity.id] = response.data.id
-
-                            # Track document_id mappings for v5
-                            if response.data.document_id:
-                                if content_type not in result.doc_id_mapping:
-                                    result.doc_id_mapping[content_type] = {}
-                                result.doc_id_mapping[content_type][entity.id] = (
-                                    response.data.document_id
-                                )
-
-                            # Track reverse mapping for v5 string relation resolution
-                            if entity.document_id:
-                                if content_type not in result.doc_id_to_new_id:
-                                    result.doc_id_to_new_id[content_type] = {}
-                                result.doc_id_to_new_id[content_type][entity.document_id] = (
-                                    response.data.id
-                                )
-                                if response.data.document_id:
-                                    result.doc_id_to_new_document_id.setdefault(content_type, {})[
-                                        entity.document_id
-                                    ] = response.data.document_id
-
+                            self._record_entity_mappings(
+                                content_type=content_type,
+                                entity_id=entity.id,
+                                source_document_id=entity.document_id,
+                                new_id=response.data.id,
+                                dest_document_id=response.data.document_id,
+                                id_mapping=result.id_mapping,
+                                doc_id_mapping=result.doc_id_mapping,
+                                doc_id_to_new_id=result.doc_id_to_new_id,
+                                doc_id_to_new_document_id=result.doc_id_to_new_document_id,
+                            )
+                            self._queue_publish(
+                                pending_publish,
+                                content_type,
+                                entity,
+                                response.data.document_id,
+                            )
                             result.entities_imported += 1
 
                     except ValidationError as e:
@@ -467,9 +458,36 @@ class StrapiImporter:
                 return response.data.id
         except NotFoundError:
             return None
-        except ValidationError:
+        except ValidationError as error:
+            text = str(error).lower()
+            if "invalid key status" not in text and "invalid key publicationstate" not in text:
+                raise
             return None
         return None
+
+    @staticmethod
+    def _record_entity_mappings(
+        *,
+        content_type: str,
+        entity_id: int,
+        source_document_id: str | None,
+        new_id: int,
+        dest_document_id: str | None,
+        id_mapping: dict[str, dict[int, int]],
+        doc_id_mapping: dict[str, dict[int, str]],
+        doc_id_to_new_id: dict[str, dict[str, int]],
+        doc_id_to_new_document_id: dict[str, dict[str, str]],
+    ) -> None:
+        """Record numeric and documentId mappings for later relation writes."""
+        id_mapping.setdefault(content_type, {})[entity_id] = new_id
+        if dest_document_id:
+            doc_id_mapping.setdefault(content_type, {})[entity_id] = dest_document_id
+        if source_document_id:
+            doc_id_to_new_id.setdefault(content_type, {})[source_document_id] = new_id
+            if dest_document_id:
+                doc_id_to_new_document_id.setdefault(content_type, {})[source_document_id] = (
+                    dest_document_id
+                )
 
     def _write_query(self, entity: Any) -> StrapiQuery | None:
         """Locale query for create / update / publish, if the export recorded one."""
@@ -477,19 +495,33 @@ class StrapiImporter:
             return StrapiQuery().with_locale(entity.locale)
         return None
 
-    def _maybe_publish(
-        self,
-        endpoint: str,
-        response: Any,
+    @staticmethod
+    def _queue_publish(
+        pending_publish: list[tuple[str, Any, str]],
+        content_type: str,
         entity: Any,
-        write_query: StrapiQuery | None,
+        dest_document_id: str | None,
     ) -> None:
-        """Publish a newly written document when the source was live."""
-        if entity.published_at is None:
+        """Queue a live source document to publish after relations are written."""
+        if entity.published_at is None or not dest_document_id:
             return
-        if response.data is None or response.data.document_id is None:
+        pending_publish.append((content_type, entity, dest_document_id))
+
+    def _publish_pending(
+        self,
+        pending_publish: list[tuple[str, Any, str]],
+        options: ImportOptions,
+        result: ImportResult,
+    ) -> None:
+        """Publish after relation writes so stock v5 draft PUTs cannot hide links."""
+        if options.dry_run or not pending_publish:
             return
-        self.client.publish(endpoint, response.data.document_id, query=write_query)
+        for content_type, entity, dest_document_id in pending_publish:
+            try:
+                endpoint = self._get_endpoint(content_type)
+                self.client.publish(endpoint, dest_document_id, query=self._write_query(entity))
+            except StrapiError as error:
+                result.add_error(f"Failed to publish {content_type} #{entity.id}: {error}")
 
     def _import_relations(
         self,
@@ -536,7 +568,9 @@ class StrapiImporter:
                 try:
                     schema = self._schema_cache.get_schema(content_type)
                 except Exception as e:
-                    logger.warning(f"Could not load schema for {content_type}: {e}")
+                    result.add_error(
+                        f"Failed to load schema for {content_type} while importing relations: {e}"
+                    )
                     continue
 
                 try:
@@ -838,10 +872,10 @@ class StrapiImporter:
 
     @staticmethod
     def _uid_to_endpoint_fallback(uid: str) -> str:
-        """Fallback pluralization for content type UID.
+        """Unused UID pluralization kept for callers of ``_uid_to_endpoint``.
 
-        Handles common English pluralization patterns. Used when schema
-        metadata is not available.
+        Export/import no longer invent a path from the UID; use
+        ``_get_endpoint`` / ``collection_endpoint`` instead.
 
         Args:
             uid: Content type UID (e.g., "api::article.article", "api::blog.post")
@@ -1010,6 +1044,7 @@ class StrapiImporter:
                 # Store reverse document_id mapping for v5 string relation resolution
                 doc_id_to_new_id_mappings: dict[str, dict[str, int]] = {}
                 doc_id_to_new_document_id_mappings: dict[str, dict[str, str]] = {}
+                pending_publish: list[tuple[str, Any, str]] = []
 
                 for entity in reader.iter_entities():
                     # Filter by content types if specified
@@ -1045,13 +1080,17 @@ class StrapiImporter:
 
                         if existing_id is not None:
                             if options.conflict_resolution == ConflictResolution.SKIP:
-                                id_mappings[content_type][entity.id] = existing_id
-                                # Track document_id mappings for v5
-                                if entity.document_id:
-                                    doc_id_mappings[content_type][entity.id] = entity.document_id
-                                    doc_id_to_new_id_mappings[content_type][entity.document_id] = (
-                                        existing_id
-                                    )
+                                self._record_entity_mappings(
+                                    content_type=content_type,
+                                    entity_id=entity.id,
+                                    source_document_id=entity.document_id,
+                                    new_id=existing_id,
+                                    dest_document_id=entity.document_id,
+                                    id_mapping=id_mappings,
+                                    doc_id_mapping=doc_id_mappings,
+                                    doc_id_to_new_id=doc_id_to_new_id_mappings,
+                                    doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
+                                )
                                 result.entities_skipped += 1
                                 continue
                             elif options.conflict_resolution == ConflictResolution.FAIL:
@@ -1067,34 +1106,46 @@ class StrapiImporter:
                                     query=write_query,
                                     document_id=entity.document_id,
                                 )
-                                self._maybe_publish(endpoint, response, entity, write_query)
-                                id_mappings[content_type][entity.id] = existing_id
-                                if entity.document_id:
-                                    doc_id_mappings[content_type][entity.id] = entity.document_id
-                                    doc_id_to_new_id_mappings[content_type][entity.document_id] = (
-                                        existing_id
-                                    )
-                                    doc_id_to_new_document_id_mappings[content_type][
-                                        entity.document_id
-                                    ] = entity.document_id
+                                dest_document_id = entity.document_id
+                                if response.data and response.data.document_id:
+                                    dest_document_id = response.data.document_id
+                                self._record_entity_mappings(
+                                    content_type=content_type,
+                                    entity_id=entity.id,
+                                    source_document_id=entity.document_id,
+                                    new_id=existing_id,
+                                    dest_document_id=dest_document_id,
+                                    id_mapping=id_mappings,
+                                    doc_id_mapping=doc_id_mappings,
+                                    doc_id_to_new_id=doc_id_to_new_id_mappings,
+                                    doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
+                                )
+                                self._queue_publish(
+                                    pending_publish, content_type, entity, dest_document_id
+                                )
                                 result.entities_updated += 1
                                 continue
 
                         write_query = self._write_query(entity)
                         response = self.client.create(endpoint, data=entity_data, query=write_query)
-                        self._maybe_publish(endpoint, response, entity, write_query)
                         if response.data:
-                            id_mappings[content_type][entity.id] = response.data.id
-                            if response.data.document_id:
-                                doc_id_mappings[content_type][entity.id] = response.data.document_id
-                            if entity.document_id:
-                                doc_id_to_new_id_mappings[content_type][entity.document_id] = (
-                                    response.data.id
-                                )
-                                if response.data.document_id:
-                                    doc_id_to_new_document_id_mappings[content_type][
-                                        entity.document_id
-                                    ] = response.data.document_id
+                            self._record_entity_mappings(
+                                content_type=content_type,
+                                entity_id=entity.id,
+                                source_document_id=entity.document_id,
+                                new_id=response.data.id,
+                                dest_document_id=response.data.document_id,
+                                id_mapping=id_mappings,
+                                doc_id_mapping=doc_id_mappings,
+                                doc_id_to_new_id=doc_id_to_new_id_mappings,
+                                doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
+                            )
+                            self._queue_publish(
+                                pending_publish,
+                                content_type,
+                                entity,
+                                response.data.document_id,
+                            )
                         result.entities_imported += 1
 
                     except ImportExportError:
@@ -1137,7 +1188,11 @@ class StrapiImporter:
                         # Get schema from cache
                         try:
                             schema = self._schema_cache.get_schema(content_type)
-                        except Exception:  # noqa: BLE001, S112 - Skip content types without schema
+                        except Exception as e:
+                            result.add_error(
+                                "Failed to load schema for "
+                                f"{content_type} while importing relations: {e}"
+                            )
                             continue
 
                         try:
@@ -1156,6 +1211,8 @@ class StrapiImporter:
                             result.add_error(
                                 f"Failed to import relations for {content_type} {entity.id}: {e}"
                             )
+
+            self._publish_pending(pending_publish, options, result)
 
             if options.progress_callback:
                 options.progress_callback(100, 100, "Import complete")

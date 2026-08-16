@@ -320,7 +320,6 @@ def verify_migration() -> None:
         source_counts: dict[str, int] = {}
         for ct in content_types:
             try:
-                # Extract collection name from UID (e.g., "api::article.article" -> "articles")
                 collection = _collection_from_client(source_client, ct)
                 response = source_client.get(collection, params={"pagination[limit]": 1})
                 count = response.get("meta", {}).get("pagination", {}).get("total", 0)

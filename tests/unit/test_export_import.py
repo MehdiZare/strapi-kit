@@ -625,6 +625,44 @@ def test_import_from_jsonl_fail_aborts_on_existing(
 
 
 @pytest.mark.respx
+def test_import_from_jsonl_skip_records_document_id_mapping(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+    tmp_path: Path,
+) -> None:
+    """JSONL SKIP must record dest documentIds for relation resolution."""
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(sample_export_data.metadata)
+        for entity in sample_export_data.entities["api::article.article"]:
+            writer.write_entity(entity)
+
+    respx_mock.get("http://localhost:1337/api/articles/doc1").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 42, "documentId": "doc1", "title": "Live"}}
+        )
+    )
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 11, "documentId": "new_doc2", "title": "Article 2"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_from_jsonl(
+            jsonl_path,
+            ImportOptions(conflict_resolution=ConflictResolution.SKIP),
+        )
+
+    assert result.entities_skipped == 1
+    assert result.entities_imported == 1
+    assert result.doc_id_to_new_document_id["api::article.article"]["doc1"] == "doc1"
+    assert result.doc_id_to_new_document_id["api::article.article"]["doc2"] == "new_doc2"
+
+
+@pytest.mark.respx
 def test_import_skip_and_update_conflicts(
     strapi_config: StrapiConfig,
     sample_export_data: ExportData,
@@ -656,6 +694,8 @@ def test_import_skip_and_update_conflicts(
         assert skip_result.entities_skipped == 1
         assert skip_result.entities_imported == 1
         assert update_route.call_count == 0
+        assert skip_result.doc_id_to_new_document_id["api::article.article"]["doc1"] == "doc1"
+        assert skip_result.doc_id_to_new_document_id["api::article.article"]["doc2"] == "new_doc2"
 
         update_result = StrapiImporter(client).import_data(
             sample_export_data,
@@ -665,6 +705,585 @@ def test_import_skip_and_update_conflicts(
         assert update_result.entities_imported == 1
         assert update_route.call_count == 1
         assert create_route.call_count == 2
+        assert update_result.doc_id_to_new_document_id["api::article.article"]["doc1"] == "doc1"
+
+
+@pytest.mark.respx
+def test_import_skip_resolves_relations_via_document_id_mapping(
+    strapi_config: StrapiConfig,
+    respx_mock: respx.Router,
+) -> None:
+    """SKIP must record dest documentIds so relation writes do not miss."""
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        plural_name="authors",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::author.author", "api::article.article"],
+            total_entities=2,
+            schemas={
+                "api::author.author": author_schema,
+                "api::article.article": article_schema,
+            },
+        ),
+        entities={
+            "api::author.author": [
+                ExportedEntity(
+                    id=1,
+                    document_id="auth-src",
+                    content_type="api::author.author",
+                    data={"name": "Ada"},
+                )
+            ],
+            "api::article.article": [
+                ExportedEntity(
+                    id=2,
+                    document_id="art-src",
+                    content_type="api::article.article",
+                    data={"title": "Hello"},
+                    relations={"author": ["auth-src"]},
+                )
+            ],
+        },
+    )
+    respx_mock.get("http://localhost:1337/api/authors/auth-src").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 9, "documentId": "auth-src", "name": "Ada"}}
+        )
+    )
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    relation_route = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(
+            export_data,
+            ImportOptions(conflict_resolution=ConflictResolution.SKIP),
+        )
+
+    assert result.success is True
+    assert result.entities_skipped == 1
+    assert result.entities_imported == 1
+    assert result.relations_imported == 1
+    assert relation_route.called
+    import json
+
+    body = json.loads(relation_route.calls.last.request.content)
+    assert body["data"]["author"] == "auth-src"
+
+
+@pytest.mark.respx
+def test_import_existence_unrelated_400_does_not_look_missing(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+) -> None:
+    """A populate/filter 400 on the draft probe must not create a second document."""
+
+    def articles_doc1(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("status") == "draft":
+            return httpx.Response(
+                400,
+                json={"error": {"status": 400, "message": "Invalid key populate"}},
+            )
+        return httpx.Response(404, json={"error": {"status": 404, "message": "Not found"}})
+
+    respx_mock.get("http://localhost:1337/api/articles/doc1").mock(side_effect=articles_doc1)
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {"id": 11, "documentId": "new_doc2", "title": "Article 2"}},
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(sample_export_data)
+
+    assert result.entities_failed == 1
+    assert result.entities_imported == 1
+    assert not result.success
+    assert create_route.call_count == 1
+
+
+@pytest.mark.respx
+def test_import_publishes_when_source_was_live(
+    strapi_config: StrapiConfig,
+    respx_mock: respx.Router,
+) -> None:
+    """A live source document must be published after create."""
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={"title": FieldSchema(type=FieldType.STRING)},
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::article.article"],
+            total_entities=1,
+            schemas={"api::article.article": article_schema},
+        ),
+        entities={
+            "api::article.article": [
+                ExportedEntity(
+                    id=1,
+                    document_id="doc-live",
+                    content_type="api::article.article",
+                    data={"title": "Live"},
+                    published_at=datetime(2026, 8, 16, 12, 0, 0),
+                    locale="en",
+                )
+            ]
+        },
+    )
+    _mock_document_missing(respx_mock, "articles", "doc-live")
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 3, "documentId": "doc-new", "title": "Live"}}
+        )
+    )
+    publish_route = respx_mock.put("http://localhost:1337/api/articles/doc-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 3, "documentId": "doc-new", "title": "Live"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.entities_imported == 1
+    assert publish_route.call_count == 1
+    assert publish_route.calls.last.request.url.params["status"] == "published"
+    assert publish_route.calls.last.request.url.params["locale"] == "en"
+
+
+@pytest.mark.respx
+def test_import_publishes_after_relation_write(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Stock v5 relation PUT must run before publish, or live docs lose links."""
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        plural_name="authors",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::author.author", "api::article.article"],
+            total_entities=2,
+            schemas={
+                "api::author.author": author_schema,
+                "api::article.article": article_schema,
+            },
+        ),
+        entities={
+            "api::author.author": [
+                ExportedEntity(
+                    id=1,
+                    document_id="auth-src",
+                    content_type="api::author.author",
+                    data={"name": "Ada"},
+                    published_at=datetime(2026, 8, 16, 12, 0, 0),
+                )
+            ],
+            "api::article.article": [
+                ExportedEntity(
+                    id=2,
+                    document_id="art-src",
+                    content_type="api::article.article",
+                    data={"title": "Hello"},
+                    relations={"author": ["auth-src"]},
+                    published_at=datetime(2026, 8, 16, 12, 0, 0),
+                )
+            ],
+        },
+    )
+    _mock_document_missing(respx_mock, "authors", "auth-src")
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    respx_mock.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
+        )
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    relation_route = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    respx_mock.put("http://localhost:1337/api/authors/auth-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.relations_imported == 1
+    relation_idx = None
+    publish_idx = None
+    for index, call in enumerate(relation_route.calls):
+        if call.request.url.params.get("status") == "published":
+            publish_idx = index
+        else:
+            relation_idx = index
+    assert relation_idx is not None
+    assert publish_idx is not None
+    assert relation_idx < publish_idx
+
+
+@pytest.mark.respx
+def test_export_retries_without_locale_on_invalid_key(
+    strapi_config: StrapiConfig, mock_article_schema_response: dict, respx_mock: respx.Router
+) -> None:
+    """Non-i18n types that reject locale=all are retried without locale."""
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
+
+    def articles(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("locale") == "all":
+            return httpx.Response(
+                400, json={"error": {"status": 400, "message": "Invalid key locale"}}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"id": 1, "documentId": "doc1", "title": "One"}],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}},
+            },
+        )
+
+    route = respx_mock.get("http://localhost:1337/api/articles").mock(side_effect=articles)
+
+    with SyncClient(strapi_config) as client:
+        export_data = StrapiExporter(client).export_content_types(
+            ["api::article.article"], include_media=False
+        )
+
+    assert route.call_count == 2
+    assert route.calls[0].request.url.params["locale"] == "all"
+    assert "locale" not in route.calls[1].request.url.params
+    assert export_data.get_entity_count() == 1
+
+
+@pytest.mark.respx
+def test_export_does_not_drop_locale_on_unrelated_400(
+    strapi_config: StrapiConfig, mock_article_schema_response: dict, respx_mock: respx.Router
+) -> None:
+    """A populate/filter 400 must not silently retry as locale-less."""
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
+    respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            400, json={"error": {"status": 400, "message": "Invalid key populate"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ImportExportError, match="Invalid key populate"):
+            StrapiExporter(client).export_content_types(
+                ["api::article.article"], include_media=False
+            )
+
+
+@pytest.mark.respx
+def test_export_records_published_at_and_locale(
+    strapi_config: StrapiConfig, mock_article_schema_response: dict, respx_mock: respx.Router
+) -> None:
+    """Export format 1.1.0 must keep publishedAt and locale from the stream."""
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
+    respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": 1,
+                        "documentId": "doc1",
+                        "title": "Live",
+                        "locale": "fr",
+                        "publishedAt": "2026-08-16T12:00:00.000Z",
+                    }
+                ],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}},
+            },
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        export_data = StrapiExporter(client).export_content_types(
+            ["api::article.article"], include_media=False
+        )
+
+    entity = export_data.entities["api::article.article"][0]
+    assert entity.locale == "fr"
+    assert entity.published_at is not None
+
+
+@pytest.mark.respx
+def test_export_extracts_flat_v5_populate_relations(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Live export must send populate=* / locale=all and store documentIds."""
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "schema": {
+                        "displayName": "Article",
+                        "singularName": "article",
+                        "pluralName": "articles",
+                        "kind": "collectionType",
+                        "attributes": {
+                            "title": {"type": "string"},
+                            "author": {
+                                "type": "relation",
+                                "relation": "manyToOne",
+                                "target": "api::author.author",
+                            },
+                            "categories": {
+                                "type": "relation",
+                                "relation": "manyToMany",
+                                "target": "api::category.category",
+                            },
+                        },
+                    }
+                }
+            },
+        )
+    )
+    route = respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": 1,
+                        "documentId": "art1",
+                        "title": "Hello",
+                        "author": {"id": 9, "documentId": "auth-doc", "name": "Ada"},
+                        "categories": [
+                            {"id": 2, "documentId": "cat-a", "name": "A"},
+                            {"id": 3, "documentId": "cat-b", "name": "B"},
+                        ],
+                    }
+                ],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}},
+            },
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        export_data = StrapiExporter(client).export_content_types(
+            ["api::article.article"], include_media=False
+        )
+
+    params = route.calls.last.request.url.params
+    assert params["populate"] == "*"
+    assert params["locale"] == "all"
+    entity = export_data.entities["api::article.article"][0]
+    assert entity.relations["author"] == ["auth-doc"]
+    assert entity.relations["categories"] == ["cat-a", "cat-b"]
+    assert "author" not in entity.data
+    assert "categories" not in entity.data
+    assert entity.data["title"] == "Hello"
+
+
+@pytest.mark.respx
+def test_import_writes_many_side_relation_set(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Many-side v5 writes must use {set: [documentIds]}, not a bare string."""
+    category_schema = ContentTypeSchema(
+        uid="api::category.category",
+        display_name="Category",
+        plural_name="categories",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "categories": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_MANY,
+                target="api::category.category",
+            ),
+        },
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::category.category", "api::article.article"],
+            total_entities=3,
+            schemas={
+                "api::category.category": category_schema,
+                "api::article.article": article_schema,
+            },
+        ),
+        entities={
+            "api::category.category": [
+                ExportedEntity(
+                    id=1,
+                    document_id="cat-a",
+                    content_type="api::category.category",
+                    data={"name": "A"},
+                ),
+                ExportedEntity(
+                    id=2,
+                    document_id="cat-b",
+                    content_type="api::category.category",
+                    data={"name": "B"},
+                ),
+            ],
+            "api::article.article": [
+                ExportedEntity(
+                    id=3,
+                    document_id="art1",
+                    content_type="api::article.article",
+                    data={"title": "Hello"},
+                    relations={"categories": ["cat-a", "cat-b"]},
+                )
+            ],
+        },
+    )
+    _mock_document_missing(respx_mock, "categories", "cat-a")
+    _mock_document_missing(respx_mock, "categories", "cat-b")
+    _mock_document_missing(respx_mock, "articles", "art1")
+    respx_mock.post("http://localhost:1337/api/categories").mock(
+        side_effect=[
+            httpx.Response(200, json={"data": {"id": 10, "documentId": "new-a", "name": "A"}}),
+            httpx.Response(200, json={"data": {"id": 11, "documentId": "new-b", "name": "B"}}),
+        ]
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "new-art", "title": "Hello"}}
+        )
+    )
+    relation_route = respx_mock.put("http://localhost:1337/api/articles/new-art").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "new-art", "title": "Hello"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.relations_imported == 1
+    import json
+
+    body = json.loads(relation_route.calls.last.request.content)
+    assert body["data"]["categories"] == {"set": ["new-a", "new-b"]}
+
+
+@pytest.mark.respx
+def test_export_uses_schema_plural_name_not_uid(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Irregular pluralName must win over UID pluralization."""
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::post.post"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "schema": {
+                        "displayName": "Post",
+                        "singularName": "post",
+                        "pluralName": "blog-posts",
+                        "kind": "collectionType",
+                        "attributes": {"title": {"type": "string"}},
+                    }
+                }
+            },
+        )
+    )
+    posts_route = respx_mock.get("http://localhost:1337/api/blog-posts").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [{"id": 1, "documentId": "p1", "title": "Hello"}],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}},
+            },
+        )
+    )
+    uid_route = respx_mock.get("http://localhost:1337/api/posts").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not be called"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        export_data = StrapiExporter(client).export_content_types(
+            ["api::post.post"], include_media=False
+        )
+
+    assert posts_route.called
+    assert uid_route.call_count == 0
+    assert export_data.get_entity_count() == 1
 
 
 def test_extract_relations_v5_flat_objects() -> None:
@@ -704,6 +1323,31 @@ def test_extract_relations_v5_flat_objects() -> None:
     assert "author" not in stripped
     assert "categories" not in stripped
     assert stripped["title"] == "Hello"
+
+
+def test_extract_relations_v4_wrapper_still_works() -> None:
+    """v4 {data: {id}} populate must still extract after the v5 unwrap change."""
+    from strapi_kit.export.relation_resolver import RelationResolver
+
+    schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+            "title": FieldSchema(type=FieldType.STRING),
+        },
+    )
+    data = {
+        "title": "Hello",
+        "author": {"data": {"id": 5, "attributes": {"name": "Ada"}}},
+    }
+    relations = RelationResolver.extract_relations_with_schema(data, schema)
+    assert relations["author"] == [5]
 
 
 def test_exporter_requires_schema(strapi_config: StrapiConfig) -> None:

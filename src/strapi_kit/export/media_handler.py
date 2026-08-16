@@ -137,8 +137,11 @@ class MediaHandler:
         Example:
             >>> data = {
             ...     "title": "Article",
-            ...     "cover": {"data": {"id": 5}},
-            ...     "gallery": {"data": [{"id": 10}, {"id": 11}]}
+            ...     "cover": {"id": 5, "mime": "image/jpeg", "url": "/uploads/a.jpg"},
+            ...     "gallery": {"data": [
+            ...         {"id": 10, "mime": "image/jpeg"},
+            ...         {"id": 11, "mime": "image/png"},
+            ...     ]},
             ... }
             >>> MediaHandler.extract_media_references(data)
             [5, 10, 11]
@@ -157,8 +160,8 @@ class MediaHandler:
                 if media_id is not None:
                     media_ids.append(media_id)
                 return
-            if "data" in value:
-                MediaHandler._collect_media_ids(value["data"], media_ids)
+            for nested in value.values():
+                MediaHandler._collect_media_ids(nested, media_ids)
             return
         if isinstance(value, list):
             for item in value:
@@ -274,10 +277,10 @@ class MediaHandler:
             Updated data with new media IDs
 
         Example:
-            >>> data = {"cover": {"data": {"id": 5}}}
+            >>> data = {"cover": {"id": 5, "documentId": "old", "mime": "image/jpeg"}}
             >>> mapping = {5: 50}
             >>> updated = MediaHandler.update_media_references(data, mapping)
-            >>> updated["cover"]["data"]["id"]
+            >>> updated["cover"]["id"]
             50
         """
         updated_data = {}
@@ -298,13 +301,15 @@ class MediaHandler:
                 if old_id and old_id in media_id_mapping:
                     updated = dict(value)
                     updated["id"] = media_id_mapping[old_id]
+                    # Source documentId would reconnect the origin file on v5 writes.
+                    updated.pop("documentId", None)
+                    updated.pop("document_id", None)
                     return updated
                 return value
-            if "data" in value:
-                remapped = dict(value)
-                remapped["data"] = MediaHandler._remap_media_value(value["data"], media_id_mapping)
-                return remapped
-            return value
+            return {
+                key: MediaHandler._remap_media_value(nested, media_id_mapping)
+                for key, nested in value.items()
+            }
         if isinstance(value, list):
             return [MediaHandler._remap_media_value(item, media_id_mapping) for item in value]
         return value

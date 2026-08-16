@@ -125,7 +125,6 @@ class StrapiExporter:
                         f"Exporting {content_type}",
                     )
 
-                # Extract endpoint from UID (e.g., "api::article.article" -> "articles")
                 endpoint = self._get_endpoint(content_type)
 
                 export_query = StrapiQuery().populate_all().with_locale("all")
@@ -169,7 +168,6 @@ class StrapiExporter:
                         "Exporting media files",
                     )
 
-                # Type guard: media_dir validated at method start (line 91-92)
                 if media_dir is None:
                     raise ValidationError("media_dir must be provided when include_media=True")
                 self._export_media(
@@ -360,7 +358,7 @@ class StrapiExporter:
                 document_status=document_status,
             )
         except ValidationError as error:
-            if "locale" not in str(error).lower():
+            if "invalid key locale" not in str(error).lower():
                 raise
             fallback = StrapiQuery().populate_all()
             yield from stream_entities(
@@ -372,10 +370,10 @@ class StrapiExporter:
 
     @staticmethod
     def _uid_to_endpoint_fallback(uid: str) -> str:
-        """Fallback pluralization for content type UID.
+        """Unused UID pluralization kept for callers of ``_uid_to_endpoint``.
 
-        Handles common English pluralization patterns. Used when schema
-        metadata is not available.
+        Export/import no longer invent a path from the UID; use
+        ``_get_endpoint`` / ``collection_endpoint`` instead.
 
         Args:
             uid: Content type UID (e.g., "api::article.article", "api::blog.post")

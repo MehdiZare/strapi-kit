@@ -83,7 +83,9 @@ class ExportedEntity(BaseModel):
         document_id: Document ID (v5 only)
         content_type: Content type UID
         data: Entity data (attributes)
-        relations: Relation field mapping
+        relations: Relation field mapping (field -> documentIds or ids)
+        published_at: Publication timestamp when the streamed version was live
+        locale: Locale code (i18n)
     """
 
     id: int = Field(..., description="Original entity ID")

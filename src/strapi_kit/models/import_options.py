@@ -95,7 +95,10 @@ class ImportResult(BaseModel):
         media_skipped: Number of media files skipped
         errors: List of error messages
         warnings: List of warning messages
-        id_mapping: Mapping of old IDs to new IDs (content_type -> {old_id: new_id})
+        id_mapping: Mapping of old numeric IDs to new numeric IDs
+        doc_id_mapping: Mapping of old numeric IDs to destination documentIds
+        doc_id_to_new_id: Mapping of source documentIds to new numeric IDs
+        doc_id_to_new_document_id: Mapping of source documentIds to dest documentIds
     """
 
     success: bool = Field(..., description="Whether import succeeded")

@@ -18,10 +18,11 @@ with SyncClient(config) as client:
 
     # Export content types. Default document_status=DRAFT (v5 status=draft).
     # Pass document_status=None for published-only.
-    export_data = exporter.export_content_types([
-        "api::article.article",
-        "api::author.author"
-    ])
+    # include_media defaults to True and then requires media_dir.
+    export_data = exporter.export_content_types(
+        ["api::article.article", "api::author.author"],
+        include_media=False,
+    )
 
     # Save to file
     exporter.save_to_file(export_data, "export.json")
@@ -54,10 +55,19 @@ Relations are automatically resolved using content type schemas:
 2. **Schema Storage**: Schemas are included in the export metadata
 3. **During Import**: Relations are resolved by looking up target content types from schemas
 
-**Example**: When importing an article with `{"author": [5]}`, the system:
+**Example**: When importing an article with `{"author": ["auth-doc"]}`, the
+system:
 1. Looks up the schema to find that `author` targets `"api::author.author"`
-2. Uses the ID mapping to convert old ID 5 to the new ID in the target instance
-3. Updates the article with the resolved relation
+2. Maps the source `documentId` to the destination `documentId`
+3. PUTs `{"data": {"author": "new-author-doc"}}` via `relation_write()`
+
+Only **top-level** relation fields are written. Nested component / dynamic-zone
+paths such as `seo[0].author` are extracted for inspection but omitted from
+the relation write payload.
+
+`locale=all` export yields one row per locale with the same `documentId`.
+Import keys existence on `documentId` only, so additional locales are not
+restored as localizations of one document.
 
 ### Schema Structure
 
@@ -66,11 +76,12 @@ Schemas include field metadata for relation resolution:
 ```python
 {
   "uid": "api::article.article",
+  "pluralName": "articles",
   "fields": {
     "author": {
       "type": "relation",
       "relation": "manyToOne",
-      "target": "api::author.author"  # Used for ID mapping
+      "target": "api::author.author"
     }
   }
 }
@@ -81,10 +92,10 @@ Schemas include field metadata for relation resolution:
 ### Basic Export
 
 ```python
-export_data = exporter.export_content_types([
-    "api::article.article",
-    "api::author.author"
-])
+export_data = exporter.export_content_types(
+    ["api::article.article", "api::author.author"],
+    include_media=False,
+)
 ```
 
 Schemas are always included for relation resolution. Completeness
@@ -263,14 +274,16 @@ export_data = exporter.export_content_types([
 
 ### Schema Fetch Failures
 
-**Issue**: "Failed to fetch schema for X" error
+**Issue**: `ImportExportError: Schema with pluralName is required to export …`
 
-**Cause**: Content-Type Builder API unavailable or content type doesn't exist
+**Cause**: Content-Type Builder is unreachable, the UID is wrong, or the
+schema has no `pluralName` (export/import will not invent a path from
+the UID).
 
 **Solutions**:
-1. Verify content type UID is correct
-2. Check API token has permissions to access Content-Type Builder
-3. Verify Strapi instance is accessible
+1. Verify the content type UID
+2. Check the API token can read Content-Type Builder
+3. Confirm the schema includes `pluralName`
 
 ## Performance Considerations
 
@@ -302,6 +315,7 @@ schema = ContentTypeSchema(
     uid="api::article.article",
     display_name="Article",
     kind="collectionType",
+    plural_name="articles",
     fields={...}
 )
 
@@ -331,11 +345,14 @@ target_config = StrapiConfig(
 # Export from source
 with SyncClient(source_config) as client:
     exporter = StrapiExporter(client)
-    export_data = exporter.export_content_types([
-        "api::article.article",
-        "api::author.author",
-        "api::category.category"
-    ])
+    export_data = exporter.export_content_types(
+        [
+            "api::article.article",
+            "api::author.author",
+            "api::category.category",
+        ],
+        include_media=False,
+    )
     exporter.save_to_file(export_data, "migration.json")
 
 # Import to target

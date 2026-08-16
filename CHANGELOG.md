@@ -21,7 +21,10 @@ state, and close the stream incomplete-page hole. Trackers: #96 #97 #98
 - Relation writes on import use `relation_write()` (v5 `documentId`
   strings). Failed relation PUTs are errors (`success=False`).
 - `ExportedEntity` now stores `published_at` and `locale`. Import passes
-  `locale` and calls `publish()` when the source was live.
+  `locale` and calls `publish()` after relations when the source was live.
+- `locale=all` export yields one row per locale sharing `documentId`.
+  Import keys existence on `documentId` only, so extra locales of the
+  same document are not restored as localizations (follow-up).
 - `stream_entities` raises if a page is shorter than `page_size` while
   `total` is still unmet (missing `pageSize` echo no longer looks complete).
 - `upload_file` re-raises `AuthenticationError` / `AuthorizationError` /
@@ -42,6 +45,19 @@ state, and close the stream incomplete-page hole. Trackers: #96 #97 #98
 - `release.yml` builds and asserts the wheel version before pushing the
   tag (#98)
 - JSONL `ConflictResolution` tests and draft-aware import coverage (#96)
+- SKIP/UPDATE record destination `documentId` mappings so relation writes
+  resolve on re-import
+- Import existence draft 400 is absent only for unknown
+  `status` / `publicationState` (a populate/filter 400 no longer creates
+  a second document)
+- Export drops `locale=all` only on `Invalid key locale`
+- Media extract walks nested component objects; remapping drops the
+  source `documentId` so v5 writes cannot reconnect the origin file
+- `upload_files` re-raises auth / not-found / server errors like
+  `upload_file`
+- Failed relation-schema loads are import errors (`success=False`)
+- Import publishes live documents only after relation writes so a
+  stock v5 draft PUT cannot hide the published links
 
 ### Changed
 
