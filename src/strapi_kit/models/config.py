@@ -5,7 +5,7 @@ type safety and validation with support for environment variables.
 """
 
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -85,7 +85,10 @@ class StrapiConfig(BaseSettings):
 
     base_url: str = Field(
         ...,
-        description="Base URL of the Strapi instance (e.g., http://localhost:1337)",
+        description=(
+            "Base URL of the Strapi instance (e.g., http://localhost:1337). "
+            "A trailing /api segment is stripped."
+        ),
     )
 
     api_token: SecretStr = Field(
@@ -131,16 +134,23 @@ class StrapiConfig(BaseSettings):
     @field_validator("base_url", mode="before")
     @classmethod
     def validate_base_url(cls, v: str) -> str:
-        """Validate URL format and ensure no trailing slash.
+        """Validate URL format and strip a trailing ``/api`` segment.
+
+        Operators often paste the REST root shown in Strapi docs
+        (``https://cms.example.com/api``). The client always prefixes
+        content endpoints with ``api/``, so a trailing ``/api`` on
+        ``base_url`` would produce ``/api/api/...``. Only the final
+        path segment is removed; ``/api`` in the middle of a path
+        (``https://host/api/v1``) and ``/admin`` are left intact.
 
         Args:
-            v: URL string to validate
+            v: URL string to validate.
 
         Returns:
-            Validated URL without trailing slash
+            Validated URL without a trailing slash or trailing ``/api``.
 
         Raises:
-            ValueError: If URL is not a valid HTTP(S) URL
+            ValueError: If URL is not a valid HTTP(S) URL.
         """
         if not isinstance(v, str):
             raise ValueError("base_url must be a string")
@@ -158,6 +168,16 @@ class StrapiConfig(BaseSettings):
         parsed = urlsplit(url_str)
         if not parsed.scheme or not parsed.netloc:
             raise ValueError(f"Invalid URL format (missing host): {url_str[:50]}")
+
+        # Drop a final "api" path segment only (not /api/v1, not /admin).
+        # Path-level rstrip so "/api/" still matches when a query/fragment
+        # prevented the whole-string rstrip above from seeing the slash.
+        path = parsed.path.rstrip("/")
+        if path.rsplit("/", 1)[-1] == "api":
+            trimmed_path = path[: -len("/api")].rstrip("/")
+            url_str = urlunsplit(
+                (parsed.scheme, parsed.netloc, trimmed_path, parsed.query, parsed.fragment)
+            ).rstrip("/")
 
         return url_str
 

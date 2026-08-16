@@ -17,8 +17,10 @@ from strapi_kit.exceptions import (
 )
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.export.relation_resolver import RelationResolver
+from strapi_kit.models.enums import DocumentStatus
 from strapi_kit.models.export_format import ExportData
 from strapi_kit.models.import_options import ConflictResolution, ImportOptions, ImportResult
+from strapi_kit.models.request.query import StrapiQuery
 from strapi_kit.models.schema import ContentTypeSchema
 
 if TYPE_CHECKING:
@@ -425,23 +427,39 @@ class StrapiImporter:
                     )
 
     def _check_entity_exists(self, endpoint: str, document_id: str) -> int | None:
-        """Check if an entity exists by document ID.
+        """Return the numeric id if a published or draft document exists.
+
+        Matches the stream/export default of ``status=draft``: a published
+        miss is retried once with the draft version. Auth, 5xx, and
+        network errors raise. A draft ``ValidationError`` (Draft &
+        Publish off) keeps the published miss as absent.
 
         Args:
-            endpoint: API endpoint
+            endpoint: API collection id (e.g. ``articles``)
             document_id: Document ID to check
 
         Returns:
             Entity's numeric ID if exists, None otherwise
         """
+        path = self.client.document_path(endpoint, document_id)
         try:
-            response = self.client.get_one(f"{endpoint}/{document_id}")
-            if response.data:
+            response = self.client.get_one(path)
+            if response.data is not None:
                 return response.data.id
         except NotFoundError:
             pass
-        except Exception as e:
-            logger.warning(f"Error checking entity existence: {e}")
+
+        try:
+            response = self.client.get_one(
+                path,
+                query=StrapiQuery().with_document_status(DocumentStatus.DRAFT),
+            )
+            if response.data is not None:
+                return response.data.id
+        except NotFoundError:
+            return None
+        except ValidationError:
+            return None
         return None
 
     def _import_relations(
@@ -987,6 +1005,8 @@ class StrapiImporter:
                                 )
                         result.entities_imported += 1
 
+                    except ImportExportError:
+                        raise
                     except StrapiError as e:
                         result.add_error(f"Failed to import {content_type} {entity.id}: {e}")
                         result.entities_failed += 1

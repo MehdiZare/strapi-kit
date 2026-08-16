@@ -14,6 +14,7 @@ from strapi_kit.cache.schema_cache import InMemorySchemaCache
 from strapi_kit.exceptions import ImportExportError, ValidationError
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.export.relation_resolver import RelationResolver
+from strapi_kit.models.enums import DocumentStatus
 from strapi_kit.models.export_format import (
     ExportData,
     ExportedEntity,
@@ -67,6 +68,7 @@ class StrapiExporter:
         include_media: bool = True,
         media_dir: Path | str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        document_status: DocumentStatus | None = DocumentStatus.DRAFT,
     ) -> ExportData:
         """Export specified content types with all their entities.
 
@@ -75,6 +77,9 @@ class StrapiExporter:
             include_media: Whether to include media file references
             media_dir: Directory to download media files to (if include_media=True)
             progress_callback: Optional callback(current, total, message)
+            document_status: Version to stream. Default draft completeness
+                (v5 ``status=draft`` / v4 ``publicationState=preview``).
+                ``None`` is published-only.
 
         Returns:
             ExportData containing all exported content
@@ -138,7 +143,12 @@ class StrapiExporter:
 
                 # Stream entities for memory efficiency
                 entities = []
-                for entity in stream_entities(self.client, endpoint, query=export_query):
+                for entity in stream_entities(
+                    self.client,
+                    endpoint,
+                    query=export_query,
+                    document_status=document_status,
+                ):
                     # Extract media references BEFORE stripping relations
                     # (media can be embedded in relation-like fields with {"data": ...} structure)
                     if include_media:
@@ -414,6 +424,7 @@ class StrapiExporter:
         include_media: bool = True,
         media_dir: Path | str | None = None,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        document_status: DocumentStatus | None = DocumentStatus.DRAFT,
     ) -> int:
         """Export content types to JSONL format with streaming.
 
@@ -426,6 +437,8 @@ class StrapiExporter:
             include_media: Whether to include media file references
             media_dir: Directory to download media files to (if include_media=True)
             progress_callback: Optional callback(current, total, message)
+            document_status: Version to stream. Default draft completeness.
+                ``None`` is published-only.
 
         Returns:
             Total number of entities exported
@@ -482,7 +495,12 @@ class StrapiExporter:
                     schema: ContentTypeSchema | None = schemas.get(content_type)
                     export_query = StrapiQuery().populate_all()
 
-                    for entity in stream_entities(self.client, endpoint, query=export_query):
+                    for entity in stream_entities(
+                        self.client,
+                        endpoint,
+                        query=export_query,
+                        document_status=document_status,
+                    ):
                         # Extract media references before stripping
                         if include_media:
                             media_ids = MediaHandler.extract_media_references(entity.attributes)

@@ -5,7 +5,9 @@ automatic response format detection, error handling, and authentication.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from ..models.content_type import ComponentListItem, ContentTypeListItem
@@ -27,26 +29,43 @@ from ..exceptions import (
     AuthorizationError,
     ConfigurationError,
     ConflictError,
+    MethodNotAllowedError,
     NotFoundError,
     RateLimitError,
     ServerError,
     StrapiError,
+    UnstructuredResponseError,
+    UnstructuredResponseReason,
     ValidationError,
 )
 from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
+from ..models.enums import DocumentAction, DocumentStatus, HttpMethod
+from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
     NormalizedCollectionResponse,
+    NormalizedEntity,
     NormalizedSingleResponse,
 )
 from ..operations.media import normalize_media_response
 from ..parsers import VersionDetectingParser
 from ..protocols import AuthProvider, ConfigProvider, ResponseParser
-from ..utils.schema import extract_info_from_schema
+from ..utils.endpoints import join_document_path
+from ..utils.schema import (
+    extract_content_type_options,
+    extract_draft_and_publish,
+    extract_info_from_schema,
+)
 
 logger = logging.getLogger(__name__)
+
+# Per-task HTTP status for UnstructuredResponseError. Instance state would
+# race when one AsyncClient is used concurrently.
+_response_status_code: ContextVar[int | None] = ContextVar(
+    "strapi_kit_response_status_code", default=None
+)
 
 
 class BaseClient:
@@ -121,11 +140,19 @@ class BaseClient:
 
         return headers
 
-    def _build_url(self, endpoint: str) -> str:
+    def _build_url(self, endpoint: str, *, api_prefix: bool = True) -> str:
         """Build full URL for an endpoint.
 
+        Content, Content-Type Builder, and upload routes stay under ``/api``.
+        Admin routes such as ``/admin/information`` are origin-rooted; pass
+        ``api_prefix=False`` to skip the default prefix.
+
         Args:
-            endpoint: API endpoint path (e.g., "articles" or "/api/articles")
+            endpoint: API endpoint path (e.g., "articles", "/api/articles",
+                or "/admin/information")
+            api_prefix: When True (default), prefix the path with ``api/``
+                unless it already starts with ``api/``. When False, join the
+                stripped path to the origin as-is.
 
         Returns:
             Complete URL
@@ -133,11 +160,174 @@ class BaseClient:
         # Remove leading and trailing slashes from endpoint
         endpoint = endpoint.strip("/")
 
-        # Ensure /api prefix for content endpoints
-        if not endpoint.startswith("api/"):
+        # Ensure /api prefix for content endpoints unless explicitly opted out
+        if api_prefix and not endpoint.startswith("api/"):
             endpoint = f"api/{endpoint}"
 
         return f"{self.base_url}/{endpoint}"
+
+    @staticmethod
+    def document_path(collection: str, document_id: str) -> str:
+        """Build a collection/document path with a percent-encoded document ID.
+
+        The collection name is stripped of leading/trailing slashes and left
+        unencoded (it comes from ``pluralName``, not user data). ``document_id``
+        is encoded with ``quote(..., safe="")`` so characters such as ``/``,
+        ``?``, ``#``, and ``%`` cannot change the request path.
+
+        Args:
+            collection: Collection plural name (e.g., ``"articles"``).
+            document_id: Document ID or numeric id as a string.
+
+        Returns:
+            Path of the form ``{collection}/{encoded_document_id}``.
+
+        Raises:
+            ValidationError: If ``collection`` or ``document_id`` is blank.
+
+        Examples:
+            >>> BaseClient.document_path("articles", "abc123")
+            'articles/abc123'
+            >>> BaseClient.document_path("/articles/", "a/b?x=1")
+            'articles/a%2Fb%3Fx%3D1'
+        """
+        return join_document_path(collection, document_id)
+
+    def _document_endpoint(self, endpoint: str, document_id: str | None) -> str:
+        """Resolve a typed CRUD path, encoding ``document_id`` when provided.
+
+        Args:
+            endpoint: Full path (e.g., ``"articles/abc"``) or collection name
+                when ``document_id`` is set.
+            document_id: Optional document ID. When provided, ``endpoint`` is
+                treated as the collection name.
+
+        Returns:
+            Endpoint path to pass to HTTP helpers.
+
+        Raises:
+            ValidationError: If ``document_id`` is provided and collection or
+                document ID is blank.
+        """
+        if document_id is None:
+            return endpoint
+        return self.document_path(endpoint, document_id)
+
+    def _single_segment_document_path(self, collection: str, document_id: str) -> str:
+        """Build ``document_path`` after requiring a single collection segment.
+
+        Used by ``exists()`` and ``publish()`` so lookups and stock REST
+        publish share the CRUD encoder and cannot walk out of the collection
+        via ``/`` or ``\\`` in the name.
+        """
+        collection_name = collection.strip().strip("/")
+        if not collection_name:
+            raise ValidationError("collection is required")
+        if "/" in collection_name or "\\" in collection_name:
+            raise ValidationError("collection must be a single path segment")
+        return self.document_path(collection_name, document_id)
+
+    def _document_action_endpoint(
+        self,
+        collection: str,
+        document_id: str,
+        action: DocumentAction,
+    ) -> str:
+        """Build a Strapi v5 document-action path.
+
+        Uses :meth:`document_path` so action helpers and typed CRUD share one
+        document-ID encoder. Collection must be a single path segment.
+        """
+        collection_name = collection.strip().strip("/")
+        if not collection_name:
+            raise ValidationError("collection is required")
+        if "/" in collection_name or "\\" in collection_name:
+            raise ValidationError("collection must be a single path segment")
+        encoded_collection = quote(collection_name, safe="")
+        return f"{self.document_path(encoded_collection, document_id)}/actions/{action.value}"
+
+    def _draft_status_query(self) -> StrapiQuery:
+        """Query that requests the Strapi 5 draft version (``status=draft``)."""
+        return StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+
+    def _entity_identifies_document(self, entity: NormalizedEntity | None) -> bool:
+        """Return True if a GET body identifies a document (``documentId`` or ``id``)."""
+        if entity is None:
+            return False
+        return entity.document_id is not None or entity.id is not None
+
+    def _authorization_error_for_write_404(self, original: NotFoundError) -> AuthorizationError:
+        """Map a write 404 to AuthorizationError when the document is readable."""
+        status_code = original.status_code if original.status_code is not None else 404
+        details = dict(original.details)
+        details["status_code"] = status_code
+        details["classified_from"] = "write_404"
+        return AuthorizationError(
+            "document exists; token likely lacks Update/Publish.",
+            details=details,
+            status_code=status_code,
+        )
+
+    def _reraise_classified_write_404(
+        self,
+        original: NotFoundError,
+        probe_entity: NormalizedEntity | None,
+    ) -> NoReturn:
+        """Raise AuthorizationError if the draft probe found a document, else original."""
+        if self._entity_identifies_document(probe_entity):
+            raise self._authorization_error_for_write_404(original) from original
+        raise original
+
+    def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
+        """Parse a 2xx response body.
+
+        Empty DELETE bodies (any 2xx) are success with ``{}``. JSON
+        objects and arrays are success (Upload ``GET /upload/files`` is a
+        raw array). Other empty or scalar 2xx bodies — including 204 on
+        POST/PUT/GET — raise :class:`UnstructuredResponseError`.
+        """
+        verb = method.upper()
+        _response_status_code.set(response.status_code)
+        empty = response.status_code == 204 or not response.content
+        if empty:
+            if verb == HttpMethod.DELETE:
+                logger.debug(f"Response: {response.status_code} (no content)")
+                return {}
+            raise UnstructuredResponseError(
+                f"Successful HTTP {response.status_code} returned an empty body",
+                details={"method": verb, "body_preview": ""},
+                status_code=response.status_code,
+                reason=UnstructuredResponseReason.EMPTY_BODY,
+            )
+
+        try:
+            data: Any = response.json()
+        except ValueError as json_error:
+            content_type = response.headers.get("content-type", "unknown")
+            body_preview = response.text[:500] if response.text else ""
+            raise UnstructuredResponseError(
+                f"Successful HTTP {response.status_code} returned non-JSON "
+                f"(content-type: {content_type})",
+                details={"method": verb, "body_preview": body_preview},
+                status_code=response.status_code,
+                reason=UnstructuredResponseReason.NON_JSON,
+            ) from json_error
+
+        if isinstance(data, list):
+            return {"data": data}
+        if not isinstance(data, dict):
+            body_preview = response.text[:500] if response.text else ""
+            raise UnstructuredResponseError(
+                f"Successful HTTP {response.status_code} returned non-object JSON",
+                details={
+                    "method": verb,
+                    "body_preview": body_preview,
+                    "parsed_type": type(data).__name__,
+                },
+                status_code=response.status_code,
+                reason=UnstructuredResponseReason.NON_OBJECT,
+            )
+        return data
 
     def _detect_api_version(self, response_data: dict[str, Any]) -> Literal["v4", "v5"]:
         """Detect Strapi API version from response structure.
@@ -219,21 +409,44 @@ class BaseClient:
             error_message = response.text or f"HTTP {status_code}"
             error_details = {}
 
-        # Map status codes to exceptions
+        # Map status codes to exceptions. Every HTTP error carries status_code
+        # so callers can classify without parsing the message string.
         if status_code == 401:
             raise AuthenticationError(
-                f"Authentication failed: {error_message}", details=error_details
+                f"Authentication failed: {error_message}",
+                details=error_details,
+                status_code=status_code,
             )
         elif status_code == 403:
             raise AuthorizationError(
-                f"Authorization failed: {error_message}", details=error_details
+                f"Authorization failed: {error_message}",
+                details=error_details,
+                status_code=status_code,
             )
         elif status_code == 404:
-            raise NotFoundError(f"Resource not found: {error_message}", details=error_details)
-        elif status_code == 400:
-            raise ValidationError(f"Validation error: {error_message}", details=error_details)
+            raise NotFoundError(
+                f"Resource not found: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code in {400, 422}:
+            raise ValidationError(
+                f"Validation error: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code == 405:
+            raise MethodNotAllowedError(
+                f"Method not allowed: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
         elif status_code == 409:
-            raise ConflictError(f"Conflict: {error_message}", details=error_details)
+            raise ConflictError(
+                f"Conflict: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
         elif status_code == 429:
             retry_after = response.headers.get("Retry-After")
             # RFC 7231: Retry-After can be numeric seconds or HTTP-date string
@@ -260,6 +473,7 @@ class BaseClient:
             raise StrapiError(
                 f"Unexpected error (HTTP {status_code}): {error_message}",
                 details=error_details,
+                status_code=status_code,
             )
 
     def _create_retry_decorator(self) -> Any:
@@ -341,8 +555,48 @@ class BaseClient:
             >>> normalized.data.id
             1
         """
-        # Delegate to injected parser
-        return self.parser.parse_single(response_data)
+        try:
+            return self.parser.parse_single(response_data)
+        except PydanticValidationError as e:
+            raise UnstructuredResponseError(
+                "Successful response did not match a single-entity document",
+                details={"errors": e.errors()},
+                status_code=_response_status_code.get(),
+                reason=UnstructuredResponseReason.UNPARSEABLE_ENTITY,
+            ) from e
+
+    def _require_write_data_object(self, response_data: dict[str, Any]) -> None:
+        """Raise if a typed write response has no JSON ``data`` object.
+
+        Stock REST create/update/publish bodies are ``{"data": {...}}``.
+        A 2xx ``{}`` or ``{"ok": true}`` must not look like a successful
+        entity write (no ``documentId``). Collection ``{"data": []}`` is
+        not a write body.
+        """
+        data = response_data.get("data")
+        if isinstance(data, dict):
+            return
+        raise UnstructuredResponseError(
+            "Successful write returned no data object",
+            details={
+                "has_data": "data" in response_data,
+                "parsed_type": type(data).__name__,
+            },
+            status_code=_response_status_code.get(),
+            reason=UnstructuredResponseReason.MISSING_DATA,
+        )
+
+    def _publish_put_args(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Build stock REST publish path and query (PUT + ``status=published``)."""
+        path = self._single_segment_document_path(collection, document_id)
+        publish_query = query.copy() if query is not None else StrapiQuery()
+        publish_query = publish_query.with_document_status(DocumentStatus.PUBLISHED)
+        return path, publish_query.to_query_params()
 
     def _parse_collection_response(
         self, response_data: dict[str, Any]
@@ -475,8 +729,14 @@ class BaseClient:
         Or with flat schema properties (actual v5 API - Issue #28):
         {"uid": "...", "apiID": "...", "schema": {"kind": "...", "displayName": "...", ...}}
 
-        This method flattens it to v4 format:
-        {"uid": "...", "kind": "...", "info": {...}, "attributes": {...}}
+        This method flattens names/attributes to v4 format and retains Draft &
+        Publish sources (``options``, ``schema.draftAndPublish``,
+        ``schema.options.draftAndPublish``, top-level item flag):
+        {"uid": "...", "kind": "...", "info": {...}, "attributes": {...},
+         "options": {...} | None, "draftAndPublish": True | False | None}
+
+        ``draftAndPublish`` is ``None`` when the flag is absent. Absence is not
+        ``False``. ``publishedAt`` is never used to infer Draft & Publish.
 
         Args:
             item: Raw content type item from API response
@@ -492,6 +752,8 @@ class BaseClient:
                 "info": extract_info_from_schema(schema),
                 "attributes": schema.get("attributes", {}),
                 "pluginOptions": schema.get("pluginOptions"),
+                "options": extract_content_type_options(item),
+                "draftAndPublish": extract_draft_and_publish(item),
             }
         return item
 
@@ -527,6 +789,8 @@ class BaseClient:
         self,
         response_data: dict[str, Any],
         include_plugins: bool = False,
+        *,
+        skip_unparsable: bool = False,
     ) -> list["ContentTypeListItem"]:
         """Parse content-type-builder content types response.
 
@@ -535,17 +799,45 @@ class BaseClient:
         Args:
             response_data: Raw JSON response from content-type-builder
             include_plugins: Whether to include plugin content types
+            skip_unparsable: If True, log and skip items that fail Pydantic
+                validation. If False (default), raise ValidationError.
 
         Returns:
             List of ContentTypeListItem instances
+
+        Raises:
+            ValidationError: If ``data`` is not a list, an item is not an
+                object, or an item cannot be parsed — unless skip_unparsable
+                is True (list items only)
         """
         from ..models.content_type import ContentTypeListItem
 
         data = response_data.get("data", [])
+        if data is None:
+            data = []
+        if not isinstance(data, list):
+            raise ValidationError(
+                "Invalid content types response: 'data' must be a list",
+                details={"data_type": type(data).__name__},
+            )
+
         result = []
 
-        for item in data:
-            uid = item.get("uid", "")
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                if skip_unparsable:
+                    logger.warning(
+                        "Failed to parse content type: expected object at index %s",
+                        index,
+                    )
+                    continue
+                raise ValidationError(
+                    "Failed to parse content type: <unknown>",
+                    details={"index": index, "item_type": type(item).__name__},
+                )
+
+            uid_raw = item.get("uid")
+            uid = uid_raw if isinstance(uid_raw, str) else ""
             # Filter out plugin content types if not requested
             if not include_plugins and uid.startswith("plugin::"):
                 continue
@@ -555,15 +847,21 @@ class BaseClient:
                 content_type = ContentTypeListItem.model_validate(normalized_item)
                 result.append(content_type)
             except PydanticValidationError as e:
-                # Skip malformed items
-                logger.warning(f"Failed to parse content type: {uid}", exc_info=e)
-                continue
+                if skip_unparsable:
+                    logger.warning(f"Failed to parse content type: {uid}", exc_info=e)
+                    continue
+                raise ValidationError(
+                    f"Failed to parse content type: {uid or '<unknown>'}",
+                    details={"uid": uid or None, "errors": e.errors()},
+                ) from e
 
         return result
 
     def _parse_components_response(
         self,
         response_data: dict[str, Any],
+        *,
+        skip_unparsable: bool = False,
     ) -> list["ComponentListItem"]:
         """Parse content-type-builder components response.
 
@@ -571,25 +869,57 @@ class BaseClient:
 
         Args:
             response_data: Raw JSON response from content-type-builder
+            skip_unparsable: If True, log and skip items that fail Pydantic
+                validation. If False (default), raise ValidationError.
 
         Returns:
             List of ComponentListItem instances
+
+        Raises:
+            ValidationError: If ``data`` is not a list, an item is not an
+                object, or an item cannot be parsed — unless skip_unparsable
+                is True (list items only)
         """
         from ..models.content_type import ComponentListItem
 
         data = response_data.get("data", [])
+        if data is None:
+            data = []
+        if not isinstance(data, list):
+            raise ValidationError(
+                "Invalid components response: 'data' must be a list",
+                details={"data_type": type(data).__name__},
+            )
+
         result = []
 
-        for item in data:
-            uid = item.get("uid", "")
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                if skip_unparsable:
+                    logger.warning(
+                        "Failed to parse component: expected object at index %s",
+                        index,
+                    )
+                    continue
+                raise ValidationError(
+                    "Failed to parse component: <unknown>",
+                    details={"index": index, "item_type": type(item).__name__},
+                )
+
+            uid_raw = item.get("uid")
+            uid = uid_raw if isinstance(uid_raw, str) else ""
             try:
                 normalized_item = self._normalize_component_item(item)
                 component = ComponentListItem.model_validate(normalized_item)
                 result.append(component)
             except PydanticValidationError as e:
-                # Skip malformed items
-                logger.warning(f"Failed to parse component: {uid}", exc_info=e)
-                continue
+                if skip_unparsable:
+                    logger.warning(f"Failed to parse component: {uid}", exc_info=e)
+                    continue
+                raise ValidationError(
+                    f"Failed to parse component: {uid or '<unknown>'}",
+                    details={"uid": uid or None, "errors": e.errors()},
+                ) from e
 
         return result
 
@@ -613,6 +943,11 @@ class BaseClient:
         from ..models.content_type import ContentTypeSchema as CTBContentTypeSchema
 
         data = response_data.get("data", response_data)
+        if not isinstance(data, dict):
+            raise ValidationError(
+                "Invalid content type schema response",
+                details={"data_type": type(data).__name__},
+            )
         try:
             normalized_data = self._normalize_content_type_item(data)
             return CTBContentTypeSchema.model_validate(normalized_data)

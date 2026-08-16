@@ -4,6 +4,7 @@ This module defines all custom exceptions used throughout the package,
 organized in a clear hierarchy for better error handling.
 """
 
+from enum import StrEnum
 from typing import Any
 
 
@@ -14,16 +15,24 @@ class StrapiError(Exception):
     making it easy to catch all package-specific errors.
     """
 
-    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        details: dict[str, Any] | None = None,
+        *,
+        status_code: int | None = None,
+    ) -> None:
         """Initialize the exception.
 
         Args:
             message: Human-readable error message
             details: Optional dictionary with additional error context
+            status_code: HTTP status when this error came from a response
         """
         super().__init__(message)
         self.message = message
         self.details = details or {}
+        self.status_code = status_code
 
     def __str__(self) -> str:
         """Return string representation of the error."""
@@ -77,13 +86,27 @@ class NotFoundError(StrapiError):
 
 
 class ValidationError(StrapiError):
-    """Raised when request validation fails (HTTP 400).
+    """Raised when request validation fails (HTTP 400 or 422).
 
     This typically means the request data doesn't match the expected schema
-    or contains invalid values.
+    or contains invalid values. Client-side query/argument checks use the
+    same type (no HTTP status).
+
+    Strapi unique-index collisions also arrive as HTTP 400 or 422 with this
+    type. Use :func:`is_uniqueness_violation` to distinguish them from
+    malformed payloads, and :attr:`field_errors` /
+    :func:`format_validation_errors` to read per-field messages from
+    ``details["errors"]``.
     """
 
-    pass
+    @property
+    def field_errors(self) -> list[tuple[str, str]]:
+        """Parsed field-level errors as ``(path, message)`` pairs.
+
+        Reads ``details["errors"]``. Empty messages are skipped. Returns an
+        empty list when there are no nested field errors.
+        """
+        return _parse_field_errors(self.details)
 
 
 class ConflictError(StrapiError):
@@ -113,8 +136,54 @@ class ServerError(StrapiError):
             status_code: HTTP status code (5xx)
             details: Optional dictionary with additional error context
         """
-        super().__init__(message, details)
-        self.status_code = status_code
+        super().__init__(message, details, status_code=status_code)
+
+
+class MethodNotAllowedError(StrapiError):
+    """Raised when the HTTP method is not allowed (HTTP 405).
+
+    Typical for a missing or disabled Strapi route (for example a
+    Draft & Publish action on a type that does not support it).
+    """
+
+    pass
+
+
+class UnstructuredResponseReason(StrEnum):
+    """Closed reason for :class:`UnstructuredResponseError`."""
+
+    EMPTY_BODY = "empty_body"
+    NON_JSON = "non_json"
+    NON_OBJECT = "non_object"
+    MISSING_DATA = "missing_data"
+    UNPARSEABLE_ENTITY = "unparseable_entity"
+
+
+class UnstructuredResponseError(StrapiError):
+    """Raised when a 2xx response is not a usable structured document.
+
+    Covers empty bodies, non-JSON / non-object JSON, typed writes whose
+    JSON has no ``data`` object (``{}``, ``{"ok": true}``, ``{"data": []}``),
+    and Pydantic parse failures on a single-entity 2xx body.
+
+    Branch on :attr:`reason` rather than matching ``message``. Callers
+    must not treat the call as a successful entity write or fetch —
+    there is no ``documentId`` to continue with. Empty 2xx DELETE bodies
+    are success, not this error.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        details: dict[str, Any] | None = None,
+        *,
+        status_code: int | None = None,
+        reason: UnstructuredResponseReason,
+    ) -> None:
+        """Initialize with a closed ``reason``."""
+        super().__init__(message, details, status_code=status_code)
+        self.reason = reason
+        self.details["reason"] = reason.value
 
 
 # Network Related Errors
@@ -167,7 +236,7 @@ class RateLimitError(NetworkError):
             retry_after: Seconds to wait before retrying (from Retry-After header)
             details: Optional dictionary with additional error context
         """
-        super().__init__(message, details)
+        super().__init__(message, details, status_code=429)
         self.retry_after = retry_after
 
 
@@ -216,3 +285,106 @@ class MediaError(ImportExportError):
     """
 
     pass
+
+
+# ValidationError helpers (unique-index 400s stay ValidationError, not ConflictError)
+
+
+_UNIQUENESS_SUBSTRING = "must be unique"
+
+
+def _format_error_path(path: object) -> str:
+    """Normalize a Strapi error path to a dotted string."""
+    if isinstance(path, str):
+        return path
+    if isinstance(path, (list, tuple)):
+        return ".".join(str(part) for part in path)
+    if path is None:
+        return ""
+    return str(path)
+
+
+def _parse_field_errors(details: object) -> list[tuple[str, str]]:
+    """Extract ``(path, message)`` pairs from ``details["errors"]``.
+
+    Returns an empty list when ``details`` is not a mapping (HTTP payloads
+    are normally a dict, but a non-dict ``error.details`` must not raise).
+    """
+    if not isinstance(details, dict):
+        return []
+    errors = details.get("errors")
+    if isinstance(errors, list):
+        parsed: list[tuple[str, str]] = []
+        for entry in errors:
+            if not isinstance(entry, dict):
+                continue
+            message = entry.get("message")
+            if not isinstance(message, str) or not message.strip():
+                continue
+            parsed.append((_format_error_path(entry.get("path")), message))
+        return parsed
+
+    if isinstance(errors, dict):
+        return _parse_field_errors_mapping(errors)
+    return []
+
+
+def _parse_field_errors_mapping(errors: dict[object, object]) -> list[tuple[str, str]]:
+    """Flatten Yup/admin ``{field: message | [message, ...]}`` maps."""
+    parsed: list[tuple[str, str]] = []
+    for field, messages in errors.items():
+        path = _format_error_path(field)
+        if isinstance(messages, str):
+            candidates: list[object] = [messages]
+        elif isinstance(messages, list):
+            candidates = list(messages)
+        else:
+            continue
+        for message in candidates:
+            if isinstance(message, str) and message.strip():
+                parsed.append((path, message))
+    return parsed
+
+
+def is_uniqueness_violation(exc: ValidationError) -> bool:
+    """Return True if ``exc`` is a Strapi unique-index collision.
+
+    True when any ``exc.details["errors"]`` entry has a message containing
+    ``must be unique`` (case-insensitive), or when ``exc.message`` itself
+    contains that substring (details-less variants). ``str(exc)`` is not
+    used: it dumps ``details`` and would false-positive on unrelated keys.
+
+    HTTP status is not inspected beyond ``exc`` already being a
+    :class:`ValidationError`. Other 400/422s (required fields, type errors)
+    return False.
+
+    Args:
+        exc: Validation error raised from a Strapi 400 or 422 response.
+
+    Returns:
+        Whether the error represents a uniqueness constraint violation.
+    """
+    for _path, message in exc.field_errors:
+        if _UNIQUENESS_SUBSTRING in message.lower():
+            return True
+    return _UNIQUENESS_SUBSTRING in exc.message.lower()
+
+
+def format_validation_errors(exc: ValidationError) -> str | None:
+    """Flatten ``details.errors`` to ``path: message`` lines.
+
+    ``path`` may be a list (``["slug"]`` → ``slug``) or a string. Nested
+    list paths are joined with ``.``. Empty messages are skipped. Entries
+    with an empty path emit just the message (no leading ``: ``).
+
+    Args:
+        exc: Validation error raised from a Strapi 400 or 422 response.
+
+    Returns:
+        Newline-joined ``path: message`` lines, or ``None`` when there
+        are no nested field errors (caller should keep ``str(exc)``).
+    """
+    lines = [f"{path}: {message}" if path else message for path, message in exc.field_errors]
+    if not lines:
+        return None
+    return "\n".join(lines)

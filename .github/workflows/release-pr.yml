@@ -17,13 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout dev
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: dev
 
       - name: Create or update release PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           base: main
@@ -38,6 +38,6 @@ jobs:
             - [ ] Release notes updated
             - [ ] Team approved
 
-            **After merging:** Add a release label (`release:major`, `release:minor`, or `release:patch`) before merging to trigger auto-tagging and PyPI publish.
+            **Before merging:** Add a release label (`release:major`, `release:minor`, or `release:patch`) on this PR. `release.yml` only tags and publishes when the merged PR already has one of those labels.
           labels: release
           delete-branch: false

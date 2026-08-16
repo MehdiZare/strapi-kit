@@ -764,7 +764,9 @@ make pre-commit
 - ✅ Dry-run mode for validation
 - ✅ Progress callbacks for long operations
 
-**Future phases**: See IMPLEMENTATION_STATUS.md for full roadmap
+**0.2.0**: Strapi 5 connector surface is on `dev`. Cut from `dev` → `main`
+with `release:minor`. Tracker: GitHub issue #55. Changelog is the
+roadmap; there is no `IMPLEMENTATION_STATUS.md`.
 
 ---
 

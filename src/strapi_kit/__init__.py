@@ -24,20 +24,37 @@ from .exceptions import (
     FormatError,
     ImportExportError,
     MediaError,
+    MethodNotAllowedError,
     NetworkError,
     NotFoundError,
     RateLimitError,
     RelationError,
     ServerError,
     StrapiError,
+    UnstructuredResponseError,
+    UnstructuredResponseReason,
     ValidationError,
+    format_validation_errors,
+    is_uniqueness_violation,
 )
 from .export import StrapiExporter, StrapiImporter
 from .models import (
+    BlockNode,
     BulkOperationFailure,
     BulkOperationResult,
+    ContentTypeOptions,
+    DocumentAction,
+    DocumentStatus,
+    FieldType,
+    HttpMethod,
+    PublicationFilter,
+    PublicationState,
+    QueryParam,
+    RelationWriteOp,
     RetryConfig,
     StrapiConfig,
+    TextNode,
+    relation_write,
 )
 from .operations.streaming import stream_entities, stream_entities_async
 from .parsers import VersionDetectingParser
@@ -49,6 +66,9 @@ from .protocols import (
     ResponseParser,
     SchemaProvider,
 )
+from .utils.blocks import MarkdownConversion, blocks_to_markdown, markdown_to_blocks
+from .utils.endpoints import collection_endpoint, document_endpoint
+from .utils.pagination import assert_pagination_echo
 
 __all__ = [
     "__version__",
@@ -58,6 +78,20 @@ __all__ = [
     # Configuration
     "StrapiConfig",
     "RetryConfig",
+    "DocumentStatus",
+    "PublicationState",
+    "PublicationFilter",
+    "DocumentAction",
+    "QueryParam",
+    "HttpMethod",
+    "FieldType",
+    # Blocks ↔ Markdown
+    "MarkdownConversion",
+    "blocks_to_markdown",
+    "markdown_to_blocks",
+    "BlockNode",
+    "TextNode",
+    "ContentTypeOptions",
     "ConfigFactory",
     "load_config",
     "create_config",
@@ -65,9 +99,17 @@ __all__ = [
     # Bulk Operations
     "BulkOperationResult",
     "BulkOperationFailure",
+    # Relation writes (Strapi 5)
+    "RelationWriteOp",
+    "relation_write",
     # Streaming
     "stream_entities",
     "stream_entities_async",
+    # Pagination
+    "assert_pagination_echo",
+    # REST collection endpoints (from pluralName only)
+    "collection_endpoint",
+    "document_endpoint",
     # Export/Import
     "StrapiExporter",
     "StrapiImporter",
@@ -86,7 +128,12 @@ __all__ = [
     "AuthorizationError",
     "NotFoundError",
     "ValidationError",
+    "is_uniqueness_violation",
+    "format_validation_errors",
     "ConflictError",
+    "MethodNotAllowedError",
+    "UnstructuredResponseError",
+    "UnstructuredResponseReason",
     "NetworkError",
     "RateLimitError",
     "ServerError",

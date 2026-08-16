@@ -25,7 +25,7 @@ Use this template when creating issues:
 
 ## Environment
 - Python version: [e.g., 3.12]
-- strapi-kit version: [e.g., 0.0.6]
+- strapi-kit version: [e.g., 0.2.0]
 - Strapi version: [v4 or v5]
 - OS: [e.g., macOS, Linux, Windows]
 
@@ -69,10 +69,25 @@ pip install strapi-kit
 
 ```python
 # Core clients and config
-from strapi_kit import SyncClient, AsyncClient, StrapiConfig
+from strapi_kit import SyncClient, AsyncClient, StrapiConfig, collection_endpoint, document_endpoint
 
 # Query building
-from strapi_kit.models import StrapiQuery, FilterBuilder, SortDirection, Populate
+from strapi_kit import (
+    DocumentStatus,
+    PublicationFilter,
+    PublicationState,
+)
+from strapi_kit.models import (
+    StrapiQuery,
+    FilterBuilder,
+    SortDirection,
+    Populate,
+)
+
+# Strapi 5 relation writes (also exported from strapi_kit)
+from strapi_kit import RelationWriteOp, relation_write
+# Strapi v5 Blocks (rich text JSON) ↔ Markdown
+from strapi_kit import FieldType, MarkdownConversion, BlockNode, blocks_to_markdown, markdown_to_blocks
 
 # For SecretStr (API tokens)
 from pydantic import SecretStr
@@ -105,6 +120,20 @@ async with AsyncClient(config) as client:
 
 ## CRUD Operations
 
+REST collection paths come from `schema.pluralName`, not the UID. Resolve the path once, then pass that string to `get_many` / `create` / `get_one`:
+
+```python
+from strapi_kit import collection_endpoint, document_endpoint
+
+# From Content-Type Builder list items or schemas
+endpoint = collection_endpoint(content_type)  # e.g. "blog-posts", never "posts" from api::post.post
+response = client.get_many(endpoint)
+response = client.create(endpoint, {"title": "Hello"})
+response = client.get_one(document_endpoint(content_type, document_id))
+```
+
+`collection_endpoint` raises `ValidationError` if `pluralName` is missing, blank, or not a string. `document_endpoint` raises if `document_id` is blank. Do not append `s`, use `apiID`, or split the UID.
+
 ### Read
 
 ```python
@@ -113,13 +142,56 @@ response = client.get_many("articles")
 for article in response.data:
     print(article.id, article.attributes["title"])
 
-# Get one (returns NormalizedSingleResponse)
-response = client.get_one("articles/1")
+# Get one — prefer collection + document_id so the ID is percent-encoded
+response = client.get_one("articles", document_id="abc123")
 article = response.data
 print(article.attributes["title"])
 
+# String endpoint still works (caller must encode `/`, `?`, `#`, `%` themselves)
+response = client.get_one("articles/1")
+
+# Shared helper used by get_one / update / remove
+path = client.document_path("articles", "a/b?x=1")  # "articles/a%2Fb%3Fx%3D1"
+
 # Raw API (returns dict)
 response = client.get("articles")  # dict
+
+# Origin-rooted admin probe (no /api prefix)
+info = client.get_admin_information()
+print(info.strapi_version)  # str | None
+```
+
+## Admin Information and Origin Paths
+
+Content, Content-Type Builder, and upload stay under `/api`. `admin/` is origin-rooted.
+
+Default `get("admin/information")` **still** prefixes `/api` (no silent change):
+
+```python
+client.get("admin/information")  # GET {base}/api/admin/information
+```
+
+Opt out with `api_prefix=False`, or use the first-class helper:
+
+```python
+from strapi_kit.models import AdminInformation
+
+# Escape hatch (also on post/put/delete and the retry wrappers)
+client.request("GET", "admin/information", api_prefix=False)
+client.get("admin/information", api_prefix=False)
+
+# GET {base}/admin/information
+info: AdminInformation = client.get_admin_information()
+# info.strapi_version from top-level strapiVersion or data.strapiVersion
+# Missing version is still a successful probe (token worked)
+# info.raw is the original JSON dict
+# Origin-rooted responses do not drive v4/v5 content-API version detection
+# Empty / non-object 2xx bodies raise UnstructuredResponseError
+```
+
+```python
+# Async
+info = await client.get_admin_information()
 ```
 
 ### Create
@@ -127,20 +199,120 @@ response = client.get("articles")  # dict
 ```python
 data = {"title": "New Article", "content": "Body text"}
 response = client.create("articles", data)
-new_id = response.data.id
+new_id = response.data.document_id or str(response.data.id)
 ```
 
 ### Update
 
 ```python
 data = {"title": "Updated Title"}
-response = client.update("articles/1", data)
+response = client.update("articles", data, document_id="abc123")
+# Also valid: client.update("articles/1", data)
+
+# Opt-in: write 404 while the draft is still readable → AuthorizationError
+# (token likely lacks Update/Publish). status_code=404 and
+# details["classified_from"] == "write_404".
+client.update("articles", data, document_id="abc123", classify_write_404=True)
 ```
 
 ### Delete
 
 ```python
-response = client.remove("articles/1")
+response = client.remove("articles", document_id="abc123")
+# Also valid: client.remove("articles/1")
+client.remove("articles", document_id="abc123", classify_write_404=True)
+```
+
+### Exists (published, then draft)
+
+Strapi 5 omitted `status=` means published. Draft-only documents 404 on
+the default GET. `exists()` retries once with `status=draft`. A draft
+`ValidationError` (Draft & Publish off) is `False`. Auth / 5xx / network
+on either read raise. Collection must be one path segment; `document_id`
+is percent-encoded. A 200 with no `id` / `documentId` is `False`.
+
+```python
+if client.exists("articles", document_id):
+    ...
+```
+
+### Publish / Unpublish (Strapi v5)
+
+```python
+from strapi_kit.models import DocumentStatus, StrapiQuery
+
+# See drafts (v5 defaults omitted status to published)
+drafts = client.get_many(
+    "articles",
+    query=StrapiQuery().with_document_status(DocumentStatus.DRAFT),
+)
+
+# Never-published drafts (status=draft + publicationFilter)
+from strapi_kit.models import PublicationFilter
+never_published = client.get_many(
+    "articles",
+    query=(
+        StrapiQuery()
+        .with_document_status(DocumentStatus.DRAFT)
+        .with_publication_filter(PublicationFilter.NEVER_PUBLISHED)
+    ),
+)
+
+# Two-step live publish: create as draft, then publish
+created = client.create("articles", {"title": "Draft"})
+# Stock REST: PUT /api/{collection}/{id}?status=published
+published = client.publish("articles", created.data.document_id)
+# unpublish / discard_draft need custom /actions/* routes (not stock REST)
+client.unpublish("articles", created.data.document_id)
+client.discard_draft("articles", created.data.document_id)
+```
+
+A 2xx empty body, a non-object JSON body (`"Created"`), or a write
+object without a `data` object (`{}`, `{"ok": true}`) raises
+`UnstructuredResponseError` with `status_code`. A 2xx single-entity
+body whose `data` shape cannot be parsed (for example `{"data": []}`)
+is the same error. Empty 204 / DELETE remains `{}`.
+
+### Relation Writes (Strapi 5)
+
+v5 REST relation writes take **documentId** strings, not numeric `id`.
+Do not send v4 `{ connect: [{ id: 1 }] }` shapes.
+
+```python
+from strapi_kit import RelationWriteOp, relation_write
+
+# One-side: 0 ids → None, 1 id → documentId string, 2+ raises ValidationError
+data = {
+    "title": "New Article",
+    "author": relation_write(document_ids=["authorDocId"], multiple=False),
+}
+
+# Many-side replace
+data = {
+    "categories": relation_write(
+        document_ids=["cat1", "cat2"],
+        multiple=True,  # default op is RelationWriteOp.SET
+    ),
+}
+
+# Incremental
+data = {
+    "categories": relation_write(
+        document_ids=["cat3"],
+        multiple=True,
+        op=RelationWriteOp.CONNECT,
+    ),
+}
+
+# {"documentId": "..."} objects normalize to short strings
+data = {
+    "author": relation_write(
+        document_ids=[{"documentId": "authorDocId"}],
+        multiple=False,
+    ),
+}
+
+response = client.create("articles", data)
 ```
 
 ## Query Building
@@ -197,6 +369,27 @@ query = StrapiQuery().paginate(page=1, page_size=25)
 query = StrapiQuery().paginate(start=0, limit=50)
 ```
 
+Stock Strapi silently caps `pageSize` at `maxLimit` (default 100).
+`PagePagination` is already `le=100`. `get_many()` does **not** verify the
+echo — use the opt-in helper for import/export completeness:
+
+```python
+from strapi_kit import assert_pagination_echo
+
+response = client.get_many("articles", query)
+total = assert_pagination_echo(
+    response.meta,
+    requested_page=1,
+    requested_page_size=25,
+)
+```
+
+`page_size > 100` is unsafe unless the server `maxLimit` is raised. Digit
+strings (`"12"`) are accepted; `bool` is not an int. Signed digit strings
+(`"-1"`) are readable negatives and fail the non-negative `total` check.
+Absent `page`/`pageSize` keys are tolerated; a present but unreadable echo
+raises `ValidationError`.
+
 ### Population (Relations)
 
 ```python
@@ -228,6 +421,48 @@ query = (StrapiQuery()
 
 response = client.get_many("articles", query=query)
 ```
+
+## Strapi v5 Blocks ↔ Markdown
+
+Strapi 5 rich text (`FieldType.BLOCKS = "blocks"`) is a JSON tree, **not** a
+markdown string. Classic `richtext` strings pass through as markdown at the call
+site — do not run them through these converters.
+
+There is **no** HTML ↔ blocks conversion and **no** image upload here (use the
+media API for uploads).
+
+```python
+from strapi_kit import FieldType, blocks_to_markdown, markdown_to_blocks
+
+assert FieldType.BLOCKS == "blocks"
+
+# Read: blocks JSON → markdown
+conversion = blocks_to_markdown(entity.attributes["body"])
+md = conversion.markdown
+# conversion.lossy_reasons is () iff the conversion is faithful.
+# Reasons are deduplicated. Underline, missing image/link URLs, unknown
+# types, malformed nodes, and trees deeper than 32 are recorded — never
+# silent. A depth guard prevents recursion bombs and cyclic children.
+
+# Write: documented CommonMark subset → list[BlockNode] (JSON dicts, not models)
+body = markdown_to_blocks("# Title\n\nA paragraph with **bold**\n\n- item")
+client.create("articles", {"title": "Hello", "body": body})
+
+# Empty input is pinned to one empty paragraph
+assert markdown_to_blocks("") == [
+    {"type": "paragraph", "children": [{"type": "text", "text": ""}]}
+]
+```
+
+Supported read nodes: `paragraph`, `heading` (1–6), `list` + `list-item`,
+`quote`, `code`, `image`, `link`, `text`. Marks: bold, italic, strikethrough,
+code. Text leaves are escaped before marks so `**literal**` cannot invent
+formatting.
+
+`markdown_to_blocks` is **not** a full CommonMark AST. It recognizes headings,
+paragraphs, fenced code, lists (including indented nesting), and blockquotes,
+plus inline marks, links, and images (no upload). Setext headings, HTML
+blocks, reference links, and thematic breaks are not recognized.
 
 ## Media Operations
 
@@ -310,9 +545,13 @@ from strapi_kit.exceptions import (
     AuthenticationError,  # 401
     AuthorizationError,   # 403
     NotFoundError,        # 404
-    ValidationError,      # 400
+    ValidationError,      # 400/422 (including unique-index collisions)
+    UnstructuredResponseError,
+    UnstructuredResponseReason,
     ServerError,          # 5xx
     NetworkError,         # Connection issues
+    is_uniqueness_violation,
+    format_validation_errors,
 )
 
 try:
@@ -321,6 +560,12 @@ except NotFoundError:
     print("Article not found")
 except AuthenticationError:
     print("Invalid API token")
+except ValidationError as e:
+    # Unique-index collisions stay ValidationError (HTTP 400/422), not ConflictError
+    if is_uniqueness_violation(e):
+        print(format_validation_errors(e) or str(e))
+    else:
+        print(f"Invalid payload: {e}")
 except StrapiError as e:
     print(f"Strapi error: {e}")
 ```
@@ -340,6 +585,26 @@ entity.published_at  # datetime | None
 entity.created_at    # datetime | None
 entity.updated_at    # datetime | None
 entity.locale        # str | None
+```
+
+### Content-Type Builder (Draft & Publish)
+
+```python
+content_types = client.get_content_types()
+schema = client.get_content_type_schema("api::article.article")
+
+# Tri-state: True / False / None. Absence is NOT False.
+ct.draft_and_publish      # bool | None
+schema.draft_and_publish  # bool | None
+ct.options                # ContentTypeOptions | None (D&P is not stored here)
+# ct.options.populate_creator_fields, .visible, extra plugin keys via extra="allow"
+
+# Do not infer D&P from publishedAt.
+# True if any of item / options / schema / schema.options has boolean
+# draftAndPublish or draft_and_publish == True.
+
+# Unparsable list items raise ValidationError unless you opt in:
+client.get_content_types(skip_unparsable=True)
 ```
 
 ### Pagination Metadata
@@ -374,6 +639,8 @@ config = StrapiConfig(
 )
 ```
 
+`base_url` is the Strapi origin without a trailing `/api`. A final `/api` segment is stripped so `_build_url` does not produce `/api/api/...`. The same applies to `STRAPI_BASE_URL`. Mid-path `/api` (`https://host/api/v1`) and `/admin` are not stripped.
+
 ## Environment Variables
 
 ```bash
@@ -393,43 +660,56 @@ config = load_config()  # Auto-loads from .env or environment
 
 ### Content Type UID to Endpoint
 
-```python
-def uid_to_endpoint(uid: str) -> str:
-    """Convert 'api::article.article' to 'articles'.
+Do **not** guess a REST path from the UID (no appending `s`, no `apiID`, no splitting `api::post.post`). Use `pluralName`:
 
-    Also handles plugin UIDs like 'plugin::users-permissions.user' -> 'users'.
-    """
-    parts = uid.split("::")
-    if len(parts) == 2:
-        # Extract content name from after the dot
-        name_parts = parts[1].split(".")
-        name = name_parts[1] if len(name_parts) > 1 else name_parts[0]
-        # Pluralize
-        if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
-            return name[:-1] + "ies"
-        if name.endswith(("s", "x", "z", "ch", "sh")):
-            return name + "es"
-        if not name.endswith("s"):
-            return name + "s"
-        return name
-    return uid
+```python
+from strapi_kit import collection_endpoint, document_endpoint
+
+# content_type is a ContentTypeListItem / ContentTypeSchema / dict with info.pluralName
+endpoint = collection_endpoint(content_type)  # "blog-posts"
+client.get_many(endpoint)
+client.create(endpoint, data)
+client.get_one(document_endpoint(content_type, document_id))
 ```
+
+`uid_to_endpoint()` is a heuristic only. If `pluralName` is missing or blank, `collection_endpoint` raises `ValidationError` — that is the correct failure mode (guessing produces silent empty lists).
 
 ### Iterate All Pages
 
 ```python
+from strapi_kit import assert_pagination_echo
+
 page = 1
+page_size = 100
 while True:
-    query = StrapiQuery().paginate(page=page, page_size=100)
+    query = StrapiQuery().paginate(page=page, page_size=page_size)
     response = client.get_many("articles", query=query)
+    total = assert_pagination_echo(
+        response.meta,
+        requested_page=page,
+        requested_page_size=page_size,
+    )
 
     for item in response.data:
         process(item)
 
-    if page >= response.meta.pagination.page_count:
+    if page * page_size >= total:
         break
     page += 1
 ```
+
+`stream_entities` / `stream_entities_async` (and therefore `StrapiExporter`)
+already call `assert_pagination_echo` and default to
+`document_status=DocumentStatus.DRAFT`. That is v5 `status=draft` (the
+**draft version** of each document, not a published∪draft union) or,
+on a confirmed v4 client, `publicationState=preview`. Confirmed v4
+never sends `status=`. Later v5 pages keep `status=`. After an auto
+detect pins v4, page 1 is re-fetched with `publicationState` (the
+`status=` probe is not yielded) and later pages stay on
+`publicationState`. Pass `document_status=None` for published-only.
+`StrapiExporter.export_content_types` / `export_to_jsonl` take the same
+argument. If the applied default 400s (Draft & Publish off), the first
+page is retried without it.
 
 ### Check API Version
 
@@ -454,9 +734,13 @@ with SyncClient(config) as client:
 | `src/strapi_kit/client/async_client.py` | Async client |
 | `src/strapi_kit/client/base.py` | Shared client logic |
 | `src/strapi_kit/models/request/query.py` | StrapiQuery builder |
+| `src/strapi_kit/models/request/relation_write.py` | v5 relation write helper |
 | `src/strapi_kit/models/request/filters.py` | FilterBuilder |
 | `src/strapi_kit/models/response/normalized.py` | Response models |
+| `src/strapi_kit/models/response/pagination.py` | Pagination echo / maxLimit guard |
 | `src/strapi_kit/operations/media.py` | Media utilities |
+| `src/strapi_kit/utils/blocks.py` | Strapi v5 Blocks ↔ Markdown |
+| `src/strapi_kit/models/schema.py` | FieldType (includes `BLOCKS`) |
 | `src/strapi_kit/exceptions/errors.py` | Exception hierarchy |
 | `src/strapi_kit/models/config.py` | Configuration models |
 
@@ -527,7 +811,8 @@ python examples/full_migration_v5.py migrate
 3. **Build queries incrementally** - chain methods on `StrapiQuery()`
 4. **Handle errors specifically** - catch `NotFoundError` before `StrapiError`
 5. **Check response.data** - it's `None` for 404 on `get_one`
-6. **API prefix is automatic** - use `"articles"` not `"/api/articles"`
+6. **API prefix is automatic** - use `"articles"` not `"/api/articles"`. Resolve that string with `collection_endpoint(schema)` (`pluralName`), never by pluralizing the UID
 7. **SecretStr for tokens** - always wrap API tokens in `SecretStr`
 8. **v4 vs v5** - use `document_id` for v5, `id` works for both
-9. **FILE ISSUES** - If you find bugs, errors, or unexpected behavior, **file an issue immediately** at https://github.com/MehdiZare/strapi-kit/issues/new - this is critical for improving the library
+9. **Encode document IDs** - use `get_one("articles", document_id=id)` (same for `update`/`remove`) instead of f-strings; IDs with `/`, `?`, `#`, `%` change the path if interpolated raw. Blank collection or id raises `ValidationError`.
+10. **FILE ISSUES** - If you find bugs, errors, or unexpected behavior, **file an issue immediately** at https://github.com/MehdiZare/strapi-kit/issues/new - this is critical for improving the library

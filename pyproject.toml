@@ -22,31 +22,31 @@ classifiers = [
 
 dependencies = [
     "httpx>=0.28.1",
-    "pydantic>=2.10.0,<3.0",
-    "pydantic-settings>=2.7.0,<3.0",
-    "tenacity>=9.0.0",
-    "orjson>=3.11.0",
-    "python-dateutil>=2.9.0",
-    "typing-extensions>=4.15.0",
+    "pydantic>=2.13.4,<3.0",
+    "pydantic-settings>=2.15.0,<3.0",
+    "tenacity>=9.1.4",
+    "orjson>=3.12.0",
+    "python-dateutil>=2.9.0.post0",
+    "typing-extensions>=4.16.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.24.0",
-    "pytest-cov>=6.0.0",
-    "pytest-mock>=3.15.0",
-    "respx>=0.22.0",
-    "mypy>=1.19.1",
-    "ruff>=0.14.14",
-    "pre-commit>=4.5.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+    "respx>=0.23.1",
+    "mypy>=2.3.1",
+    "ruff>=0.16.3",
+    "pre-commit>=4.6.2",
     "detect-secrets>=1.5.0",
-    "safety>=2.3.0,<4.0.0",  # <3.0.0 to avoid API auth requirements in CI
+    "safety>=3.8.1,<4.0.0",  # <4.0.0 to avoid API auth requirements in CI
 ]
 docs = [
     "mkdocs>=1.6.1",
-    "mkdocs-material>=9.7.0",
-    "mkdocstrings[python]>=1.0.0",
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings[python]>=1.0.6",
 ]
 
 [project.urls]
@@ -138,6 +138,10 @@ strict_equality = true
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "strapi_kit._version"
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["src"]

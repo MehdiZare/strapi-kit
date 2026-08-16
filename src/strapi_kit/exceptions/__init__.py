@@ -9,6 +9,7 @@ from .errors import (
     FormatError,
     ImportExportError,
     MediaError,
+    MethodNotAllowedError,
     NetworkError,
     NotFoundError,
     RateLimitError,
@@ -16,7 +17,11 @@ from .errors import (
     ServerError,
     StrapiError,
     TimeoutError,
+    UnstructuredResponseError,
+    UnstructuredResponseReason,
     ValidationError,
+    format_validation_errors,
+    is_uniqueness_violation,
 )
 
 __all__ = [
@@ -27,6 +32,9 @@ __all__ = [
     "NotFoundError",
     "ValidationError",
     "ConflictError",
+    "MethodNotAllowedError",
+    "UnstructuredResponseError",
+    "UnstructuredResponseReason",
     "NetworkError",
     "ConnectionError",
     "TimeoutError",
@@ -36,4 +44,6 @@ __all__ = [
     "FormatError",
     "RelationError",
     "MediaError",
+    "is_uniqueness_violation",
+    "format_validation_errors",
 ]

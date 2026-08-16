@@ -26,12 +26,12 @@ jobs:
           fetch-tags: true
 
       - name: 🐍  Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: ⚡  Install uv (with cache)
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v10.0.0
         with:
           enable-cache: true
 

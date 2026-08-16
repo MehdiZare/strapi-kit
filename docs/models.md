@@ -9,6 +9,7 @@ Complete reference for strapi-kit's type-safe models and query builder.
 - [Filter Operators](#filter-operators)
 - [Response Models](#response-models)
 - [Normalization](#normalization)
+- [Content-Type Builder Models](#content-type-builder-models)
 - [Advanced Patterns](#advanced-patterns)
 
 ## Overview
@@ -131,13 +132,50 @@ query = StrapiQuery().with_locale("fr")
 
 #### `.with_publication_state(state: PublicationState) -> StrapiQuery`
 
-Filter by publication state:
+Filter by publication state (Strapi v4 `publicationState`):
 
 ```python
 from strapi_kit.models import PublicationState
 
 query = StrapiQuery().with_publication_state(PublicationState.LIVE)
 ```
+
+#### `.with_document_status(status: DocumentStatus) -> StrapiQuery`
+
+Set the Strapi v5 `status` query param (`draft` or `published`). Omitted
+status defaults to published and hides drafts. Cannot mix with
+`with_publication_state()`.
+
+```python
+from strapi_kit.models import DocumentStatus
+
+query = StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+```
+
+#### `.with_publication_filter(publication_filter: PublicationFilter) -> StrapiQuery`
+
+Set the Strapi v5 `publicationFilter` (how draft and published versions
+relate). Combines with `with_document_status()`. Cannot mix with
+`with_publication_state()`.
+
+All eight official REST values are supported, including the two
+diagnostic-only filters (`published-without-draft`,
+`published-with-draft`).
+
+```python
+from strapi_kit.models import DocumentStatus, PublicationFilter
+
+query = (StrapiQuery()
+    .with_document_status(DocumentStatus.DRAFT)
+    .with_publication_filter(PublicationFilter.NEVER_PUBLISHED))
+```
+
+#### `.populate(populate: Populate) -> StrapiQuery`
+
+Add a `Populate` configuration. Passing a string (or any non-`Populate`
+value) raises `ValidationError` immediately. For a field list use
+`populate_fields([...])`; for every first-level relation use
+`populate_all()`.
 
 #### `.to_query_params() -> dict[str, Any]`
 
@@ -452,6 +490,34 @@ normalized = NormalizedEntity.from_v5(v5_entity)
 ```
 
 The client handles this automatically based on version detection.
+
+## Content-Type Builder Models
+
+`get_content_types()` and `get_content_type_schema()` return CTB models with a
+first-class Draft & Publish flag. Flattening still lifts `displayName` /
+attributes out of the v5 `schema` object, but **does not drop** D&P sources.
+
+```python
+from strapi_kit.models import ContentTypeListItem, CTBContentTypeSchema
+
+# After client.get_content_types() / get_content_type_schema():
+ct.draft_and_publish   # True | False | None
+ct.options             # dict | None  (other option keys retained)
+schema.draft_and_publish
+schema.options
+```
+
+| Wire | `draft_and_publish` | Meaning |
+| --- | --- | --- |
+| boolean `true` on `options`, `schema`, `schema.options`, or the item | `True` | Draft & Publish is on |
+| boolean `false` seen, and no `true` | `False` | Explicitly off |
+| flag not mentioned | `None` | **Unknown** — do not treat as `False` |
+
+`publishedAt` on attributes is never used to guess this flag.
+
+Malformed list items raise `ValidationError` by default. Pass
+`skip_unparsable=True` to `get_content_types()` only if you explicitly want
+the old skip-and-log behavior.
 
 ## Advanced Patterns
 

@@ -8,7 +8,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 if TYPE_CHECKING:
     from ..models.content_type import ComponentListItem, ContentTypeListItem
@@ -20,15 +20,18 @@ from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
 from ..exceptions import (
-    FormatError,
     MediaError,
+    NotFoundError,
     StrapiError,
+    ValidationError,
 )
 from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
 )
 from ..models.bulk import BulkOperationFailure, BulkOperationResult
+from ..models.enums import DocumentAction, HttpMethod
 from ..models.request.query import StrapiQuery
+from ..models.response.admin import AdminInformation
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
     NormalizedCollectionResponse,
@@ -138,6 +141,8 @@ class AsyncClient(BaseClient):
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make an HTTP request to the Strapi API with automatic retry.
 
@@ -153,6 +158,8 @@ class AsyncClient(BaseClient):
             params: URL query parameters
             json: JSON request body
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
+                Set False for origin-rooted routes such as ``/admin/information``.
 
         Returns:
             Response JSON data
@@ -172,7 +179,7 @@ class AsyncClient(BaseClient):
             if self._rate_limiter:
                 await self._rate_limiter.acquire()
 
-            url = self._build_url(endpoint)
+            url = self._build_url(endpoint, api_prefix=api_prefix)
             request_headers = self._get_headers(headers)
 
             logger.debug(f"{method} {url} params={params}")
@@ -190,24 +197,9 @@ class AsyncClient(BaseClient):
                 if not response.is_success:
                     self._handle_error_response(response)
 
-                # Handle 204 No Content (common for DELETE operations)
-                if response.status_code == 204 or not response.content:
-                    logger.debug(f"Response: {response.status_code} (no content)")
-                    return {}
-
-                # Parse and return JSON with proper error handling for non-JSON responses
-                try:
-                    data: dict[str, Any] = response.json()
-                except Exception as json_error:
-                    content_type = response.headers.get("content-type", "unknown")
-                    body_preview = response.text[:500] if response.text else ""
-                    raise FormatError(
-                        f"Received non-JSON response (content-type: {content_type})",
-                        details={"body_preview": body_preview},
-                    ) from json_error
-
-                # Detect API version from response
-                if data and isinstance(data, dict):
+                data = self._parse_success_response(response, method=method)
+                # Origin-rooted routes are not content-API payloads.
+                if api_prefix and data and isinstance(data, dict):
                     self._detect_api_version(data)
 
                 logger.debug(f"Response: {response.status_code}")
@@ -227,6 +219,8 @@ class AsyncClient(BaseClient):
         endpoint: str,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make a GET request.
 
@@ -234,11 +228,14 @@ class AsyncClient(BaseClient):
             endpoint: API endpoint path
             params: URL query parameters
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
 
         Returns:
             Response JSON data
         """
-        return await self.request("GET", endpoint, params=params, headers=headers)
+        return await self.request(
+            HttpMethod.GET, endpoint, params=params, headers=headers, api_prefix=api_prefix
+        )
 
     async def post(
         self,
@@ -246,6 +243,8 @@ class AsyncClient(BaseClient):
         json: dict[str, Any],
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make a POST request.
 
@@ -254,11 +253,19 @@ class AsyncClient(BaseClient):
             json: JSON request body
             params: URL query parameters
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
 
         Returns:
             Response JSON data
         """
-        return await self.request("POST", endpoint, params=params, json=json, headers=headers)
+        return await self.request(
+            HttpMethod.POST,
+            endpoint,
+            params=params,
+            json=json,
+            headers=headers,
+            api_prefix=api_prefix,
+        )
 
     async def put(
         self,
@@ -266,6 +273,8 @@ class AsyncClient(BaseClient):
         json: dict[str, Any],
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make a PUT request.
 
@@ -274,17 +283,27 @@ class AsyncClient(BaseClient):
             json: JSON request body
             params: URL query parameters
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
 
         Returns:
             Response JSON data
         """
-        return await self.request("PUT", endpoint, params=params, json=json, headers=headers)
+        return await self.request(
+            HttpMethod.PUT,
+            endpoint,
+            params=params,
+            json=json,
+            headers=headers,
+            api_prefix=api_prefix,
+        )
 
     async def delete(
         self,
         endpoint: str,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        api_prefix: bool = True,
     ) -> dict[str, Any]:
         """Make a DELETE request.
 
@@ -292,11 +311,42 @@ class AsyncClient(BaseClient):
             endpoint: API endpoint path
             params: URL query parameters
             headers: Additional headers
+            api_prefix: When True (default), prefix the path with ``/api``.
 
         Returns:
             Response JSON data
         """
-        return await self.request("DELETE", endpoint, params=params, headers=headers)
+        return await self.request(
+            HttpMethod.DELETE, endpoint, params=params, headers=headers, api_prefix=api_prefix
+        )
+
+    async def get_admin_information(self) -> AdminInformation:
+        """GET ``{base}/admin/information`` (origin-rooted, no ``/api`` prefix).
+
+        Use this to probe a Strapi instance. Content, Content-Type Builder, and
+        upload endpoints remain under ``/api``. Default ``get("admin/information")``
+        still prefixes ``/api`` for backward compatibility.
+
+        Version is read from ``strapiVersion`` or ``data.strapiVersion``. A
+        missing version is still a successful probe.
+
+        Returns:
+            Structured admin information including the raw JSON payload.
+
+        Raises:
+            AuthenticationError: If the request is unauthorized (401)
+            AuthorizationError: If the token lacks permission (403)
+            NotFoundError: If the endpoint does not exist (404)
+            UnstructuredResponseError: If a 2xx body is empty, non-JSON, or not an object
+            StrapiError: On other API errors
+
+        Examples:
+            >>> info = await client.get_admin_information()
+            >>> info.strapi_version
+            '5.11.0'
+        """
+        raw_response = await self.get("admin/information", api_prefix=False)
+        return AdminInformation.from_response(raw_response)
 
     # Typed methods for normalized responses
 
@@ -305,16 +355,26 @@ class AsyncClient(BaseClient):
         endpoint: str,
         query: StrapiQuery | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
     ) -> NormalizedSingleResponse:
         """Get a single entity with typed, normalized response.
 
         Args:
-            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123")
+            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123").
+                When ``document_id`` is provided, this is the collection name
+                (e.g., "articles").
             query: Optional query configuration (populate, fields, locale, etc.)
             headers: Additional headers
+            document_id: Optional document ID. When provided, ``endpoint`` is
+                treated as the collection name and the ID is percent-encoded.
 
         Returns:
             Normalized single entity response
+
+        Raises:
+            ValidationError: If ``document_id`` is provided and collection or
+                document ID is blank.
 
         Examples:
             >>> from strapi_kit.models import StrapiQuery, Populate
@@ -322,12 +382,14 @@ class AsyncClient(BaseClient):
             ...     .populate_fields(["author", "category"])
             ...     .select(["title", "content"]))
             >>> response = await client.get_one("articles/1", query=query)
+            >>> response = await client.get_one("articles", document_id="abc123")
             >>> article = response.data
             >>> article.attributes["title"]
             'My Article'
         """
+        path = self._document_endpoint(endpoint, document_id)
         params = query.to_query_params() if query else None
-        raw_response = await self.get(endpoint, params=params, headers=headers)
+        raw_response = await self.get(path, params=params, headers=headers)
         return self._parse_single_response(raw_response)
 
     async def get_many(
@@ -390,6 +452,7 @@ class AsyncClient(BaseClient):
         # Wrap data in Strapi format
         payload = {"data": data}
         raw_response = await self.post(endpoint, json=payload, params=params, headers=headers)
+        self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
 
     async def update(
@@ -398,52 +461,225 @@ class AsyncClient(BaseClient):
         data: dict[str, Any],
         query: StrapiQuery | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Update an existing entity with typed, normalized response.
 
         Args:
-            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123")
+            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123").
+                When ``document_id`` is provided, this is the collection name
+                (e.g., "articles").
             data: Entity data to update (wrapped in {"data": {...}} automatically)
             query: Optional query configuration (populate, fields, etc.)
             headers: Additional headers
+            document_id: Optional document ID. When provided, ``endpoint`` is
+                treated as the collection name and the ID is percent-encoded.
+            classify_write_404: If True, a write ``NotFoundError`` is probed
+                with one draft GET. A readable document is remapped to
+                ``AuthorizationError`` (token likely lacks Update/Publish).
+                Default False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response
 
+        Raises:
+            ValidationError: If ``document_id`` is provided and collection or
+                document ID is blank.
+
         Examples:
             >>> data = {"title": "Updated Title"}
             >>> response = await client.update("articles/1", data)
+            >>> response = await client.update("articles", data, document_id="abc123")
             >>> updated = response.data
             >>> updated.attributes["title"]
             'Updated Title'
         """
+        path = self._document_endpoint(endpoint, document_id)
         params = query.to_query_params() if query else None
         # Wrap data in Strapi format
         payload = {"data": data}
-        raw_response = await self.put(endpoint, json=payload, params=params, headers=headers)
+        try:
+            raw_response = await self.put(path, json=payload, params=params, headers=headers)
+        except NotFoundError as original:
+            if classify_write_404:
+                await self._classify_write_404(path, original)
+            raise
+        self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
 
     async def remove(
         self,
         endpoint: str,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Delete an entity with typed, normalized response.
 
         Args:
-            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123")
+            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123").
+                When ``document_id`` is provided, this is the collection name
+                (e.g., "articles").
             headers: Additional headers
+            document_id: Optional document ID. When provided, ``endpoint`` is
+                treated as the collection name and the ID is percent-encoded.
+            classify_write_404: If True, a write ``NotFoundError`` is probed
+                with one draft GET. A readable document is remapped to
+                ``AuthorizationError`` (token likely lacks Update/Publish).
+                Default False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response (deleted entity)
 
+        Raises:
+            ValidationError: If ``document_id`` is provided and collection or
+                document ID is blank.
+
         Examples:
             >>> response = await client.remove("articles/1")
+            >>> response = await client.remove("articles", document_id="abc123")
             >>> deleted = response.data
             >>> deleted.id
             1
         """
-        raw_response = await self.delete(endpoint, headers=headers)
+        path = self._document_endpoint(endpoint, document_id)
+        try:
+            raw_response = await self.delete(path, headers=headers)
+        except NotFoundError as original:
+            if classify_write_404:
+                await self._classify_write_404(path, original)
+            raise
+        return self._parse_single_response(raw_response)
+
+    async def exists(self, collection: str, document_id: str) -> bool:
+        """Return whether a document exists as published or draft.
+
+        Strapi 5 omitted ``status=`` means published, so a draft-only
+        document 404s on the default GET. A published miss is retried
+        once with ``status=draft``. A draft ``ValidationError`` (Draft &
+        Publish off / unknown param) keeps the published miss as False.
+        Auth, 5xx, and network errors on either read raise. Collection
+        must be a single path segment; ``document_id`` is percent-encoded
+        via :meth:`document_path`.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId`` (or numeric id)
+
+        Returns:
+            True if a published or draft version is readable
+        """
+        endpoint = self._single_segment_document_path(collection, document_id)
+        try:
+            response = await self.get_one(endpoint)
+            return self._entity_identifies_document(response.data)
+        except NotFoundError:
+            pass
+
+        try:
+            response = await self.get_one(endpoint, query=self._draft_status_query())
+        except NotFoundError:
+            return False
+        except ValidationError:
+            return False
+        return self._entity_identifies_document(response.data)
+
+    async def _classify_write_404(self, endpoint: str, original: NotFoundError) -> NoReturn:
+        """Probe one draft GET after a write 404; never mask the original error."""
+        try:
+            response = await self.get_one(endpoint, query=self._draft_status_query())
+        except Exception:
+            raise original from None
+        self._reraise_classified_write_404(original, response.data)
+
+    async def publish(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Publish a Strapi v5 draft via stock REST.
+
+        PUT ``/api/{collection}/{documentId}?status=published`` with
+        ``{"data": {}}``. Stock Strapi 5 does not register
+        ``POST /actions/publish``.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields after publish)
+            headers: Additional headers
+
+        Returns:
+            Normalized published entity
+        """
+        path, params = self._publish_put_args(collection, document_id, query)
+        raw_response = await self.put(path, json={"data": {}}, params=params, headers=headers)
+        self._require_write_data_object(raw_response)
+        return self._parse_single_response(raw_response)
+
+    async def unpublish(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Unpublish a Strapi v5 live document.
+
+        POST ``/api/{collection}/{documentId}/actions/unpublish``.
+
+        Stock Strapi 5 public REST does not register this route. This
+        helper is for instances that add a custom document-action
+        controller. There is no public REST unpublish.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields after unpublish)
+            headers: Additional headers
+
+        Returns:
+            Normalized unpublished entity
+        """
+        endpoint = self._document_action_endpoint(collection, document_id, DocumentAction.UNPUBLISH)
+        params = query.to_query_params() if query else None
+        raw_response = await self.post(endpoint, json={}, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    async def discard_draft(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Discard a Strapi v5 draft and keep the published version.
+
+        POST ``/api/{collection}/{documentId}/actions/discardDraft``.
+
+        Stock Strapi 5 public REST does not register this route. This
+        helper is for instances that add a custom document-action
+        controller. There is no public REST discardDraft.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields / locale)
+            headers: Additional headers
+
+        Returns:
+            Normalized entity after the draft is discarded
+        """
+        endpoint = self._document_action_endpoint(
+            collection, document_id, DocumentAction.DISCARD_DRAFT
+        )
+        params = query.to_query_params() if query else None
+        raw_response = await self.post(endpoint, json={}, params=params, headers=headers)
         return self._parse_single_response(raw_response)
 
     # Media Operations
@@ -617,7 +853,7 @@ class AsyncClient(BaseClient):
             url = build_media_download_url(self.base_url, media_url)
 
             # Download with async streaming for large files
-            async with self._client.stream("GET", url) as response:
+            async with self._client.stream(HttpMethod.GET, url) as response:
                 if not response.is_success:
                     self._handle_error_response(response)
 
@@ -781,7 +1017,7 @@ class AsyncClient(BaseClient):
             if self._api_version == "v4":
                 url = self._build_url(f"upload/files/{media_id}")
                 response = await self._client.request(
-                    method="PUT",
+                    method=HttpMethod.PUT,
                     url=url,
                     json={"fileInfo": file_info} if file_info else {},
                     headers=self._get_headers(),
@@ -1078,17 +1314,29 @@ class AsyncClient(BaseClient):
         self,
         *,
         include_plugins: bool = False,
+        skip_unparsable: bool = False,
     ) -> list["ContentTypeListItem"]:
         """List all content types from Content-Type Builder API.
 
         Retrieves schema information for all content types defined in Strapi.
 
+        Each item exposes ``draft_and_publish`` as ``True`` / ``False`` when
+        Strapi declared Draft & Publish, or ``None`` when the flag was absent.
+        Absence is not ``False``.
+
         Args:
             include_plugins: Whether to include plugin content types
                             (e.g., users-permissions). Defaults to False.
+            skip_unparsable: If True, log and skip items that fail validation.
+                            If False (default), raise ValidationError.
 
         Returns:
-            List of ContentTypeListItem with uid, kind, info, and attributes
+            List of ContentTypeListItem with uid, kind, info, attributes,
+            options, and draft_and_publish
+
+        Raises:
+            ValidationError: If an item cannot be parsed and skip_unparsable
+                is False
 
         Examples:
             >>> # Get only API content types
@@ -1104,15 +1352,25 @@ class AsyncClient(BaseClient):
         """
 
         raw_response = await self.get("content-type-builder/content-types")
-        return self._parse_content_types_response(raw_response, include_plugins)
+        return self._parse_content_types_response(
+            raw_response, include_plugins, skip_unparsable=skip_unparsable
+        )
 
-    async def get_components(self) -> list["ComponentListItem"]:
+    async def get_components(self, *, skip_unparsable: bool = False) -> list["ComponentListItem"]:
         """List all components from Content-Type Builder API.
 
         Retrieves schema information for all components defined in Strapi.
 
+        Args:
+            skip_unparsable: If True, log and skip items that fail validation.
+                Default False raises :class:`ValidationError`.
+
         Returns:
             List of ComponentListItem with uid, category, info, and attributes
+
+        Raises:
+            ValidationError: If an item cannot be parsed and skip_unparsable
+                is False.
 
         Examples:
             >>> components = await client.get_components()
@@ -1123,7 +1381,7 @@ class AsyncClient(BaseClient):
         """
 
         raw_response = await self.get("content-type-builder/components")
-        return self._parse_components_response(raw_response)
+        return self._parse_components_response(raw_response, skip_unparsable=skip_unparsable)
 
     async def get_content_type_schema(self, uid: str) -> "CTBContentTypeSchema":
         """Get full schema for a specific content type.
@@ -1134,10 +1392,13 @@ class AsyncClient(BaseClient):
             uid: Content type UID (e.g., "api::article.article")
 
         Returns:
-            CTBContentTypeSchema with complete field definitions
+            CTBContentTypeSchema with complete field definitions, including
+            ``draft_and_publish`` (True / False / None; absence is not False)
+            and retained ``options``
 
         Raises:
             NotFoundError: If content type doesn't exist
+            ValidationError: If the schema payload cannot be parsed
 
         Examples:
             >>> schema = await client.get_content_type_schema("api::article.article")

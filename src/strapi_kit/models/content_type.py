@@ -6,7 +6,43 @@ Strapi's Content-Type Builder API.
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from ..utils.schema import apply_draft_and_publish_sources
+
+_DRAFT_AND_PUBLISH_OPTION_KEYS = ("draftAndPublish", "draft_and_publish")
+
+
+class ContentTypeOptions(BaseModel):
+    """Content-Type Builder ``options`` (plus lifted schema-root option keys).
+
+    ``draftAndPublish`` is **not** stored here. Use the first-class
+    ``draft_and_publish`` field on the content-type models.
+
+    Unknown keys from live ``formatContentType`` (or plugins) are kept
+    via ``extra="allow"``.
+    """
+
+    populate_creator_fields: bool | None = Field(None, alias="populateCreatorFields")
+    comment: str | None = None
+    increments: bool | None = None
+    timestamps: bool | None = None
+    visible: bool | None = None
+    restrict_relations_to: list[str] | None = Field(None, alias="restrictRelationsTo")
+    review_workflows: bool | None = Field(None, alias="reviewWorkflows")
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_draft_and_publish(cls, data: Any) -> Any:
+        """Keep D&P off this model even when constructed directly."""
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        for key in _DRAFT_AND_PUBLISH_OPTION_KEYS:
+            payload.pop(key, None)
+        return payload
 
 
 class ContentTypeInfo(BaseModel):
@@ -27,6 +63,10 @@ class ContentTypeListItem(BaseModel):
     """Content type list item from Content-Type Builder API.
 
     Represents a single content type in the list response.
+
+    ``draft_and_publish`` is a tri-state: ``True`` / ``False`` when Strapi
+    declared Draft & Publish, ``None`` when the flag was absent. Absence is
+    not ``False``.
     """
 
     uid: str
@@ -34,8 +74,23 @@ class ContentTypeListItem(BaseModel):
     info: ContentTypeInfo
     attributes: dict[str, Any] = Field(default_factory=dict)
     plugin_options: dict[str, Any] | None = Field(None, alias="pluginOptions")
+    options: ContentTypeOptions | None = None
+    draft_and_publish: bool | None = Field(
+        default=None,
+        alias="draftAndPublish",
+        description=(
+            "Draft & Publish setting. True if enabled, False if explicitly "
+            "disabled, None if the flag was not present. Absence is not False."
+        ),
+    )
 
     model_config = {"populate_by_name": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_draft_and_publish(cls, data: Any) -> Any:
+        """Populate draft_and_publish and options from all known wire locations."""
+        return apply_draft_and_publish_sources(data)
 
 
 class ComponentListItem(BaseModel):
@@ -57,6 +112,10 @@ class ContentTypeSchema(BaseModel):
 
     Contains complete schema information including all attributes
     and their configurations.
+
+    ``draft_and_publish`` is a tri-state: ``True`` / ``False`` when Strapi
+    declared Draft & Publish, ``None`` when the flag was absent. Absence is
+    not ``False``.
     """
 
     uid: str
@@ -64,9 +123,23 @@ class ContentTypeSchema(BaseModel):
     info: ContentTypeInfo
     attributes: dict[str, Any] = Field(default_factory=dict)
     plugin_options: dict[str, Any] | None = Field(None, alias="pluginOptions")
-    options: dict[str, Any] | None = None
+    options: ContentTypeOptions | None = None
+    draft_and_publish: bool | None = Field(
+        default=None,
+        alias="draftAndPublish",
+        description=(
+            "Draft & Publish setting. True if enabled, False if explicitly "
+            "disabled, None if the flag was not present. Absence is not False."
+        ),
+    )
 
     model_config = {"populate_by_name": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_draft_and_publish(cls, data: Any) -> Any:
+        """Populate draft_and_publish and options from all known wire locations."""
+        return apply_draft_and_publish_sources(data)
 
     @property
     def display_name(self) -> str:

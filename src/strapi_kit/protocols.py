@@ -323,13 +323,16 @@ class StrapiClient(Protocol):
         endpoint: str,
         query: Any = None,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
     ) -> NormalizedSingleResponse:
         """Get a single entity.
 
         Args:
-            endpoint: API endpoint path
+            endpoint: API endpoint path, or collection name when document_id is set
             query: Optional query configuration
             headers: Additional headers
+            document_id: Optional document ID (percent-encoded onto the path)
 
         Returns:
             Normalized single entity response
@@ -380,14 +383,20 @@ class StrapiClient(Protocol):
         data: dict[str, Any],
         query: Any = None,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Update an existing entity.
 
         Args:
-            endpoint: API endpoint path
+            endpoint: API endpoint path, or collection name when document_id is set
             data: Entity data to update
             query: Optional query configuration
             headers: Additional headers
+            document_id: Optional document ID (percent-encoded onto the path)
+            classify_write_404: Opt-in remapping of write 404s when a draft GET
+                shows the document still exists
 
         Returns:
             Normalized single entity response
@@ -398,15 +407,33 @@ class StrapiClient(Protocol):
         self,
         endpoint: str,
         headers: dict[str, str] | None = None,
+        *,
+        document_id: str | None = None,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Delete an entity.
 
         Args:
-            endpoint: API endpoint path
+            endpoint: API endpoint path, or collection name when document_id is set
             headers: Additional headers
+            document_id: Optional document ID (percent-encoded onto the path)
+            classify_write_404: Opt-in remapping of write 404s when a draft GET
+                shows the document still exists
 
         Returns:
             Normalized single entity response
+        """
+        ...
+
+    def exists(self, collection: str, document_id: str) -> bool:
+        """Return whether a published or draft document exists.
+
+        Args:
+            collection: Collection API id (single path segment)
+            document_id: Document id (percent-encoded via document_path)
+
+        Returns:
+            True if a published or draft version is readable
         """
         ...
 

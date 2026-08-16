@@ -314,6 +314,21 @@ class TestListMedia:
             assert result.meta.pagination.total == 2
 
     @pytest.mark.respx
+    def test_list_media_raw_array(
+        self, strapi_config: StrapiConfig, mock_media_response: dict, respx_mock: respx.Router
+    ) -> None:
+        """Stock Upload GET /upload/files returns a top-level array."""
+        respx_mock.get("http://localhost:1337/api/upload/files").mock(
+            return_value=httpx.Response(200, json=[mock_media_response])
+        )
+
+        with SyncClient(strapi_config) as client:
+            result = client.list_media()
+
+            assert len(result.data) == 1
+            assert result.data[0].attributes["name"] == mock_media_response["name"]
+
+    @pytest.mark.respx
     def test_list_media_with_filters(
         self, strapi_config: StrapiConfig, mock_media_response: dict, respx_mock: respx.Router
     ) -> None:

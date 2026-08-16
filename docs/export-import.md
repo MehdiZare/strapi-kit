@@ -16,7 +16,8 @@ config = StrapiConfig(base_url="http://localhost:1337", api_token="token")
 with SyncClient(config) as client:
     exporter = StrapiExporter(client)
 
-    # Export content types
+    # Export content types. Default document_status=DRAFT (v5 status=draft).
+    # Pass document_status=None for published-only.
     export_data = exporter.export_content_types([
         "api::article.article",
         "api::author.author"
@@ -86,7 +87,19 @@ export_data = exporter.export_content_types([
 ])
 ```
 
-Schemas are always included for relation resolution.
+Schemas are always included for relation resolution. Completeness
+defaults to `document_status=DocumentStatus.DRAFT` (v5 `status=draft`,
+confirmed v4 `publicationState=preview`). Pass `document_status=None`
+for published-only.
+
+Import conflict detection follows that default: a published miss is
+retried with `status=draft` so a draft-only re-import does not create a
+second document.
+
+**Limitation (0.2.0):** relation and media extraction still expect the
+v4 `{ "data": ... }` populate wrapper. Flat Strapi 5 `populate=*`
+objects (a relation or file at the field root) are not collected; a
+follow-up will switch extract/write to `documentId` + `relation_write()`.
 
 ### Export with Media
 
@@ -136,8 +149,8 @@ result = importer.import_data(export_data, options)
 ### Conflict Resolution Strategies
 
 - `SKIP`: Skip entities that already exist
-- `UPDATE`: Update existing entities (not yet implemented)
-- `ERROR`: Raise error on conflicts
+- `UPDATE`: Update existing entities with imported data
+- `FAIL`: Abort the import when a conflict is detected
 
 ## Working with Relations
 
