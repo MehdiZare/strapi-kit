@@ -96,10 +96,11 @@ Import conflict detection follows that default: a published miss is
 retried with `status=draft` so a draft-only re-import does not create a
 second document.
 
-**Limitation (0.2.0):** relation and media extraction still expect the
-v4 `{ "data": ... }` populate wrapper. Flat Strapi 5 `populate=*`
-objects (a relation or file at the field root) are not collected; a
-follow-up will switch extract/write to `documentId` + `relation_write()`.
+Relation and media extraction accept both the v4 `{ "data": ... }`
+wrapper and flat Strapi 5 `populate=*` objects (`documentId` / `mime`
+at the field root). Import writes relations with `relation_write()`
+(documentId strings). Export/import require `pluralName` from the
+content-type schema and do not invent a path from the UID.
 
 ### Export with Media
 

@@ -19,6 +19,7 @@ from strapi_kit.models import (
     ExportMetadata,
     ImportOptions,
 )
+from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
 from strapi_kit.utils.uid import uid_to_endpoint
 
 
@@ -41,11 +42,21 @@ def strapi_config() -> StrapiConfig:
 @pytest.fixture
 def sample_export_data() -> ExportData:
     """Create sample export data for testing."""
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "content": FieldSchema(type=FieldType.RICH_TEXT),
+        },
+    )
     metadata = ExportMetadata(
         strapi_version="v5",
         source_url="http://localhost:1337",
         content_types=["api::article.article"],
         total_entities=2,
+        schemas={"api::article.article": article_schema},
     )
 
     entities = {
@@ -613,6 +624,98 @@ def test_import_from_jsonl_fail_aborts_on_existing(
             )
 
 
+@pytest.mark.respx
+def test_import_skip_and_update_conflicts(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+) -> None:
+    """SKIP leaves the existing row; UPDATE writes over it."""
+    respx_mock.get("http://localhost:1337/api/articles/doc1").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 42, "documentId": "doc1", "title": "Old"}}
+        )
+    )
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    update_route = respx_mock.put("http://localhost:1337/api/articles/doc1").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 42, "documentId": "doc1", "title": "Article 1"}}
+        )
+    )
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 11, "documentId": "new_doc2", "title": "Article 2"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        skip_result = StrapiImporter(client).import_data(
+            sample_export_data,
+            ImportOptions(conflict_resolution=ConflictResolution.SKIP),
+        )
+        assert skip_result.entities_skipped == 1
+        assert skip_result.entities_imported == 1
+        assert update_route.call_count == 0
+
+        update_result = StrapiImporter(client).import_data(
+            sample_export_data,
+            ImportOptions(conflict_resolution=ConflictResolution.UPDATE),
+        )
+        assert update_result.entities_updated == 1
+        assert update_result.entities_imported == 1
+        assert update_route.call_count == 1
+        assert create_route.call_count == 2
+
+
+def test_extract_relations_v5_flat_objects() -> None:
+    """Schema extract must read documentId on flat v5 populate objects."""
+    from strapi_kit.export.relation_resolver import RelationResolver
+
+    schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+            "categories": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_MANY,
+                target="api::category.category",
+            ),
+            "title": FieldSchema(type=FieldType.STRING),
+        },
+    )
+    data = {
+        "title": "Hello",
+        "author": {"id": 1, "documentId": "auth-doc", "name": "Ada"},
+        "categories": [
+            {"id": 2, "documentId": "cat-a", "name": "A"},
+            {"id": 3, "documentId": "cat-b", "name": "B"},
+        ],
+    }
+    relations = RelationResolver.extract_relations_with_schema(data, schema)
+    assert relations["author"] == ["auth-doc"]
+    assert relations["categories"] == ["cat-a", "cat-b"]
+    stripped = RelationResolver.strip_relations_with_schema(data, schema)
+    assert "author" not in stripped
+    assert "categories" not in stripped
+    assert stripped["title"] == "Hello"
+
+
+def test_exporter_requires_schema(strapi_config: StrapiConfig) -> None:
+    """Export must not invent a collection path from the UID."""
+    from strapi_kit.exceptions import ImportExportError
+
+    with SyncClient(strapi_config) as client:
+        exporter = StrapiExporter(client)
+        with pytest.raises(ImportExportError, match="pluralName"):
+            exporter._get_endpoint("api::article.article")
+
+
 # Model Tests
 
 
@@ -625,7 +728,7 @@ def test_export_metadata_model() -> None:
         total_entities=10,
     )
 
-    assert metadata.version == "1.0.0"  # Default
+    assert metadata.version == "1.1.0"
     assert metadata.strapi_version == "v5"
     assert isinstance(metadata.exported_at, datetime)
 
@@ -787,7 +890,11 @@ def test_export_includes_schemas(strapi_config: StrapiConfig, respx_mock: respx.
             json={
                 "data": {
                     "kind": "collectionType",
-                    "info": {"displayName": "Article"},
+                    "info": {
+                        "displayName": "Article",
+                        "singularName": "article",
+                        "pluralName": "articles",
+                    },
                     "attributes": {
                         "title": {"type": "string", "required": True},
                         "author": {
@@ -825,6 +932,7 @@ def test_import_resolves_relations_with_schema(
     article_schema = ContentTypeSchema(
         uid="api::article.article",
         display_name="Article",
+        plural_name="articles",
         fields={
             "title": FieldSchema(type=FieldType.STRING),
             "author": FieldSchema(
@@ -838,6 +946,7 @@ def test_import_resolves_relations_with_schema(
     author_schema = ContentTypeSchema(
         uid="api::author.author",
         display_name="Author",
+        plural_name="authors",
         fields={
             "name": FieldSchema(type=FieldType.STRING),
         },
@@ -896,8 +1005,7 @@ def test_import_resolves_relations_with_schema(
         )
     )
 
-    # Mock relation update
-    respx_mock.put("http://localhost:1337/api/articles/200").mock(
+    relation_route = respx_mock.put("http://localhost:1337/api/articles/new-article-doc1").mock(
         return_value=httpx.Response(
             200,
             json={"data": {"id": 200, "documentId": "new-article-doc1", "title": "Article 1"}},
@@ -909,9 +1017,14 @@ def test_import_resolves_relations_with_schema(
         options = ImportOptions(skip_relations=False)
         result = importer.import_data(export_data, options)
 
-        # Verify import succeeded
         assert result.success is True
         assert result.entities_imported == 2
+        assert result.relations_imported == 1
+        assert relation_route.called
+        import json
+
+        body = json.loads(relation_route.calls.last.request.content)
+        assert body["data"]["author"] == "new-author-doc1"
 
         # Verify ID mapping was created
         assert "api::author.author" in result.id_mapping

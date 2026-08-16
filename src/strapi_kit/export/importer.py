@@ -6,7 +6,7 @@ and media files into a Strapi instance.
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from strapi_kit.cache.schema_cache import InMemorySchemaCache
 from strapi_kit.exceptions import (
@@ -22,6 +22,7 @@ from strapi_kit.models.export_format import ExportData
 from strapi_kit.models.import_options import ConflictResolution, ImportOptions, ImportResult
 from strapi_kit.models.request.query import StrapiQuery
 from strapi_kit.models.schema import ContentTypeSchema
+from strapi_kit.utils.endpoints import collection_endpoint
 
 if TYPE_CHECKING:
     from strapi_kit.client.sync_client import SyncClient
@@ -162,7 +163,7 @@ class StrapiImporter:
             if options.progress_callback:
                 options.progress_callback(100, 100, "Import complete")
 
-            result.success = result.entities_failed == 0
+            result.success = result.entities_failed == 0 and not result.errors
 
             return result
 
@@ -349,11 +350,14 @@ class StrapiImporter:
                                 )
 
                             elif options.conflict_resolution == ConflictResolution.UPDATE:
-                                # Update existing entity
+                                write_query = self._write_query(entity)
                                 response = self.client.update(
-                                    f"{endpoint}/{entity.document_id}",
+                                    endpoint,
                                     entity_data,
+                                    query=write_query,
+                                    document_id=entity.document_id,
                                 )
+                                self._maybe_publish(endpoint, response, entity, write_query)
                                 if response.data:
                                     if content_type not in result.id_mapping:
                                         result.id_mapping[content_type] = {}
@@ -374,8 +378,9 @@ class StrapiImporter:
                                     result.entities_updated += 1
                                 continue
 
-                        # Create new entity
-                        response = self.client.create(endpoint, entity_data)
+                        write_query = self._write_query(entity)
+                        response = self.client.create(endpoint, entity_data, query=write_query)
+                        self._maybe_publish(endpoint, response, entity, write_query)
 
                         if response.data:
                             # Track ID mapping for relation resolution
@@ -398,6 +403,10 @@ class StrapiImporter:
                                 result.doc_id_to_new_id[content_type][entity.document_id] = (
                                     response.data.id
                                 )
+                                if response.data.document_id:
+                                    result.doc_id_to_new_document_id.setdefault(content_type, {})[
+                                        entity.document_id
+                                    ] = response.data.document_id
 
                             result.entities_imported += 1
 
@@ -462,6 +471,26 @@ class StrapiImporter:
             return None
         return None
 
+    def _write_query(self, entity: Any) -> StrapiQuery | None:
+        """Locale query for create / update / publish, if the export recorded one."""
+        if entity.locale:
+            return StrapiQuery().with_locale(entity.locale)
+        return None
+
+    def _maybe_publish(
+        self,
+        endpoint: str,
+        response: Any,
+        entity: Any,
+        write_query: StrapiQuery | None,
+    ) -> None:
+        """Publish a newly written document when the source was live."""
+        if entity.published_at is None:
+            return
+        if response.data is None or response.data.document_id is None:
+            return
+        self.client.publish(endpoint, response.data.document_id, query=write_query)
+
     def _import_relations(
         self,
         export_data: ExportData,
@@ -503,14 +532,6 @@ class StrapiImporter:
 
                 new_id = result.id_mapping[content_type][old_id]
 
-                # Get document_id for v5 endpoint (falls back to numeric ID for v4)
-                entity_endpoint_id: str | int = new_id
-                if (
-                    content_type in result.doc_id_mapping
-                    and old_id in result.doc_id_mapping[content_type]
-                ):
-                    entity_endpoint_id = result.doc_id_mapping[content_type][old_id]
-
                 # Get schema for this content type
                 try:
                     schema = self._schema_cache.get_schema(content_type)
@@ -522,30 +543,20 @@ class StrapiImporter:
                     if options.dry_run:
                         continue
 
-                    # FIXED: Resolve relations using schema
-                    resolved_relations = self._resolve_relations_with_schema(
-                        entity.relations,
+                    applied = self._apply_entity_relations(
+                        entity,
                         schema,
+                        endpoint,
                         result.id_mapping,
+                        result.doc_id_mapping,
                         result.doc_id_to_new_id,
+                        result.doc_id_to_new_document_id,
                     )
-
-                    if not resolved_relations:
-                        continue
-
-                    # Build relation payload
-                    relation_payload = RelationResolver.build_relation_payload(resolved_relations)
-
-                    if relation_payload:
-                        # Update entity with relations (use document_id for v5)
-                        # Note: update() already wraps data in {"data": ...}
-                        self.client.update(
-                            f"{endpoint}/{entity_endpoint_id}",
-                            relation_payload,
-                        )
+                    if applied:
+                        result.relations_imported += 1
 
                 except Exception as e:
-                    result.add_warning(
+                    result.add_error(
                         f"Failed to import relations for {content_type} #{new_id}: {e}"
                     )
 
@@ -733,27 +744,97 @@ class StrapiImporter:
 
         return resolved
 
+    def _apply_entity_relations(
+        self,
+        entity: Any,
+        schema: ContentTypeSchema,
+        endpoint: str,
+        id_mapping: dict[str, dict[int, int]],
+        doc_id_mapping: dict[str, dict[int, str]],
+        doc_id_to_new_id: dict[str, dict[str, int]],
+        doc_id_to_new_document_id: dict[str, dict[str, str]],
+    ) -> bool:
+        """Write resolved relations. Returns True if an update was sent."""
+        resolved_docs = self._resolve_relation_document_ids(
+            entity.relations,
+            schema,
+            id_mapping,
+            doc_id_mapping,
+            doc_id_to_new_id,
+            doc_id_to_new_document_id,
+        )
+        if not resolved_docs:
+            return False
+
+        payload = RelationResolver.build_v5_relation_payload(
+            resolved_docs, schema, self._schema_cache
+        )
+        if not payload:
+            return False
+
+        new_document_id = doc_id_mapping.get(entity.content_type, {}).get(entity.id)
+        if new_document_id:
+            self.client.update(endpoint, payload, document_id=new_document_id)
+        else:
+            new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
+            if new_id is None:
+                return False
+            self.client.update(f"{endpoint}/{new_id}", payload)
+        return True
+
+    def _resolve_relation_document_ids(
+        self,
+        relations: dict[str, list[int | str]],
+        schema: ContentTypeSchema,
+        id_mapping: dict[str, dict[int, int]],
+        doc_id_mapping: dict[str, dict[int, str]],
+        doc_id_to_new_id: dict[str, dict[str, int]],
+        doc_id_to_new_document_id: dict[str, dict[str, str]],
+    ) -> dict[str, list[str]]:
+        """Resolve exported relation IDs to destination documentIds."""
+        resolved: dict[str, list[str]] = {}
+        for field_name, old_ids in relations.items():
+            target = RelationResolver.target_for_field_path(schema, field_name, self._schema_cache)
+            if not target:
+                logger.warning(f"Field {field_name} is not a relation. Skipping.")
+                continue
+            new_docs: list[str] = []
+            for old_id in old_ids:
+                new_doc: str | None = None
+                if isinstance(old_id, str):
+                    new_doc = doc_id_to_new_document_id.get(target, {}).get(old_id)
+                    if new_doc is None:
+                        new_num = doc_id_to_new_id.get(target, {}).get(old_id)
+                        if new_num is not None:
+                            for old_num, mapped in id_mapping.get(target, {}).items():
+                                if mapped == new_num:
+                                    new_doc = doc_id_mapping.get(target, {}).get(old_num)
+                                    break
+                else:
+                    new_doc = doc_id_mapping.get(target, {}).get(old_id)
+                if new_doc:
+                    new_docs.append(new_doc)
+                else:
+                    logger.warning(f"Could not resolve {target} ID {old_id} for field {field_name}")
+            if new_docs or len(old_ids) == 0:
+                resolved[field_name] = new_docs
+        return resolved
+
     def _get_endpoint(self, uid: str) -> str:
-        """Get API endpoint for a content type.
-
-        Prefers schema.plural_name when available to handle custom plural
-        names correctly (e.g., "person" -> "people"). Falls back to
-        hardcoded pluralization rules for basic cases.
-
-        Args:
-            uid: Content type UID (e.g., "api::article.article")
-
-        Returns:
-            API endpoint (e.g., "articles")
-        """
-        # Try to get plural_name from cached schema
-        if self._schema_cache.has_schema(uid):
-            schema = self._schema_cache.get_schema(uid)
-            if schema.plural_name:
-                return schema.plural_name
-
-        # Fallback to hardcoded pluralization
-        return self._uid_to_endpoint_fallback(uid)
+        """Return the REST collection id from the cached schema ``pluralName``."""
+        if not self._schema_cache.has_schema(uid):
+            raise ImportExportError(
+                f"Schema with pluralName is required for {uid}",
+                details={"uid": uid},
+            )
+        schema = self._schema_cache.get_schema(uid)
+        try:
+            return collection_endpoint(schema)
+        except ValidationError as e:
+            raise ImportExportError(
+                f"Content type {uid} has no pluralName",
+                details={"uid": uid},
+            ) from e
 
     @staticmethod
     def _uid_to_endpoint_fallback(uid: str) -> str:
@@ -928,6 +1009,7 @@ class StrapiImporter:
                 doc_id_mappings: dict[str, dict[int, str]] = {}
                 # Store reverse document_id mapping for v5 string relation resolution
                 doc_id_to_new_id_mappings: dict[str, dict[str, int]] = {}
+                doc_id_to_new_document_id_mappings: dict[str, dict[str, str]] = {}
 
                 for entity in reader.iter_entities():
                     # Filter by content types if specified
@@ -939,6 +1021,7 @@ class StrapiImporter:
                         id_mappings[content_type] = {}
                         doc_id_mappings[content_type] = {}
                         doc_id_to_new_id_mappings[content_type] = {}
+                        doc_id_to_new_document_id_mappings[content_type] = {}
 
                     try:
                         # Update media references
@@ -977,32 +1060,41 @@ class StrapiImporter:
                                     "Use conflict_resolution=SKIP or UPDATE."
                                 )
                             elif options.conflict_resolution == ConflictResolution.UPDATE:
-                                # Update existing entity (use document_id for v5 endpoint)
-                                self.client.update(
-                                    f"{endpoint}/{entity.document_id}", data=entity_data
+                                write_query = self._write_query(entity)
+                                response = self.client.update(
+                                    endpoint,
+                                    entity_data,
+                                    query=write_query,
+                                    document_id=entity.document_id,
                                 )
+                                self._maybe_publish(endpoint, response, entity, write_query)
                                 id_mappings[content_type][entity.id] = existing_id
-                                # Track document_id mappings for v5
                                 if entity.document_id:
                                     doc_id_mappings[content_type][entity.id] = entity.document_id
                                     doc_id_to_new_id_mappings[content_type][entity.document_id] = (
                                         existing_id
                                     )
+                                    doc_id_to_new_document_id_mappings[content_type][
+                                        entity.document_id
+                                    ] = entity.document_id
                                 result.entities_updated += 1
                                 continue
 
-                        # Create new entity
-                        response = self.client.create(endpoint, data=entity_data)
+                        write_query = self._write_query(entity)
+                        response = self.client.create(endpoint, data=entity_data, query=write_query)
+                        self._maybe_publish(endpoint, response, entity, write_query)
                         if response.data:
                             id_mappings[content_type][entity.id] = response.data.id
-                            # Track document_id for v5 endpoint updates
                             if response.data.document_id:
                                 doc_id_mappings[content_type][entity.id] = response.data.document_id
-                            # Track reverse mapping for v5 string relation resolution
                             if entity.document_id:
                                 doc_id_to_new_id_mappings[content_type][entity.document_id] = (
                                     response.data.id
                                 )
+                                if response.data.document_id:
+                                    doc_id_to_new_document_id_mappings[content_type][
+                                        entity.document_id
+                                    ] = response.data.document_id
                         result.entities_imported += 1
 
                     except ImportExportError:
@@ -1038,18 +1130,9 @@ class StrapiImporter:
                         content_type = entity.content_type
                         endpoint = self._get_endpoint(content_type)
 
-                        # Get new ID for this entity
                         new_id = id_mappings.get(content_type, {}).get(entity.id)
                         if new_id is None:
                             continue
-
-                        # Get document_id for v5 endpoint (falls back to numeric ID for v4)
-                        entity_endpoint_id: str | int = new_id
-                        if (
-                            content_type in doc_id_mappings
-                            and entity.id in doc_id_mappings[content_type]
-                        ):
-                            entity_endpoint_id = doc_id_mappings[content_type][entity.id]
 
                         # Get schema from cache
                         try:
@@ -1058,20 +1141,19 @@ class StrapiImporter:
                             continue
 
                         try:
-                            # Resolve relations using ID mappings
-                            resolved = self._resolve_relations_with_schema(
-                                entity.relations,
+                            applied = self._apply_entity_relations(
+                                entity,
                                 schema,
+                                endpoint,
                                 id_mappings,
+                                doc_id_mappings,
                                 doc_id_to_new_id_mappings,
+                                doc_id_to_new_document_id_mappings,
                             )
-
-                            if resolved:
-                                payload = RelationResolver.build_relation_payload(resolved)
-                                self.client.update(f"{endpoint}/{entity_endpoint_id}", data=payload)
+                            if applied:
                                 result.relations_imported += 1
                         except StrapiError as e:
-                            result.add_warning(
+                            result.add_error(
                                 f"Failed to import relations for {content_type} {entity.id}: {e}"
                             )
 
@@ -1082,8 +1164,9 @@ class StrapiImporter:
             result.id_mapping = id_mappings
             result.doc_id_mapping = doc_id_mappings
             result.doc_id_to_new_id = doc_id_to_new_id_mappings
+            result.doc_id_to_new_document_id = doc_id_to_new_document_id_mappings
 
-            result.success = result.entities_failed == 0
+            result.success = result.entities_failed == 0 and not result.errors
             return result
 
         except Exception as e:

@@ -227,8 +227,8 @@ class InMemorySchemaCache:
             uid=uid,
             display_name=info.get("displayName", uid),
             kind=schema.get("kind", "collectionType"),
-            singular_name=info.get("singularName"),
-            plural_name=info.get("pluralName"),
+            singular_name=info.get("singularName") or schema.get("singularName"),
+            plural_name=info.get("pluralName") or schema.get("pluralName"),
             fields=fields,
         )
 

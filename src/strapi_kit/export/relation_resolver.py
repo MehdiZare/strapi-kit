@@ -10,7 +10,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import StrapiError
-from ..models.schema import FieldType
+from ..models.request.relation_write import relation_write
+from ..models.schema import FieldSchema, FieldType, RelationType
 
 if TYPE_CHECKING:
     from ..cache.schema_cache import InMemorySchemaCache
@@ -327,10 +328,24 @@ class RelationResolver:
         return relations
 
     @staticmethod
+    def _id_from_relation_object(item: dict[str, Any]) -> int | str | None:
+        """Prefer v5 ``documentId``; fall back to numeric ``id``."""
+        document_id = item.get("documentId", item.get("document_id"))
+        if isinstance(document_id, str) and document_id.strip():
+            return document_id.strip()
+        if "id" in item and item["id"] is not None:
+            raw_id = item["id"]
+            if isinstance(raw_id, (int, str)):
+                return raw_id
+        return None
+
+    @staticmethod
     def _extract_ids_from_field(field_value: Any) -> list[int | str] | None:
         """Extract IDs from a relation field value.
 
-        Handles both v4 nested format and v5 flat format.
+        Handles v4 ``{"data": ...}`` wrappers, flat v5 objects
+        (``documentId`` at the field root), lists of those objects, and
+        bare ``int`` / ``str`` IDs.
 
         Args:
             field_value: Field value from entity data
@@ -341,25 +356,42 @@ class RelationResolver:
         if field_value is None:
             return []
 
-        # v4 format: {"data": ...}
-        if isinstance(field_value, dict) and "data" in field_value:
-            relation_data = field_value["data"]
-            if relation_data is None:
-                return []
-            elif isinstance(relation_data, dict) and "id" in relation_data:
-                return [relation_data["id"]]
-            elif isinstance(relation_data, list):
-                return [
-                    item["id"] for item in relation_data if isinstance(item, dict) and "id" in item
-                ]
+        # v4 wrapper (not a populated v5 entity, which has documentId at root)
+        if (
+            isinstance(field_value, dict)
+            and "data" in field_value
+            and "documentId" not in field_value
+            and "document_id" not in field_value
+        ):
+            return RelationResolver._extract_ids_from_field(field_value["data"])
 
-        # v5 format: direct ID or list of IDs (can be int or str)
+        if isinstance(field_value, dict):
+            extracted = RelationResolver._id_from_relation_object(field_value)
+            return [extracted] if extracted is not None else None
+
         if isinstance(field_value, (int, str)):
             return [field_value]
-        elif isinstance(field_value, list):
-            ids: list[int | str] = [item for item in field_value if isinstance(item, (int, str))]
-            if ids:
-                return ids
+
+        if isinstance(field_value, list):
+            if not field_value:
+                return []
+            ids: list[int | str] = []
+            found = False
+            for item in field_value:
+                if isinstance(item, dict):
+                    extracted = RelationResolver._id_from_relation_object(item)
+                    if extracted is None and "data" in item:
+                        nested = RelationResolver._extract_ids_from_field(item)
+                        if nested:
+                            ids.extend(nested)
+                            found = True
+                    elif extracted is not None:
+                        ids.append(extracted)
+                        found = True
+                elif isinstance(item, (int, str)):
+                    ids.append(item)
+                    found = True
+            return ids if found else None
 
         return None
 
@@ -367,8 +399,9 @@ class RelationResolver:
     def strip_relations_with_schema(
         data: dict[str, Any],
         schema: ContentTypeSchema,
+        schema_cache: InMemorySchemaCache | None = None,
     ) -> dict[str, Any]:
-        """Remove only actual relation fields from entity data.
+        """Remove relation fields, including nested component / DZ relations.
 
         Uses schema to identify relation fields, preserving non-relation
         fields that happen to contain {"data": ...}.
@@ -376,6 +409,7 @@ class RelationResolver:
         Args:
             data: Entity attributes dictionary
             schema: Content type schema with field definitions
+            schema_cache: Optional cache for component schemas
 
         Returns:
             Copy of data with relation fields removed
@@ -389,13 +423,139 @@ class RelationResolver:
             >>> stripped = RelationResolver.strip_relations_with_schema(data, schema)
             {'title': 'Article', 'metadata': {'data': 'custom'}}
         """
-        cleaned_data = {}
+        cleaned_data: dict[str, Any] = {}
 
         for field_name, field_value in data.items():
             field_schema = schema.fields.get(field_name)
-
-            # Keep field if it's not in schema or not a relation
-            if not field_schema or field_schema.type != FieldType.RELATION:
+            if field_schema is None:
                 cleaned_data[field_name] = field_value
+                continue
+            if field_schema.type == FieldType.RELATION:
+                continue
+            if (
+                field_schema.type == FieldType.COMPONENT
+                and schema_cache is not None
+                and field_schema.component
+            ):
+                if field_schema.repeatable and isinstance(field_value, list):
+                    cleaned_data[field_name] = [
+                        RelationResolver.strip_relations_with_schema(
+                            item,
+                            schema_cache.get_component_schema(field_schema.component),
+                            schema_cache,
+                        )
+                        if isinstance(item, dict)
+                        else item
+                        for item in field_value
+                    ]
+                    continue
+                if isinstance(field_value, dict):
+                    cleaned_data[field_name] = RelationResolver.strip_relations_with_schema(
+                        field_value,
+                        schema_cache.get_component_schema(field_schema.component),
+                        schema_cache,
+                    )
+                    continue
+            if field_schema.type == FieldType.DYNAMIC_ZONE and isinstance(field_value, list):
+                cleaned_items: list[Any] = []
+                for item in field_value:
+                    if (
+                        isinstance(item, dict)
+                        and "__component" in item
+                        and schema_cache is not None
+                    ):
+                        dz_uid = item["__component"]
+                        try:
+                            dz_schema = schema_cache.get_component_schema(dz_uid)
+                        except StrapiError:
+                            cleaned_items.append(item)
+                            continue
+                        cleaned_items.append(
+                            RelationResolver.strip_relations_with_schema(
+                                item, dz_schema, schema_cache
+                            )
+                        )
+                    else:
+                        cleaned_items.append(item)
+                cleaned_data[field_name] = cleaned_items
+                continue
+            cleaned_data[field_name] = field_value
 
         return cleaned_data
+
+    @staticmethod
+    def relation_field_is_multiple(
+        schema: ContentTypeSchema,
+        field_path: str,
+        schema_cache: InMemorySchemaCache | None = None,
+    ) -> bool:
+        """Return True for many-side relations (oneToMany / manyToMany)."""
+        field_schema = RelationResolver._field_schema_for_path(schema, field_path, schema_cache)
+        if field_schema is None or field_schema.relation is None:
+            return False
+        return field_schema.relation in {
+            RelationType.ONE_TO_MANY,
+            RelationType.MANY_TO_MANY,
+        }
+
+    @staticmethod
+    def target_for_field_path(
+        schema: ContentTypeSchema,
+        field_path: str,
+        schema_cache: InMemorySchemaCache | None = None,
+    ) -> str | None:
+        """Resolve a (possibly nested) field path to a relation target UID."""
+        field_schema = RelationResolver._field_schema_for_path(schema, field_path, schema_cache)
+        if field_schema is None or field_schema.type != FieldType.RELATION:
+            return None
+        return field_schema.target
+
+    @staticmethod
+    def _field_schema_for_path(
+        schema: ContentTypeSchema,
+        field_path: str,
+        schema_cache: InMemorySchemaCache | None,
+    ) -> FieldSchema | None:
+        """Walk ``seo[0].author`` / ``seo.author`` against schema (+ components)."""
+        parts = [part for part in field_path.replace("[", ".").replace("]", "").split(".") if part]
+        current = schema
+        field_schema = None
+        for index, part in enumerate(parts):
+            if part.isdigit():
+                continue
+            field_schema = current.fields.get(part)
+            if field_schema is None:
+                return None
+            if index == len(parts) - 1:
+                return field_schema
+            if field_schema.type == FieldType.COMPONENT and field_schema.component:
+                if schema_cache is None:
+                    return None
+                try:
+                    current = schema_cache.get_component_schema(field_schema.component)
+                except StrapiError:
+                    return None
+            elif field_schema.type == FieldType.DYNAMIC_ZONE:
+                return None
+            else:
+                return None
+        return field_schema
+
+    @staticmethod
+    def build_v5_relation_payload(
+        relations: dict[str, list[str]],
+        schema: ContentTypeSchema,
+        schema_cache: InMemorySchemaCache | None = None,
+    ) -> dict[str, Any]:
+        """Build a Strapi 5 relation write payload from documentId lists.
+
+        Nested (prefixed) keys are omitted — only top-level relation fields
+        are written here.
+        """
+        payload: dict[str, Any] = {}
+        for field_name, document_ids in relations.items():
+            if "." in field_name or "[" in field_name:
+                continue
+            multiple = RelationResolver.relation_field_is_multiple(schema, field_name, schema_cache)
+            payload[field_name] = relation_write(document_ids=document_ids, multiple=multiple)
+        return payload

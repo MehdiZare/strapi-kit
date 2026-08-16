@@ -17,13 +17,16 @@ if TYPE_CHECKING:
 import httpx
 
 from ..exceptions import (
-    ConnectionError as StrapiConnectionError,
-)
-from ..exceptions import (
+    AuthenticationError,
+    AuthorizationError,
     MediaError,
     NotFoundError,
+    ServerError,
     StrapiError,
     ValidationError,
+)
+from ..exceptions import (
+    ConnectionError as StrapiConnectionError,
 )
 from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
@@ -770,6 +773,8 @@ class AsyncClient(BaseClient):
                     return self._parse_media_response(response_json)
 
         except FileNotFoundError:
+            raise
+        except (AuthenticationError, AuthorizationError, NotFoundError, ServerError):
             raise
         except Exception as e:
             raise MediaError(f"File upload failed: {e}") from e

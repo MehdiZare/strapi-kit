@@ -72,15 +72,14 @@ class TestMediaHandler:
         assert media_ids == [5]
 
     def test_extract_media_references_v5_format(self):
-        """Test extracting media references from v5 format."""
+        """Stock v5 populate=* media is a flat file object, not {data:}."""
         data = {
             "title": "Test Article",
             "cover": {
-                "data": {
-                    "id": 5,
-                    "mime": "image/jpeg",
-                    "name": "cover.jpg",
-                }
+                "id": 5,
+                "mime": "image/jpeg",
+                "name": "cover.jpg",
+                "url": "/uploads/cover.jpg",
             },
         }
         media_ids = MediaHandler.extract_media_references(data)

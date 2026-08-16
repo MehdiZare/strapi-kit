@@ -132,7 +132,20 @@ def _should_stop_after_page(
         requested_page=current_page,
         requested_page_size=page_size,
     )
-    return yielded >= total or current_page * page_size >= total
+    if yielded >= total:
+        return True
+    if data_len < page_size:
+        raise ValidationError(
+            "Incomplete page before pagination total was reached",
+            details={
+                "page": current_page,
+                "yielded": yielded,
+                "total": total,
+                "page_size": page_size,
+                "data_len": data_len,
+            },
+        )
+    return False
 
 
 def stream_entities(
