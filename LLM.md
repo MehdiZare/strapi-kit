@@ -25,7 +25,7 @@ Use this template when creating issues:
 
 ## Environment
 - Python version: [e.g., 3.12]
-- strapi-kit version: [e.g., 0.0.6]
+- strapi-kit version: [e.g., 0.2.0]
 - Strapi version: [v4 or v5]
 - OS: [e.g., macOS, Linux, Windows]
 

@@ -4,62 +4,59 @@ This document describes the complete release process for strapi-kit.
 
 ## Overview
 
-strapi-kit uses a **label-based release workflow** with three types of releases:
+strapi-kit uses a **label-based release workflow**:
 
-1. **Production Releases** → PyPI (triggered by merging to `main`)
-2. **Test Releases** → TestPyPI (triggered by PRs to `main`)
-3. **Dev Releases** → TestPyPI (triggered by pushes to `dev`)
+1. **Production Releases** → PyPI (`release.yml` on a merged PR to `main` that already has `release:major` / `release:minor` / `release:patch`)
+2. **Dev Releases** → TestPyPI (`dev-release.yml` on push to `dev`)
+3. **Release PR** → `release-pr.yml` opens or updates `release/dev-to-main` when `dev` is pushed
+
+There is no `publish-testpypi.yml`. A PR to `main` does **not** publish a TestPyPI build by itself.
 
 ## Current Setup Status
 
 ### ✅ What's Working
 
-1. **Automated Workflows**: Three GitHub Actions workflows configured
-   - `release.yml` - Production releases to PyPI
-   - `publish-testpypi.yml` - Test releases to TestPyPI
-   - `dev-release.yml` - Dev releases to TestPyPI
+1. **Automated Workflows**:
+   - `release.yml` — production tag + GitHub Release + PyPI
+   - `dev-release.yml` — TestPyPI on every push to `dev`
+   - `release-pr.yml` — keep a `dev` → `main` PR open
 
-2. **Build Configuration**: Using `hatchling` for package building
+2. **Build Configuration**: `hatchling` + `hatch-vcs` (version from git tags)
 
-3. **Trusted Publishing**: Configured for OIDC authentication (no API tokens needed)
+3. **Trusted Publishing**: Workflows use OIDC (`id-token: write`)
 
 ### ⚠️ What Needs Setup
 
-1. **PyPI Trusted Publishing**: Needs to be configured on PyPI.org
-2. **TestPyPI Trusted Publishing**: Needs to be configured on test.pypi.org
-3. **Dynamic Versioning**: Currently using static version in pyproject.toml
+1. **PyPI Trusted Publishing**: Confirm the publisher on PyPI.org (`release.yml`, environment `pypi` if you set one)
+2. **TestPyPI Trusted Publishing**: Confirm the publisher for `dev-release.yml` (environment `testpypi`)
 
 ## Version Strategy
 
-### Current Limitation
-
-**Problem**: `pyproject.toml` has static `version = "0.1.0"`, but workflows create dynamic git tags.
-
-**Impact**: When building, the package will always have version 0.1.0 unless we:
-1. Update pyproject.toml before building, OR
-2. Use dynamic versioning from git tags
-
-### Recommended Solution: Dynamic Versioning
-
-Add `hatch-vcs` for git-based versioning:
+Version comes from git tags via `hatch-vcs`. `pyproject.toml` uses
+`dynamic = ["version"]`; the hook writes `src/strapi_kit/_version.py`.
+`src/strapi_kit/__version__.py` imports that file and falls back to
+`0.0.0.dev0+local` for an editable install that has not been built.
 
 ```toml
-# pyproject.toml
+# pyproject.toml (already in the repo)
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "strapi-kit"
-dynamic = ["version"]  # Version from git tags
-# Remove: version = "0.1.0"
+dynamic = ["version"]
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/strapi_kit/__version__.py"
+version-file = "src/strapi_kit/_version.py"
 ```
+
+Do not put a static `version = "..."` back in `[project]`. The release
+workflow tags `main` after a labeled `dev` → `main` merge; that tag is
+the published version.
 
 ## Release Types
 
@@ -108,31 +105,17 @@ graph LR
 
 ### 2. Test Release (TestPyPI)
 
-**Trigger**: Create PR from `dev` → `main` with release label
+There is no separate PR-triggered TestPyPI workflow. Use the **dev
+release** below (push to `dev` publishes `{next}.dev{commit_count}`).
 
-**Process**:
-
-1. Create PR from `dev` to `main`
-2. Add release label (`release:major`, `release:minor`, or `release:patch`)
-3. Workflow automatically:
-   - Calculates version: `{new_version}.dev{pr_number}`
-   - Builds package
-   - Publishes to TestPyPI
-   - Comments on PR with installation instructions
-
-**Version Format**: `0.2.0.dev123` (where 123 is PR number)
-
-**Testing**:
+To exercise a specific candidate, install that TestPyPI version:
 
 ```bash
-# Install from TestPyPI
-pip install -i https://test.pypi.org/simple/ strapi-kit==0.2.0.dev123
+pip install -i https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  strapi-kit==0.2.0.dev68
 
-# Test functionality
 python -c "import strapi_kit; print(strapi_kit.__version__)"
-
-# Verify
-pytest
 ```
 
 ### 3. Dev Release (TestPyPI)
@@ -166,42 +149,18 @@ pytest
 ### TestPyPI Setup (Testing)
 
 1. Go to https://test.pypi.org/manage/account/publishing/
-2. Add a new publisher:
+2. Add a publisher:
    - **PyPI Project Name**: `strapi-kit`
-   - **Owner**: `mehdizare`
+   - **Owner**: `MehdiZare`
    - **Repository name**: `strapi-kit`
-   - **Workflow name**: `publish-testpypi.yml`
-   - **Environment name**: (leave blank)
-
-3. Add another for dev releases:
    - **Workflow name**: `dev-release.yml`
+   - **Environment name**: `testpypi`
 
-4. Save the configurations
+3. Save the configuration
 
-### First Release Requirements
-
-For the **first release only**, you need to:
-
-1. Create the project on PyPI manually:
-   ```bash
-   # Build locally
-   python -m build
-
-   # Upload manually (one time only)
-   twine upload dist/*
-   ```
-
-2. After first manual upload, Trusted Publishing will work automatically
-
-**OR** use API tokens for the first release:
-
-```bash
-# Create API token on PyPI
-# Add as GitHub secret: PYPI_API_TOKEN
-
-# Workflow will use token for first release
-# Then switch to Trusted Publishing
-```
+`v0.1.0` is already on PyPI, so a first-upload bootstrap is not needed
+for 0.2.0. If Trusted Publishing is missing, add the `release.yml`
+publisher (environment `pypi`) before merging the release PR.
 
 ## Manual Release Process
 
@@ -369,7 +328,9 @@ pip install -i https://test.pypi.org/simple/ \
 Update `CHANGELOG.md` before each release:
 
 ```markdown
-## [0.2.0] - 2025-01-28
+## [Unreleased]
+
+## [0.2.0] - 2026-08-16
 
 ### Added
 - New feature X
@@ -382,18 +343,26 @@ Update `CHANGELOG.md` before each release:
 - Bug in component A
 ```
 
+Cut `[Unreleased]` into the new version heading (and empty `[Unreleased]`)
+in both `CHANGELOG.md` and `docs/changelog.md` **before** opening the
+`dev` → `main` PR. Update the compare links at the bottom of
+`CHANGELOG.md`.
+
 ## Checklist for Releases
 
 Before creating release PR:
 
-- [ ] All tests pass (`make test`)
+- [ ] Unit tests pass (`make test`)
 - [ ] Type checking passes (`make type-check`)
 - [ ] Linting passes (`make lint`)
-- [ ] Coverage ≥ 85% (`make coverage`)
-- [ ] CHANGELOG.md updated
-- [ ] Documentation updated
-- [ ] Migration guide (if breaking changes)
-- [ ] Version number decided (major/minor/patch)
+- [ ] Coverage ≥ 85% (`make coverage`) — or an explicit waiver if export/import
+      paths stay below the target
+- [ ] `CHANGELOG.md` and `docs/changelog.md` cut to the new version
+- [ ] User-facing docs match shipped behavior (README, MkDocs, `LLM.md`)
+- [ ] Upgrade notes listed for behavior changes (stream/export default, etc.)
+- [ ] Live e2e (`make e2e`) run against Strapi 5 if D&P or export changed
+- [ ] Version bump decided (`release:minor` for 0.2.0)
+- [ ] Release PR is labeled **before** merge (`release.yml` reads labels on the merged PR)
 
 ## Further Reading
 

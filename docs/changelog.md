@@ -2,124 +2,140 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+The repository [`CHANGELOG.md`](https://github.com/MehdiZare/strapi-kit/blob/dev/CHANGELOG.md)
+is the full Keep a Changelog record (including 0.0.x). This page is the
+user-facing summary.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-16
+
+Strapi 5 connector surface: Draft & Publish, Content-Type Builder discovery,
+origin-path probe, relation writes, blocks ↔ markdown, and complete
+stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55).
+
+### Upgrade notes
+
+- `stream_entities` / `StrapiExporter` default to
+  `document_status=DocumentStatus.DRAFT` (v5 `status=draft`, confirmed v4
+  `publicationState=preview`). Pass `document_status=None` for
+  published-only (the previous implicit default).
+- `publish()` is stock REST `PUT ?status=published`. `unpublish()` and
+  `discard_draft()` still need custom `/actions/*` routes (not stock REST).
+- Non-JSON 2xx responses raise `UnstructuredResponseError` (not `FormatError`).
+- `get_components()` and `get_content_types()` raise on unparsable items
+  unless `skip_unparsable=True`.
+- `StrapiQuery.filter()` / `.populate()` fail immediately on the wrong type.
+
 ### Added
 
-- Typed Blocks nodes (`BlockNode`, …) ([#87](https://github.com/MehdiZare/strapi-kit/issues/87)).
-- `ContentTypeOptions` with `extra="allow"`; D&P stripped from `options`
-  ([#88](https://github.com/MehdiZare/strapi-kit/issues/88)).
-
-### Added
-
-- Stream/export `document_status` ([#84](https://github.com/MehdiZare/strapi-kit/issues/84),
-  [#85](https://github.com/MehdiZare/strapi-kit/issues/85)) replaces `include_drafts`.
-- `UnstructuredResponseError.reason` ([#86](https://github.com/MehdiZare/strapi-kit/issues/86)).
+- Typed Blocks nodes (`BlockNode`, `TextNode`, …)
+  ([#87](https://github.com/MehdiZare/strapi-kit/issues/87)).
+- `ContentTypeOptions` with `extra="allow"`; Draft & Publish is stripped
+  from `options` ([#88](https://github.com/MehdiZare/strapi-kit/issues/88)).
+- Stream/export `document_status`
+  ([#84](https://github.com/MehdiZare/strapi-kit/issues/84),
+  [#85](https://github.com/MehdiZare/strapi-kit/issues/85)).
+- `UnstructuredResponseError.reason`
+  ([#86](https://github.com/MehdiZare/strapi-kit/issues/86)).
+- Stock REST `publish()`
+  ([#65](https://github.com/MehdiZare/strapi-kit/issues/65)).
+- Stream/export completeness via pagination echo
+  ([#81](https://github.com/MehdiZare/strapi-kit/issues/81),
+  [#67](https://github.com/MehdiZare/strapi-kit/issues/67)).
+- Inline `markdown_to_blocks` ([#77](https://github.com/MehdiZare/strapi-kit/issues/77)).
+- Relation write helper `relation_write()` / `RelationWriteOp`
+  ([#54](https://github.com/MehdiZare/strapi-kit/issues/54)).
+- `assert_pagination_echo()`
+  ([#48](https://github.com/MehdiZare/strapi-kit/issues/48)).
+- `is_uniqueness_violation()` and `ValidationError.field_errors`
+  ([#53](https://github.com/MehdiZare/strapi-kit/issues/53),
+  [#76](https://github.com/MehdiZare/strapi-kit/issues/76)).
+- Origin-path `api_prefix=False` and `get_admin_information()`
+  ([#46](https://github.com/MehdiZare/strapi-kit/issues/46)).
+- `collection_endpoint()` / `document_endpoint()` from `pluralName` only
+  ([#49](https://github.com/MehdiZare/strapi-kit/issues/49)).
+- First-class CTB `draft_and_publish` (`True` / `False` / `None`)
+  ([#45](https://github.com/MehdiZare/strapi-kit/issues/45)).
+- Blocks ↔ markdown and `FieldType.BLOCKS`
+  ([#51](https://github.com/MehdiZare/strapi-kit/issues/51)).
+- `DocumentStatus`, `PublicationFilter`, `exists()`, write-404 classify,
+  `publish` / `unpublish` / `discard_draft`, wire enums,
+  `MethodNotAllowedError`, `UnstructuredResponseError`.
+- Percent-encoded `document_id=` on typed CRUD
+  ([#50](https://github.com/MehdiZare/strapi-kit/issues/50)).
 
 ### Changed
 
-- `markdown_to_blocks` lifts images to root siblings ([#89](https://github.com/MehdiZare/strapi-kit/issues/89)).
-- v5 multi-page streams keep `status=draft` after detect; later v4 pages use `publicationState`.
-- Auto + v4 re-fetches page 1 with `publicationState` ([#93](https://github.com/MehdiZare/strapi-kit/issues/93)).
-
-### Added
-
-- **Stock REST `publish()`** ([#65](https://github.com/MehdiZare/strapi-kit/issues/65)):
-  PUT `?status=published`. `unpublish` / `discard_draft` stay custom-route only.
-- **Stream/export completeness** ([#81](https://github.com/MehdiZare/strapi-kit/issues/81),
-  [#67](https://github.com/MehdiZare/strapi-kit/issues/67)): pagination echo in
-  streamers; default `document_status=DRAFT`, `None` for published-only.
-- **Inline `markdown_to_blocks`** ([#77](https://github.com/MehdiZare/strapi-kit/issues/77))
-  and line-prefix escaping in `blocks_to_markdown` ([#78](https://github.com/MehdiZare/strapi-kit/issues/78)).
-
-### Changed
-
-- `get_components()` raises unless `skip_unparsable=True` ([#79](https://github.com/MehdiZare/strapi-kit/issues/79)).
-- CTB options lift schema-root keys ([#80](https://github.com/MehdiZare/strapi-kit/issues/80)).
-- `filter()` fail-fast ([#60](https://github.com/MehdiZare/strapi-kit/issues/60));
-  shared document path encoder ([#82](https://github.com/MehdiZare/strapi-kit/issues/82));
-  write `data` object + parser wrap ([#58](https://github.com/MehdiZare/strapi-kit/issues/58),
+- `markdown_to_blocks` lifts images to root siblings
+  ([#89](https://github.com/MehdiZare/strapi-kit/issues/89)).
+- v5 multi-page streams keep `status=draft` after detect; auto + v4
+  re-fetch page 1 with `publicationState`
+  ([#93](https://github.com/MehdiZare/strapi-kit/issues/93)).
+- `get_components()` raises unless `skip_unparsable=True`
+  ([#79](https://github.com/MehdiZare/strapi-kit/issues/79)).
+- CTB options lift schema-root keys
+  ([#80](https://github.com/MehdiZare/strapi-kit/issues/80)).
+- `filter()` fail-fast
+  ([#60](https://github.com/MehdiZare/strapi-kit/issues/60));
+  shared document path encoder
+  ([#82](https://github.com/MehdiZare/strapi-kit/issues/82));
+  write `data` object + parser wrap
+  ([#58](https://github.com/MehdiZare/strapi-kit/issues/58),
   [#59](https://github.com/MehdiZare/strapi-kit/issues/59)).
+- Line-prefix escaping in `blocks_to_markdown`
+  ([#78](https://github.com/MehdiZare/strapi-kit/issues/78)).
+- Every HTTP error carries `status_code`. Non-JSON 2xx is
+  `UnstructuredResponseError`. Default CI / `make test` runs
+  `pytest tests/unit` only.
 
 ### Fixed
 
-- Typed write/parse `UnstructuredResponseError.status_code` uses a contextvar
-  so concurrent `AsyncClient` requests cannot stamp the wrong HTTP status.
+- Concurrent `AsyncClient` writes no longer stamp the wrong HTTP status
+  on `UnstructuredResponseError`.
 - `join_document_path` rejects whitespace-only collection names.
+- Streamers raise on empty later pages (or an empty first page with
+  `total > 0`).
+- Default `status=draft` is dropped after a first-page 400 (Draft &
+  Publish off).
+- Trailing `/api` stripped from `StrapiConfig.base_url`
+  ([#47](https://github.com/MehdiZare/strapi-kit/issues/47)).
+- Document IDs containing `/`, `?`, `#`, or `%` are percent-encoded
+  ([#50](https://github.com/MehdiZare/strapi-kit/issues/50)).
 
-### Added
-
-- **First-class Content-Type Builder Draft & Publish** ([#45](https://github.com/MehdiZare/strapi-kit/issues/45)):
-  `draft_and_publish` is `True` / `False` / `None` (absence is not `False`).
-  `get_content_types()` raises on unparsable items unless `skip_unparsable=True`.
+## [0.1.0] - 2026-02-04
 
 ### Fixed
 
-- CTB v5 flattening retains `options` and `draftAndPublish` instead of dropping them.
-- `get_content_types()` raises `ValidationError` when `data` is not a list or an item is not an object.
-- **Media Upload MIME Type Detection** ([#13](https://github.com/MehdiZare/strapi-kit/issues/13)): Fixed `upload_file()` to properly detect and set MIME type based on file extension instead of using `application/octet-stream` for all uploads. Also now sends actual filename instead of hardcoded "file".
-
-### Changed
-
-- **Exception Handling Improvements**:
-  - Centralized `ConfigurationError` in the exceptions module for consistent imports
-  - Replaced generic `ValueError` with `ValidationError` for input validation errors (pagination, streaming, rate limiting)
-  - Replaced generic `ValueError` with `ConfigurationError` for configuration errors (API token validation)
-  - Replaced generic `ValueError` with `FormatError` for export path validation (path traversal prevention)
-  - Replaced generic `RuntimeError` with `MediaError` for media operation errors
-  - All exceptions now importable from `strapi_kit.exceptions` or `strapi_kit` directly
-
-- **Example Scripts Improvements**:
-  - `basic_crud.py` ([#10](https://github.com/MehdiZare/strapi-kit/issues/10)): Fixed uninitialized `article_id` variable that could cause NameError if POST request failed
-  - `simple_migration.py` ([#11](https://github.com/MehdiZare/strapi-kit/issues/11)): Added configuration validation, connection verification, error handling, timestamped file paths, and environment variable support
-  - `full_migration_v5.py` ([#12](https://github.com/MehdiZare/strapi-kit/issues/12)): Replaced hardcoded API tokens with environment variables (`SOURCE_STRAPI_TOKEN`, `TARGET_STRAPI_TOKEN`, etc.) for security
+- Race conditions in async bulk operations
+  ([#30](https://github.com/MehdiZare/strapi-kit/pull/30)).
+- JSONL media manifest no longer consumes the entity stream.
+- v5 string relation IDs (`documentId`) on import.
+- JSONL import path traversal protection and two-pass streaming
+  ([#29](https://github.com/MehdiZare/strapi-kit/pull/29)).
+- `update_media` version detection and streaming downloads
+  ([#28](https://github.com/MehdiZare/strapi-kit/issues/28)).
 
 ### Added
 
-#### Core Infrastructure
-- HTTP clients (sync and async) with connection pooling
-- Configuration system with Pydantic and environment variable support
-- API token authentication
-- Complete exception hierarchy with detailed error context
-- Automatic Strapi v4/v5 version detection and normalization
+- Schema-driven relation extraction and JSONL streaming export/import
+  ([#28](https://github.com/MehdiZare/strapi-kit/issues/28)).
 
-#### Type-Safe Query Builder
-- Fluent API with 24 filter operators (eq, ne, gt, lt, contains, in, between, etc.)
-- Advanced sorting with multiple fields and directions
-- Flexible pagination (page-based and offset-based)
-- Population (relation loading) with nested support
-- Field selection for optimized queries
-- Publication state and locale filtering
+## [0.0.6] - 2026-02-03
 
-#### Media Operations
-- Single and batch file uploads with metadata (alt text, captions)
-- Streaming downloads for large files
-- Media library queries with filters
-- Media metadata updates
-- Entity attachment for linking media to content
-- Full async support for all operations
+### Added
 
-#### Export/Import System
-- Content export with automatic schema caching
-- Schema-based relation resolution
-- ID mapping between source and target instances
-- Media export/import support
-- Progress tracking with callbacks
-- Dry-run mode for validation
-- Conflict resolution strategies
+- Content-Type Builder API, UID conversion utilities, SEO detection.
 
-#### Developer Experience
-- Protocol-based dependency injection for testability
-- Automatic retry with exponential backoff
-- Comprehensive type hints and mypy strict compliance
-- 85% test coverage with 460 passing tests
-- Extensive documentation and examples
+### Fixed
 
-### Features in Development
-- Bulk operations with streaming
-- Content type introspection
-- Advanced rate limiting
-- Webhook support
+- Extra `STRAPI_*` env vars no longer break `StrapiConfig`.
+- v5 Content-Type Builder list flattening.
+
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.6...v0.1.0
+[0.0.6]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.5...v0.0.6

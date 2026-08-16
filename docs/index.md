@@ -9,6 +9,8 @@ A modern Python client for Strapi CMS with comprehensive import/export capabilit
 - 🔒 **Type Safe**: Built with Pydantic for robust data validation and type safety
 - 🔄 **Import/Export**: Comprehensive backup/restore and data migration tools
 - 🔁 **Smart Retry**: Automatic retry with exponential backoff for transient failures
+- 🔍 **Schema Introspection**: Content-Type Builder API support for schema discovery
+- 📝 **Blocks ↔ Markdown**: Convert Strapi v5 `blocks` rich text JSON to and from Markdown
 - 📦 **Modern Python**: Built for Python 3.12+ with full type hints
 
 ## Quick Example
@@ -66,10 +68,15 @@ pip install strapi-kit[dev]
 - [Configuration](configuration.md)
 - [Type-Safe Queries](models.md)
 - [Media Operations](media.md)
+- [Export/Import](export-import.md)
+- [Changelog](changelog.md)
 
 ## Project Status
 
-This project is in active development. See [IMPLEMENTATION_STATUS.md](https://github.com/mehdizare/strapi-kit/blob/main/IMPLEMENTATION_STATUS.md) for detailed progress.
+0.2.0 is the Strapi 5 connector surface (Draft & Publish, Content-Type
+Builder discovery, origin-path probe, relation writes, blocks ↔ markdown,
+complete stream/export). See the [changelog](changelog.md) and
+[release process](development/release-process.md).
 
 Currently implemented:
 - ✅ HTTP clients (sync and async)
@@ -77,8 +84,10 @@ Currently implemented:
 - ✅ Authentication (API tokens)
 - ✅ Exception hierarchy
 - ✅ API version detection (v4/v5)
-- ✅ CRUD operations
+- ✅ Typed CRUD, `exists()`, and v5 document actions
+- ✅ Content-Type Builder discovery and collection path helpers
 - ✅ Import/Export with automatic relation resolution
+- ✅ Blocks ↔ Markdown converters
 
 ## Contributing
 

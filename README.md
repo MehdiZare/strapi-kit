@@ -545,7 +545,9 @@ with SyncClient(config) as client:
     if document_id and client.exists("articles", document_id):
         print("document is published or draft")
 
-    # v5 Draft & Publish actions (documentId, not numeric id)
+    # v5 Draft & Publish. publish() is stock REST PUT ?status=published.
+    # unpublish() / discard_draft() need custom POST /actions/* routes
+    # (not registered by stock Strapi 5 REST) and 404/405 if missing.
     if document_id:
         client.publish("articles", document_id)
         client.unpublish("articles", document_id)
@@ -963,7 +965,9 @@ source_config = StrapiConfig(
 with SyncClient(source_config) as client:
     exporter = StrapiExporter(client)
 
-    # Export content types with schemas for relation resolution
+    # Export content types with schemas for relation resolution.
+    # Default document_status=DRAFT (v5 status=draft). Pass
+    # document_status=None for published-only.
     export_data = exporter.export_content_types([
         "api::article.article",
         "api::author.author",
@@ -1423,19 +1427,22 @@ This project is in active development. Currently implemented:
 - **Media Export**: Download and package media files
 - **Content Import**: Import with ID mapping and relation resolution
 - **Schema Caching**: Efficient content type metadata handling
-- **85% overall test coverage** with 460 passing tests
+- **Import/Export coverage** in unit tests (live e2e is `make e2e`)
 
 ### ✅ Phase 5: Schema Introspection (Complete)
 - **Content-Type Builder API**: List content types, components, and full schemas
 - **UID Utilities**: Convert UIDs to endpoints, singularize, build admin URLs
 - **SEO Detection**: Detect SEO configuration patterns in schemas
-- **86% overall test coverage** with 528 passing tests
+- **Draft & Publish**: First-class `draft_and_publish` (`True` / `False` / `None`)
 
-### 🚧 Phase 6: Advanced Features (Planned)
-- Bulk operations with streaming
-- Advanced retry strategies
-- Rate limiting
-- GraphQL support
+### ✅ Phase 6: Strapi 5 document surface (Complete in 0.2.0)
+- **Document actions**: stock REST `publish()`; custom-route `unpublish` / `discard_draft`
+- **Query**: `DocumentStatus`, `PublicationFilter`, draft-inclusive `exists()`
+- **Blocks ↔ Markdown**: `blocks_to_markdown` / `markdown_to_blocks`
+- **Relation writes**: `relation_write()` / `RelationWriteOp`
+- **Streaming export**: pagination echo + default draft completeness
+
+GraphQL is out of scope (REST only).
 
 ### Key Features
 - **Type-Safe**: Full Pydantic validation and mypy strict mode compliance
