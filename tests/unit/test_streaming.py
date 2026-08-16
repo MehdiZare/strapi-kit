@@ -633,7 +633,7 @@ async def test_async_stream_keeps_status_draft_on_later_v5_pages(
 def test_stream_auto_v4_later_pages_use_publication_state(
     strapi_config: StrapiConfig, respx_mock: respx.Router
 ) -> None:
-    """auto + v4 detect: page 1 may send status=; later pages use publicationState."""
+    """auto + v4 detect: probe status=, refetch page 1, later pages stay publicationState."""
     captured: list[httpx.QueryParams] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -659,8 +659,140 @@ def test_stream_auto_v4_later_pages_use_publication_state(
     assert [entity.id for entity in entities] == [1, 2]
     assert captured[0]["status"] == "draft"
     assert "publicationState" not in captured[0]
+    assert captured[0]["pagination[page]"] == "1"
     assert "status" not in captured[1]
     assert captured[1]["publicationState"] == "preview"
+    assert captured[1]["pagination[page]"] == "1"
+    assert "status" not in captured[2]
+    assert captured[2]["publicationState"] == "preview"
+    assert captured[2]["pagination[page]"] == "2"
+
+
+@pytest.mark.respx
+def test_stream_auto_v4_refetches_first_page_before_yield(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """The status= probe body is discarded; yielded rows come from publicationState."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        if params.get("status") == "draft":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"id": 99, "attributes": {"title": "Published only"}}],
+                    "meta": {
+                        "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}
+                    },
+                },
+            )
+        if params.get("publicationState") == "preview":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"id": 1, "attributes": {"title": "Includes drafts"}}],
+                    "meta": {
+                        "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}
+                    },
+                },
+            )
+        raise AssertionError(f"unexpected params: {params}")
+
+    route = respx_mock.get("http://localhost:1337/api/articles").mock(side_effect=handler)
+
+    with SyncClient(strapi_config) as client:
+        entities = list(stream_entities(client, "articles"))
+
+    assert [entity.id for entity in entities] == [1]
+    assert entities[0].attributes["title"] == "Includes drafts"
+    assert route.call_count == 2
+    assert route.calls[0].request.url.params["status"] == "draft"
+    assert route.calls[1].request.url.params["publicationState"] == "preview"
+
+
+@pytest.mark.respx
+async def test_async_stream_auto_v4_refetches_first_page_before_yield(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Async auto+v4 also discards the status= probe before yielding."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        if params.get("status") == "draft":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"id": 99, "attributes": {"title": "Published only"}}],
+                    "meta": {
+                        "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}
+                    },
+                },
+            )
+        if params.get("publicationState") == "preview":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"id": 1, "attributes": {"title": "Includes drafts"}}],
+                    "meta": {
+                        "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}
+                    },
+                },
+            )
+        raise AssertionError(f"unexpected params: {params}")
+
+    respx_mock.get("http://localhost:1337/api/articles").mock(side_effect=handler)
+
+    async with AsyncClient(strapi_config) as client:
+        entities = [entity async for entity in stream_entities_async(client, "articles")]
+
+    assert [entity.id for entity in entities] == [1]
+
+
+@pytest.mark.respx
+def test_stream_auto_v4_refetch_drops_default_when_preview_rejected(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """If the v4 refetch 400s (D&P off), retry page 1 without the default."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        if params.get("status") == "draft":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"id": 99, "attributes": {"title": "Ignored"}}],
+                    "meta": {
+                        "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}
+                    },
+                },
+            )
+        if params.get("publicationState") == "preview":
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": "Invalid key publicationState",
+                        "name": "ValidationError",
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"id": 1, "attributes": {"title": "No D&P"}}],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}},
+            },
+        )
+
+    route = respx_mock.get("http://localhost:1337/api/articles").mock(side_effect=handler)
+
+    with SyncClient(strapi_config) as client:
+        entities = list(stream_entities(client, "articles"))
+
+    assert [entity.id for entity in entities] == [1]
+    assert route.call_count == 3
+    assert "status" not in route.calls[2].request.url.params
+    assert "publicationState" not in route.calls[2].request.url.params
 
 
 @pytest.mark.respx

@@ -68,6 +68,26 @@ def _reconcile_v4_after_detect(
     return current_query, True
 
 
+def _after_first_page_version_detect(
+    current_query: StrapiQuery,
+    caller_query: StrapiQuery,
+    client: Any,
+    document_status: DocumentStatus | None,
+) -> tuple[StrapiQuery, bool, bool]:
+    """Rewrite an auto ``status=`` probe to v4 ``publicationState=`` if needed.
+
+    Returns ``(query, still_applied, refetch_first_page)``. When
+    ``refetch_first_page`` is True the caller must discard the probe
+    response and request page 1 again — v4 typically ignores ``status=``,
+    so that first body can be published-only.
+    """
+    reconciled, still_applied = _reconcile_v4_after_detect(
+        current_query, caller_query, client, document_status
+    )
+    refetch = current_query.document_status is not None and reconciled.publication_state is not None
+    return reconciled, still_applied, refetch
+
+
 def _should_stop_after_page(
     *,
     data_len: int,
@@ -126,11 +146,11 @@ def stream_entities(
     ``publicationState=live``. A caller query that already set
     ``status=`` or ``publicationState=`` is left alone.
 
-    ``api_version="auto"`` may send ``status=draft`` on the first page
-    before detection. Later v5 pages keep that ``status=``. After a v4
-    detect, later pages use ``publicationState`` and never ``status=``.
-    If the applied default 400s (Draft & Publish off), the first page
-    is retried without it.
+    ``api_version="auto"`` may probe page 1 with ``status=draft`` before
+    detection. If that response pins v4, page 1 is **re-fetched** with
+    ``publicationState`` (the probe body is not yielded). Later v5 pages
+    keep ``status=``. If the applied default 400s (Draft & Publish off),
+    the first page is retried without it.
 
     Each page is checked with :func:`assert_pagination_echo`. The
     stream stops after ``total`` items (or raises if the echo is
@@ -186,15 +206,15 @@ def stream_entities(
                 continue
             raise
 
-        yield from response.data
-        yielded += len(response.data)
-
         if current_page == 1 and applied_stream_default:
-            reconciled, still_applied = _reconcile_v4_after_detect(
+            base_query, applied_stream_default, refetch = _after_first_page_version_detect(
                 base_query, caller_query.copy(), client, document_status
             )
-            base_query = reconciled
-            applied_stream_default = still_applied
+            if refetch:
+                continue
+
+        yield from response.data
+        yielded += len(response.data)
 
         if _should_stop_after_page(
             data_len=len(response.data),
@@ -269,16 +289,16 @@ async def stream_entities_async(
                 continue
             raise
 
+        if current_page == 1 and applied_stream_default:
+            base_query, applied_stream_default, refetch = _after_first_page_version_detect(
+                base_query, caller_query.copy(), client, document_status
+            )
+            if refetch:
+                continue
+
         for entity in response.data:
             yield entity
         yielded += len(response.data)
-
-        if current_page == 1 and applied_stream_default:
-            reconciled, still_applied = _reconcile_v4_after_detect(
-                base_query, caller_query.copy(), client, document_status
-            )
-            base_query = reconciled
-            applied_stream_default = still_applied
 
         if _should_stop_after_page(
             data_len=len(response.data),
