@@ -124,8 +124,9 @@ class MediaHandler:
         """Extract media file IDs from entity data.
 
         Searches for media references in various Strapi formats:
-        - Single media: {"data": {"id": 1}}
-        - Multiple media: {"data": [{"id": 1}, {"id": 2}]}
+        - v4 wrapper: ``{"data": {"id": 1, "attributes": {"mime": ...}}}``
+        - Flat v5 file: ``{"id": 1, "mime": "image/jpeg", "url": "..."}``
+        - Lists of either shape (including ``{"data": [...]}``)
 
         Args:
             data: Entity attributes dictionary
@@ -136,34 +137,35 @@ class MediaHandler:
         Example:
             >>> data = {
             ...     "title": "Article",
-            ...     "cover": {"data": {"id": 5}},
-            ...     "gallery": {"data": [{"id": 10}, {"id": 11}]}
+            ...     "cover": {"id": 5, "mime": "image/jpeg", "url": "/uploads/a.jpg"},
+            ...     "gallery": {"data": [
+            ...         {"id": 10, "mime": "image/jpeg"},
+            ...         {"id": 11, "mime": "image/png"},
+            ...     ]},
             ... }
             >>> MediaHandler.extract_media_references(data)
             [5, 10, 11]
         """
         media_ids: list[int] = []
-
         for field_value in data.values():
-            if isinstance(field_value, dict) and "data" in field_value:
-                media_data = field_value["data"]
-
-                if media_data is None:
-                    continue
-                elif isinstance(media_data, dict) and MediaHandler._is_media(media_data):
-                    # Single media file (v4 or v5 format)
-                    media_id = MediaHandler._get_media_id(media_data)
-                    if media_id is not None:
-                        media_ids.append(media_id)
-                elif isinstance(media_data, list):
-                    # Multiple media files
-                    for item in media_data:
-                        if isinstance(item, dict) and MediaHandler._is_media(item):
-                            media_id = MediaHandler._get_media_id(item)
-                            if media_id is not None:
-                                media_ids.append(media_id)
-
+            MediaHandler._collect_media_ids(field_value, media_ids)
         return media_ids
+
+    @staticmethod
+    def _collect_media_ids(value: Any, media_ids: list[int]) -> None:
+        """Collect media IDs from a field value (flat v5, v4 wrapper, or list)."""
+        if isinstance(value, dict):
+            if MediaHandler._is_media(value):
+                media_id = MediaHandler._get_media_id(value)
+                if media_id is not None:
+                    media_ids.append(media_id)
+                return
+            for nested in value.values():
+                MediaHandler._collect_media_ids(nested, media_ids)
+            return
+        if isinstance(value, list):
+            for item in value:
+                MediaHandler._collect_media_ids(item, media_ids)
 
     @staticmethod
     def download_media_file(
@@ -275,48 +277,39 @@ class MediaHandler:
             Updated data with new media IDs
 
         Example:
-            >>> data = {"cover": {"data": {"id": 5}}}
+            >>> data = {"cover": {"id": 5, "documentId": "old", "mime": "image/jpeg"}}
             >>> mapping = {5: 50}
             >>> updated = MediaHandler.update_media_references(data, mapping)
-            >>> updated["cover"]["data"]["id"]
+            >>> updated["cover"]["id"]
             50
         """
         updated_data = {}
 
         for field_name, field_value in data.items():
-            if isinstance(field_value, dict) and "data" in field_value:
-                media_data = field_value["data"]
-
-                if media_data is None:
-                    updated_data[field_name] = field_value
-                elif isinstance(media_data, dict) and MediaHandler._is_media(media_data):
-                    # Single media file (v4 or v5 format)
-                    old_id = MediaHandler._get_media_id(media_data)
-                    if old_id and old_id in media_id_mapping:
-                        # Update with new ID
-                        updated_media = media_data.copy()
-                        updated_media["id"] = media_id_mapping[old_id]
-                        updated_data[field_name] = {"data": updated_media}
-                    else:
-                        updated_data[field_name] = field_value
-                elif isinstance(media_data, list):
-                    # Multiple media files
-                    updated_list = []
-                    for item in media_data:
-                        if isinstance(item, dict) and MediaHandler._is_media(item):
-                            old_id = MediaHandler._get_media_id(item)
-                            if old_id and old_id in media_id_mapping:
-                                updated_item = item.copy()
-                                updated_item["id"] = media_id_mapping[old_id]
-                                updated_list.append(updated_item)
-                            else:
-                                updated_list.append(item)
-                        else:
-                            updated_list.append(item)
-                    updated_data[field_name] = {"data": updated_list}
-                else:
-                    updated_data[field_name] = field_value
-            else:
-                updated_data[field_name] = field_value
+            updated_data[field_name] = MediaHandler._remap_media_value(
+                field_value, media_id_mapping
+            )
 
         return updated_data
+
+    @staticmethod
+    def _remap_media_value(value: Any, media_id_mapping: dict[int, int]) -> Any:
+        """Remap media IDs in a field value (flat v5, v4 wrapper, or list)."""
+        if isinstance(value, dict):
+            if MediaHandler._is_media(value):
+                old_id = MediaHandler._get_media_id(value)
+                if old_id and old_id in media_id_mapping:
+                    updated = dict(value)
+                    updated["id"] = media_id_mapping[old_id]
+                    # Source documentId would reconnect the origin file on v5 writes.
+                    updated.pop("documentId", None)
+                    updated.pop("document_id", None)
+                    return updated
+                return value
+            return {
+                key: MediaHandler._remap_media_value(nested, media_id_mapping)
+                for key, nested in value.items()
+            }
+        if isinstance(value, list):
+            return [MediaHandler._remap_media_value(item, media_id_mapping) for item in value]
+        return value

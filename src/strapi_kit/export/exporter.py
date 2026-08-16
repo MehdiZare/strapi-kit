@@ -6,9 +6,9 @@ and media files from a Strapi instance.
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from strapi_kit.cache.schema_cache import InMemorySchemaCache
 from strapi_kit.exceptions import ImportExportError, ValidationError
@@ -24,6 +24,7 @@ from strapi_kit.models.export_format import (
 from strapi_kit.models.request.query import StrapiQuery
 from strapi_kit.models.schema import ContentTypeSchema
 from strapi_kit.operations.streaming import stream_entities
+from strapi_kit.utils.endpoints import collection_endpoint
 
 if TYPE_CHECKING:
     from strapi_kit.client.sync_client import SyncClient
@@ -124,51 +125,23 @@ class StrapiExporter:
                         f"Exporting {content_type}",
                     )
 
-                # Extract endpoint from UID (e.g., "api::article.article" -> "articles")
                 endpoint = self._get_endpoint(content_type)
 
-                # Build query with populate_all to ensure relations/media are included
-                export_query = StrapiQuery().populate_all()
+                export_query = StrapiQuery().populate_all().with_locale("all")
+                schema = self._schema_cache.get_schema(content_type)
 
-                # Get schema for this content type (already cached from _fetch_schemas)
-                # Fallback to heuristic relation handling if schema not available
-                try:
-                    schema = self._schema_cache.get_schema(content_type)
-                except Exception as e:
-                    logger.warning(
-                        f"Schema not available for {content_type}: {e}. "
-                        "Using heuristic relation extraction."
-                    )
-                    schema = None
-
-                # Stream entities for memory efficiency
                 entities = []
-                for entity in stream_entities(
-                    self.client,
-                    endpoint,
-                    query=export_query,
-                    document_status=document_status,
-                ):
-                    # Extract media references BEFORE stripping relations
-                    # (media can be embedded in relation-like fields with {"data": ...} structure)
+                for entity in self._stream_export_entities(endpoint, export_query, document_status):
                     if include_media:
                         media_ids = MediaHandler.extract_media_references(entity.attributes)
                         all_media_ids.update(media_ids)
 
-                    # Extract relations and strip them from data
-                    # Use schema-based methods when available, fall back to heuristics
-                    if schema is not None:
-                        # Schema-based extraction (more accurate)
-                        relations = RelationResolver.extract_relations_with_schema(
-                            entity.attributes, schema, self._schema_cache
-                        )
-                        clean_data = RelationResolver.strip_relations_with_schema(
-                            entity.attributes, schema
-                        )
-                    else:
-                        # Heuristic fallback when schema is unavailable
-                        relations = RelationResolver.extract_relations(entity.attributes)
-                        clean_data = RelationResolver.strip_relations(entity.attributes)
+                    relations = RelationResolver.extract_relations_with_schema(
+                        entity.attributes, schema, self._schema_cache
+                    )
+                    clean_data = RelationResolver.strip_relations_with_schema(
+                        entity.attributes, schema, self._schema_cache
+                    )
 
                     exported_entity = ExportedEntity(
                         id=entity.id,
@@ -176,6 +149,8 @@ class StrapiExporter:
                         content_type=content_type,
                         data=clean_data,
                         relations=relations,
+                        published_at=entity.published_at,
+                        locale=entity.locale,
                     )
                     entities.append(exported_entity)
 
@@ -193,7 +168,6 @@ class StrapiExporter:
                         "Exporting media files",
                     )
 
-                # Type guard: media_dir validated at method start (line 91-92)
                 if media_dir is None:
                     raise ValidationError("media_dir must be provided when include_media=True")
                 self._export_media(
@@ -343,38 +317,63 @@ class StrapiExporter:
                         idx + 1, len(content_types), f"Fetched schema: {content_type}"
                     )
             except Exception as e:
-                logger.warning(f"Failed to fetch schema for {content_type}: {e}")
+                raise ImportExportError(
+                    f"Schema with pluralName is required to export {content_type}",
+                    details={"uid": content_type},
+                ) from e
 
         logger.info(f"Cached {self._schema_cache.cache_size} schemas")
 
     def _get_endpoint(self, uid: str) -> str:
-        """Get API endpoint for a content type.
+        """Return the REST collection id from the cached schema ``pluralName``.
 
-        Prefers schema.plural_name when available to handle custom plural
-        names correctly (e.g., "person" -> "people"). Falls back to
-        hardcoded pluralization rules for basic cases.
-
-        Args:
-            uid: Content type UID (e.g., "api::article.article")
-
-        Returns:
-            API endpoint (e.g., "articles")
+        Does not invent a path from the UID.
         """
-        # Try to get plural_name from cached schema
-        if self._schema_cache.has_schema(uid):
-            schema = self._schema_cache.get_schema(uid)
-            if schema.plural_name:
-                return schema.plural_name
+        if not self._schema_cache.has_schema(uid):
+            raise ImportExportError(
+                f"Schema with pluralName is required for {uid}",
+                details={"uid": uid},
+            )
+        schema = self._schema_cache.get_schema(uid)
+        try:
+            return collection_endpoint(schema)
+        except ValidationError as e:
+            raise ImportExportError(
+                f"Content type {uid} has no pluralName",
+                details={"uid": uid},
+            ) from e
 
-        # Fallback to hardcoded pluralization
-        return self._uid_to_endpoint_fallback(uid)
+    def _stream_export_entities(
+        self,
+        endpoint: str,
+        query: StrapiQuery,
+        document_status: DocumentStatus | None,
+    ) -> Iterator[Any]:
+        """Stream entities; drop ``locale=all`` if the type is not i18n."""
+        try:
+            yield from stream_entities(
+                self.client,
+                endpoint,
+                query=query,
+                document_status=document_status,
+            )
+        except ValidationError as error:
+            if "invalid key locale" not in str(error).lower():
+                raise
+            fallback = StrapiQuery().populate_all()
+            yield from stream_entities(
+                self.client,
+                endpoint,
+                query=fallback,
+                document_status=document_status,
+            )
 
     @staticmethod
     def _uid_to_endpoint_fallback(uid: str) -> str:
-        """Fallback pluralization for content type UID.
+        """Unused UID pluralization kept for callers of ``_uid_to_endpoint``.
 
-        Handles common English pluralization patterns. Used when schema
-        metadata is not available.
+        Export/import no longer invent a path from the UID; use
+        ``_get_endpoint`` / ``collection_endpoint`` instead.
 
         Args:
             uid: Content type UID (e.g., "api::article.article", "api::blog.post")
@@ -476,7 +475,10 @@ class StrapiExporter:
                     schemas[content_type] = ct_schema
                     metadata.schemas[content_type] = ct_schema
                 except Exception as e:
-                    logger.warning(f"Failed to fetch schema for {content_type}: {e}")
+                    raise ImportExportError(
+                        f"Schema with pluralName is required to export {content_type}",
+                        details={"uid": content_type},
+                    ) from e
 
             all_media_ids: set[int] = set()
 
@@ -492,31 +494,22 @@ class StrapiExporter:
                         progress_callback(idx, total_content_types, f"Exporting {content_type}")
 
                     endpoint = self._get_endpoint(content_type)
-                    schema: ContentTypeSchema | None = schemas.get(content_type)
-                    export_query = StrapiQuery().populate_all()
+                    schema = schemas[content_type]
+                    export_query = StrapiQuery().populate_all().with_locale("all")
 
-                    for entity in stream_entities(
-                        self.client,
-                        endpoint,
-                        query=export_query,
-                        document_status=document_status,
+                    for entity in self._stream_export_entities(
+                        endpoint, export_query, document_status
                     ):
-                        # Extract media references before stripping
                         if include_media:
                             media_ids = MediaHandler.extract_media_references(entity.attributes)
                             all_media_ids.update(media_ids)
 
-                        # Extract relations using schema if available
-                        if schema:
-                            relations = RelationResolver.extract_relations_with_schema(
-                                entity.attributes, schema, self._schema_cache
-                            )
-                            clean_data = RelationResolver.strip_relations_with_schema(
-                                entity.attributes, schema
-                            )
-                        else:
-                            relations = RelationResolver.extract_relations(entity.attributes)
-                            clean_data = RelationResolver.strip_relations(entity.attributes)
+                        relations = RelationResolver.extract_relations_with_schema(
+                            entity.attributes, schema, self._schema_cache
+                        )
+                        clean_data = RelationResolver.strip_relations_with_schema(
+                            entity.attributes, schema, self._schema_cache
+                        )
 
                         exported_entity = ExportedEntity(
                             id=entity.id,
@@ -524,6 +517,8 @@ class StrapiExporter:
                             content_type=content_type,
                             data=clean_data,
                             relations=relations,
+                            published_at=entity.published_at,
+                            locale=entity.locale,
                         )
 
                         # Write immediately - no accumulation in memory

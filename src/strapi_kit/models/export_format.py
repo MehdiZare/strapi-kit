@@ -42,7 +42,7 @@ class ExportMetadata(BaseModel):
     """
 
     version: str = Field(
-        default="1.0.0",
+        default="1.1.0",
         description="Export format version (semver)",
     )
     strapi_version: str = Field(
@@ -83,7 +83,9 @@ class ExportedEntity(BaseModel):
         document_id: Document ID (v5 only)
         content_type: Content type UID
         data: Entity data (attributes)
-        relations: Relation field mapping
+        relations: Relation field mapping (field -> documentIds or ids)
+        published_at: Publication timestamp when the streamed version was live
+        locale: Locale code (i18n)
     """
 
     id: int = Field(..., description="Original entity ID")
@@ -94,6 +96,11 @@ class ExportedEntity(BaseModel):
         default_factory=dict,
         description="Relation field mapping (field -> [ids])",
     )
+    published_at: datetime | None = Field(
+        None,
+        description="Publication timestamp; set when the source version was live",
+    )
+    locale: str | None = Field(None, description="Locale code (i18n)")
 
 
 class ExportedMediaFile(BaseModel):

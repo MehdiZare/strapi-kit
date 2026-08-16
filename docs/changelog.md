@@ -11,6 +11,22 @@ user-facing summary.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-16
+
+v5 export/import populate contract. Trackers: #96 #97 #98 #99 #100 #101.
+
+### Upgrade notes
+
+- Export/import require `pluralName` from the content-type schema (no UID
+  path invention).
+- Import writes relations with `relation_write()` (v5 documentId strings).
+- `ExportedEntity` stores `published_at` / `locale`; import publishes live
+  source documents after relation writes.
+- Extra locales of the same `documentId` are not restored as i18n
+  localizations (follow-up).
+- Short stream pages before `total` raise instead of stopping early.
+- `upload_file` / `upload_files` re-raise auth / not-found / server errors.
+
 ## [0.2.0] - 2026-08-16
 
 Strapi 5 connector surface: Draft & Publish, Content-Type Builder discovery,

@@ -43,33 +43,14 @@ from strapi_kit.exceptions import StrapiError
 from strapi_kit.models import ImportOptions
 
 
-def _uid_to_endpoint(uid: str) -> str:
-    """Convert content type UID to API endpoint.
+def _collection_from_client(client: SyncClient, uid: str) -> str:
+    """Resolve a content-type UID to its REST collection via ``pluralName``."""
+    from strapi_kit.utils.endpoints import collection_endpoint
 
-    Handles common irregular pluralization patterns.
-
-    Args:
-        uid: Content type UID (e.g., "api::article.article", "plugin::users-permissions.user")
-
-    Returns:
-        API endpoint (e.g., "articles", "users")
-    """
-    # Extract the content name after the dot and make it plural
-    parts = uid.split("::")
-    if len(parts) == 2:
-        # Extract content name from after the dot (e.g., "article.article" -> "article")
-        # For plugin UIDs like "users-permissions.user", this correctly gets "user"
-        name_parts = parts[1].split(".")
-        name = name_parts[1] if len(name_parts) > 1 else name_parts[0]
-        # Handle common irregular plurals
-        if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
-            return name[:-1] + "ies"  # category -> categories
-        if name.endswith(("s", "x", "z", "ch", "sh")):
-            return name + "es"  # class -> classes
-        if not name.endswith("s"):
-            return name + "s"
-        return name
-    return uid
+    for item in client.get_content_types(include_plugins=True):
+        if item.uid == uid:
+            return collection_endpoint(item)
+    raise ValueError(f"Unknown content type {uid}; cannot invent a path from the UID")
 
 
 def validate_environment() -> None:
@@ -339,8 +320,7 @@ def verify_migration() -> None:
         source_counts: dict[str, int] = {}
         for ct in content_types:
             try:
-                # Extract collection name from UID (e.g., "api::article.article" -> "articles")
-                collection = _uid_to_endpoint(ct)
+                collection = _collection_from_client(source_client, ct)
                 response = source_client.get(collection, params={"pagination[limit]": 1})
                 count = response.get("meta", {}).get("pagination", {}).get("total", 0)
                 source_counts[ct] = count
@@ -354,7 +334,7 @@ def verify_migration() -> None:
         target_counts: dict[str, int] = {}
         for ct in content_types:
             try:
-                collection = _uid_to_endpoint(ct)
+                collection = _collection_from_client(target_client, ct)
                 response = target_client.get(collection, params={"pagination[limit]": 1})
                 count = response.get("meta", {}).get("pagination", {}).get("total", 0)
                 target_counts[ct] = count

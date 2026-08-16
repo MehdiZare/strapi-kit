@@ -16,13 +16,16 @@ if TYPE_CHECKING:
 import httpx
 
 from ..exceptions import (
-    ConnectionError as StrapiConnectionError,
-)
-from ..exceptions import (
+    AuthenticationError,
+    AuthorizationError,
     MediaError,
     NotFoundError,
+    ServerError,
     StrapiError,
     ValidationError,
+)
+from ..exceptions import (
+    ConnectionError as StrapiConnectionError,
 )
 from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
@@ -703,8 +706,12 @@ class SyncClient(BaseClient):
             MediaFile with upload details
 
         Raises:
-            MediaError: On upload failure
-            FileNotFoundError: If file doesn't exist
+            FileNotFoundError: If the local file does not exist.
+            AuthenticationError: If the upload is unauthorized (401).
+            AuthorizationError: If the token lacks permission (403).
+            NotFoundError: If the upload endpoint is not found (404).
+            ServerError: If Strapi returns a 5xx.
+            MediaError: Other upload failures (validation, parse, unexpected).
 
         Examples:
             >>> # Simple upload
@@ -764,6 +771,8 @@ class SyncClient(BaseClient):
 
         except FileNotFoundError:
             raise
+        except (AuthenticationError, AuthorizationError, NotFoundError, ServerError):
+            raise
         except Exception as e:
             raise MediaError(f"File upload failed: {e}") from e
 
@@ -782,7 +791,11 @@ class SyncClient(BaseClient):
             List of MediaFile objects
 
         Raises:
-            MediaError: On any upload failure (partial uploads NOT rolled back)
+            AuthenticationError: If the upload is unauthorized (401).
+            AuthorizationError: If the token lacks permission (403).
+            NotFoundError: If the upload endpoint is not found (404).
+            ServerError: If Strapi returns a 5xx.
+            MediaError: On other upload failures (partial uploads NOT rolled back)
 
         Examples:
             >>> files = ["image1.jpg", "image2.jpg", "image3.jpg"]
@@ -802,6 +815,8 @@ class SyncClient(BaseClient):
             try:
                 media = self.upload_file(file_path, **kwargs)
                 uploaded.append(media)
+            except (AuthenticationError, AuthorizationError, NotFoundError, ServerError):
+                raise
             except Exception as e:
                 raise MediaError(
                     f"Batch upload failed at file {idx} ({file_path}): {e}. "

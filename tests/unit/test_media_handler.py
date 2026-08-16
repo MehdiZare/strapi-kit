@@ -237,3 +237,45 @@ def test_update_media_references_ignores_relations() -> None:
 
     # Relation should remain unchanged (no mime field means it's not media)
     assert updated["author"]["data"]["id"] == 99
+
+
+def test_extract_media_references_nested_component_v5() -> None:
+    """populate=* media inside a component is at the field root, not under data."""
+    data = {
+        "title": "Article",
+        "seo": {
+            "ogImage": {
+                "id": 7,
+                "documentId": "media-src",
+                "mime": "image/jpeg",
+                "url": "/uploads/og.jpg",
+            }
+        },
+    }
+
+    assert MediaHandler.extract_media_references(data) == [7]
+
+
+def test_update_media_references_drops_source_document_id() -> None:
+    """Remap must not leave a source documentId that v5 would reconnect."""
+    data = {
+        "cover": {
+            "id": 5,
+            "documentId": "media-src",
+            "mime": "image/jpeg",
+        },
+        "seo": {
+            "ogImage": {
+                "id": 7,
+                "documentId": "og-src",
+                "mime": "image/png",
+            }
+        },
+    }
+
+    updated = MediaHandler.update_media_references(data, {5: 50, 7: 70})
+
+    assert updated["cover"]["id"] == 50
+    assert "documentId" not in updated["cover"]
+    assert updated["seo"]["ogImage"]["id"] == 70
+    assert "documentId" not in updated["seo"]["ogImage"]

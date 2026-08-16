@@ -10,7 +10,7 @@ import pytest
 import respx
 
 from strapi_kit.client.async_client import AsyncClient
-from strapi_kit.exceptions import MediaError, NotFoundError
+from strapi_kit.exceptions import AuthenticationError, MediaError, NotFoundError
 
 if TYPE_CHECKING:
     from strapi_kit import StrapiConfig
@@ -154,6 +154,21 @@ class TestUploadFile:
             with pytest.raises(MediaError):
                 await client.upload_file(test_file)
 
+    @pytest.mark.respx
+    async def test_upload_file_auth_error_not_wrapped(
+        self, strapi_config: StrapiConfig, tmp_path: Path, respx_mock: respx.Router
+    ) -> None:
+        """Auth failures must stay AuthenticationError, not MediaError."""
+        test_file = tmp_path / "test.jpg"
+        test_file.write_bytes(b"fake image data")
+        respx_mock.post("http://localhost:1337/api/upload").mock(
+            return_value=httpx.Response(401, json={"error": {"message": "Unauthorized"}})
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(AuthenticationError):
+                await client.upload_file(test_file)
+
 
 class TestUploadFiles:
     """Tests for upload_files method."""
@@ -212,6 +227,21 @@ class TestUploadFiles:
         async with AsyncClient(strapi_config) as client:
             with pytest.raises(MediaError, match="Batch upload failed at file 1"):
                 await client.upload_files(files)
+
+    @pytest.mark.respx
+    async def test_upload_files_auth_error_not_wrapped(
+        self, strapi_config: StrapiConfig, tmp_path: Path, respx_mock: respx.Router
+    ) -> None:
+        """Batch upload must not wrap 401 as MediaError."""
+        test_file = tmp_path / "test.jpg"
+        test_file.write_bytes(b"fake image data")
+        respx_mock.post("http://localhost:1337/api/upload").mock(
+            return_value=httpx.Response(401, json={"error": {"message": "Unauthorized"}})
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(AuthenticationError):
+                await client.upload_files([test_file])
 
 
 class TestDownloadFile:

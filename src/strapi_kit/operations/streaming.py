@@ -132,7 +132,20 @@ def _should_stop_after_page(
         requested_page=current_page,
         requested_page_size=page_size,
     )
-    return yielded >= total or current_page * page_size >= total
+    if yielded >= total:
+        return True
+    if data_len < page_size:
+        raise ValidationError(
+            "Incomplete page before pagination total was reached",
+            details={
+                "page": current_page,
+                "yielded": yielded,
+                "total": total,
+                "page_size": page_size,
+                "data_len": data_len,
+            },
+        )
+    return False
 
 
 def stream_entities(
@@ -166,10 +179,10 @@ def stream_entities(
 
     Each page is checked with :func:`assert_pagination_echo`. The
     stream stops after ``total`` items (or raises if the echo is
-    missing, unreadable, silently capped, or a later page is empty
-    while ``total`` is still unmet). An empty first page with
-    ``total == 0`` is a complete empty collection. ``get_many()``
-    itself does not call the helper.
+    missing, unreadable, silently capped, a page is shorter than
+    ``page_size`` while ``total`` is still unmet, or a later page is
+    empty). An empty first page with ``total == 0`` is a complete
+    empty collection. ``get_many()`` itself does not call the helper.
 
     Args:
         client: SyncClient instance
@@ -183,8 +196,9 @@ def stream_entities(
         NormalizedEntity objects one at a time
 
     Raises:
-        ValidationError: If page_size < 1, or if pagination echo is
-            missing, capped, or unreadable.
+        ValidationError: If page_size < 1, if pagination echo is
+            missing, capped, or unreadable, or if a page is shorter than
+            ``page_size`` before ``total`` is reached.
 
     Example:
         >>> with SyncClient(config) as client:
@@ -271,8 +285,9 @@ async def stream_entities_async(
         NormalizedEntity objects one at a time
 
     Raises:
-        ValidationError: If page_size < 1, or if pagination echo is
-            missing, capped, or unreadable.
+        ValidationError: If page_size < 1, if pagination echo is
+            missing, capped, or unreadable, or if a page is shorter than
+            ``page_size`` before ``total`` is reached.
 
     Example:
         >>> async with AsyncClient(config) as client:
