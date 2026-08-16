@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `markdown_to_blocks` lifts images to root siblings ([#89](https://github.com/MehdiZare/strapi-kit/issues/89)).
 - v5 multi-page streams keep `status=draft` after detect; later v4 pages use `publicationState`.
+- Auto + v4 re-fetches page 1 with `publicationState` ([#93](https://github.com/MehdiZare/strapi-kit/issues/93)).
 
 ### Added
 

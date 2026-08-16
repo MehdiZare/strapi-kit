@@ -703,9 +703,10 @@ already call `assert_pagination_echo` and default to
 `document_status=DocumentStatus.DRAFT`. That is v5 `status=draft` (the
 **draft version** of each document, not a published∪draft union) or,
 on a confirmed v4 client, `publicationState=preview`. Confirmed v4
-never sends `status=`. Later v5 pages keep `status=`; after an auto
-detect pins v4, later pages switch to `publicationState`. Pass
-`document_status=None` for published-only.
+never sends `status=`. Later v5 pages keep `status=`. After an auto
+detect pins v4, page 1 is re-fetched with `publicationState` (the
+`status=` probe is not yielded) and later pages stay on
+`publicationState`. Pass `document_status=None` for published-only.
 `StrapiExporter.export_content_types` / `export_to_jsonl` take the same
 argument. If the applied default 400s (Draft & Publish off), the first
 page is retried without it.

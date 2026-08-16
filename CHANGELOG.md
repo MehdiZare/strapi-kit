@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`markdown_to_blocks` lifts images to root siblings** ([#89](https://github.com/MehdiZare/strapi-kit/issues/89)) so mixed text+image is not nested under paragraph/list/quote
 - **v5 multi-page streams keep `status=draft`** after version detect; only a confirmed v4 client rewrites later pages to `publicationState`
+- **Auto + v4 streams re-fetch page 1** ([#93](https://github.com/MehdiZare/strapi-kit/issues/93)) with `publicationState` and discard the `status=` probe so drafts are not missed
 
 ### Added
 
