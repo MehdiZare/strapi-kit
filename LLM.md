@@ -546,6 +546,8 @@ from strapi_kit.exceptions import (
     AuthorizationError,   # 403
     NotFoundError,        # 404
     ValidationError,      # 400/422 (including unique-index collisions)
+    UnstructuredResponseError,
+    UnstructuredResponseReason,
     ServerError,          # 5xx
     NetworkError,         # Connection issues
     is_uniqueness_violation,
@@ -696,14 +698,16 @@ while True:
 ```
 
 `stream_entities` / `stream_entities_async` (and therefore `StrapiExporter`)
-already call `assert_pagination_echo` and default to v5 `status=draft`
-(`include_drafts=True`) so unpublished documents are not skipped. That
-requests the **draft version** of each document, not a published∪draft
-union. Pass `include_drafts=False` for published-only. Explicit
-`api_version="v4"` never sends `status=` (v4 uses `publicationState`;
-the streamer does not map the flag yet). `api_version="auto"` sends
-`status=draft` on the first page so v5 exports are complete before
-detection.
+already call `assert_pagination_echo` and default to
+`document_status=DocumentStatus.DRAFT`. That is v5 `status=draft` (the
+**draft version** of each document, not a published∪draft union) or,
+on a confirmed v4 client, `publicationState=preview`. Confirmed v4
+never sends `status=`. Later v5 pages keep `status=`; after an auto
+detect pins v4, later pages switch to `publicationState`. Pass
+`document_status=None` for published-only.
+`StrapiExporter.export_content_types` / `export_to_jsonl` take the same
+argument. If the applied default 400s (Draft & Publish off), the first
+page is retried without it.
 
 ### Check API Version
 
