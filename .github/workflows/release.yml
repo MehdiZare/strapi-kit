@@ -94,20 +94,36 @@ jobs:
           echo "VERSION=v$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "VERSION_NUMBER=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: 🏷️ Create and push tag
+      - name: 📦 Build distribution
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
 
-          # Create annotated tag
-          git tag -a "${{ steps.version.outputs.VERSION }}" -m "Release ${{ steps.version.outputs.VERSION }}"
+          TAG="${{ steps.version.outputs.VERSION }}"
+          VERSION_NUMBER="${{ steps.version.outputs.VERSION_NUMBER }}"
 
-          # Push tag
-          git push origin "${{ steps.version.outputs.VERSION }}"
+          # Local tag so hatch-vcs versions the build. Push only after
+          # the wheel version is confirmed (a failed publish can retry).
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAGGED=$(git rev-list -n 1 "$TAG")
+            HEAD_SHA=$(git rev-parse HEAD)
+            if [ "$TAGGED" != "$HEAD_SHA" ]; then
+              echo "Tag $TAG already points at $TAGGED, not $HEAD_SHA"
+              exit 1
+            fi
+          else
+            git tag -a "$TAG" -m "Release $TAG"
+          fi
 
-      - name: 📦 Build distribution
-        run: |
           python -m build --wheel --sdist
+
+          VERSION_LINE=$(tar -xOf dist/*.tar.gz --wildcards '*/PKG-INFO' | grep -E '^Version:' | head -1)
+          echo "Built $VERSION_LINE"
+          echo "$VERSION_LINE" | grep -E "^Version: ${VERSION_NUMBER}$"
+
+      - name: 🏷️ Push tag
+        run: |
+          git push origin "${{ steps.version.outputs.VERSION }}"
 
       - name: 📋 Generate release notes from PR
         id: release_notes

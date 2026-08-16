@@ -67,30 +67,14 @@ def validate_config() -> None:
         raise ValueError("TARGET_STRAPI_URL cannot be empty.")
 
 
-def _uid_to_endpoint(uid: str) -> str:
-    """Convert content type UID to API endpoint.
+def _collection_from_client(client: SyncClient, uid: str) -> str:
+    """Resolve a content-type UID to its REST collection via ``pluralName``."""
+    from strapi_kit.utils.endpoints import collection_endpoint
 
-    Args:
-        uid: Content type UID (e.g., "api::article.article", "plugin::users-permissions.user")
-
-    Returns:
-        API endpoint (e.g., "articles", "users")
-    """
-    parts = uid.split("::")
-    if len(parts) == 2:
-        # Extract content name from after the dot (e.g., "article.article" -> "article")
-        # For plugin UIDs like "users-permissions.user", this correctly gets "user"
-        name_parts = parts[1].split(".")
-        name = name_parts[1] if len(name_parts) > 1 else name_parts[0]
-        # Handle common irregular plurals
-        if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
-            return name[:-1] + "ies"  # category -> categories
-        if name.endswith(("s", "x", "z", "ch", "sh")):
-            return name + "es"  # class -> classes
-        if not name.endswith("s"):
-            return name + "s"
-        return name
-    return uid
+    for item in client.get_content_types(include_plugins=True):
+        if item.uid == uid:
+            return collection_endpoint(item)
+    raise ValueError(f"Unknown content type {uid}; cannot invent a path from the UID")
 
 
 def verify_connection(
@@ -113,7 +97,7 @@ def verify_connection(
         return True
 
     # Derive endpoint from first content type
-    endpoint = _uid_to_endpoint(content_types[0])
+    endpoint = _collection_from_client(client, content_types[0])
 
     try:
         # Try to fetch a single item to verify connection

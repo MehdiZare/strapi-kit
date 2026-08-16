@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-16
+
+v5 export/import populate contract: extract and write flat `populate=*`
+relations and media, require `pluralName`, restore locale / published
+state, and close the stream incomplete-page hole. Trackers: #96 #97 #98
+#99 #100 #101.
+
+### Upgrade notes
+
+- Export/import require a Content-Type Builder schema with `pluralName`.
+  They no longer invent a collection path from the UID.
+- Relation writes on import use `relation_write()` (v5 `documentId`
+  strings). Failed relation PUTs are errors (`success=False`).
+- `ExportedEntity` now stores `published_at` and `locale`. Import passes
+  `locale` and calls `publish()` when the source was live.
+- `stream_entities` raises if a page is shorter than `page_size` while
+  `total` is still unmet (missing `pageSize` echo no longer looks complete).
+- `upload_file` re-raises `AuthenticationError` / `AuthorizationError` /
+  `NotFoundError` / `ServerError` instead of wrapping them as `MediaError`.
+
+### Added
+
+- Flat Strapi 5 populate extract for relations (`documentId` at field
+  root) and media (`mime` at field root) (#97)
+- Import `doc_id_to_new_document_id` mapping and `relation_write()`
+  payloads (#97)
+- Export format 1.1.0: `published_at` / `locale` on `ExportedEntity` (#100)
+- `locale=all` on export streams, dropped if the type is not i18n (#100)
+
+### Fixed
+
+- Stream stop condition when `pageSize` echo is missing (#101)
+- `release.yml` builds and asserts the wheel version before pushing the
+  tag (#98)
+- JSONL `ConflictResolution` tests and draft-aware import coverage (#96)
+
+### Changed
+
+- Export/import `_get_endpoint` uses `collection_endpoint(schema)` only
+  (#99)
+
 ## [0.2.0] - 2026-08-16
 
 Strapi 5 connector surface: Draft & Publish, Content-Type Builder discovery,
@@ -412,7 +453,8 @@ stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55)
 - Dependency injection support with protocols
 - Full type hints and mypy strict mode compliance
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.6...v0.1.0
 [0.0.6]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.5...v0.0.6

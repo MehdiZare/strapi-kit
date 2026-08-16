@@ -1134,3 +1134,23 @@ def test_stream_does_not_drop_status_on_unrelated_validation_error(
 
     assert route.call_count == 1
     assert route.calls[0].request.url.params["status"] == "draft"
+
+
+@pytest.mark.respx
+def test_stream_raises_on_short_page_before_total(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Missing pageSize echo + short page must not look complete."""
+    respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [{"id": 1, "documentId": "doc1", "title": "One"}],
+                "meta": {"pagination": {"page": 1, "total": 200}},
+            },
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ValidationError, match="Incomplete page"):
+            list(stream_entities(client, "articles", page_size=100, document_status=None))

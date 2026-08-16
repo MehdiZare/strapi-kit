@@ -45,7 +45,12 @@ def extract_info_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
     nested_info_raw = schema.get("info")
     nested_info: dict[str, Any] = nested_info_raw if isinstance(nested_info_raw, dict) else {}
     if nested_info.get("displayName"):
-        return nested_info
+        merged = dict(nested_info)
+        if not merged.get("singularName") and schema.get("singularName"):
+            merged["singularName"] = schema.get("singularName")
+        if not merged.get("pluralName") and schema.get("pluralName"):
+            merged["pluralName"] = schema.get("pluralName")
+        return merged
 
     # Extract from top-level schema properties (actual v5 format)
     return {

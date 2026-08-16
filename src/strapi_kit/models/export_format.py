@@ -42,7 +42,7 @@ class ExportMetadata(BaseModel):
     """
 
     version: str = Field(
-        default="1.0.0",
+        default="1.1.0",
         description="Export format version (semver)",
     )
     strapi_version: str = Field(
@@ -94,6 +94,11 @@ class ExportedEntity(BaseModel):
         default_factory=dict,
         description="Relation field mapping (field -> [ids])",
     )
+    published_at: datetime | None = Field(
+        None,
+        description="Publication timestamp; set when the source version was live",
+    )
+    locale: str | None = Field(None, description="Locale code (i18n)")
 
 
 class ExportedMediaFile(BaseModel):
