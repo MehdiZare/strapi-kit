@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **`markdown_to_blocks` lifts images to root siblings** ([#89](https://github.com/MehdiZare/strapi-kit/issues/89)) so mixed text+image is not nested under paragraph/list/quote
+- **v5 multi-page streams keep `status=draft`** after version detect; only a confirmed v4 client rewrites later pages to `publicationState`
 
 ### Added
 
@@ -26,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `unpublish()` / `discard_draft()` stay on custom `POST /actions/*` routes (not registered by stock Strapi 5 REST)
 - **Stream/export completeness** ([#81](https://github.com/MehdiZare/strapi-kit/issues/81), [#67](https://github.com/MehdiZare/strapi-kit/issues/67))
   - `stream_entities` / `stream_entities_async` call `assert_pagination_echo()` and stop on `total`, not `pageCount` alone
-  - Default `include_drafts=True` sends v5 `status=draft` so never-published documents are not skipped; pass `include_drafts=False` for published-only
+  - Default stream/export completeness is `document_status=DocumentStatus.DRAFT`; pass `document_status=None` for published-only
   - `get_many()` remains opt-in / unchanged
 - **Yup/admin `details.errors` maps** ([#76](https://github.com/MehdiZare/strapi-kit/issues/76))
   - `field_errors` / `is_uniqueness_violation()` accept `{field: message | [message, ...]}` as well as the official REST list

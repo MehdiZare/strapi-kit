@@ -18,7 +18,7 @@ import pytest
 import respx
 
 from strapi_kit import StrapiConfig, SyncClient, ValidationError
-from strapi_kit.exceptions import UnstructuredResponseError
+from strapi_kit.exceptions import UnstructuredResponseError, UnstructuredResponseReason
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.query import StrapiQuery
@@ -393,6 +393,7 @@ class TestNonJsonResponseHandling:
             assert "non-JSON" in str(exc_info.value)
             assert "text/html" in str(exc_info.value)
             assert exc_info.value.status_code == 200
+            assert exc_info.value.reason is UnstructuredResponseReason.NON_JSON
 
     @pytest.mark.respx
     def test_unstructured_error_includes_body_preview(

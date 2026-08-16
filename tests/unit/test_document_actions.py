@@ -221,6 +221,7 @@ class TestPackageRootExports:
         assert strapi_kit.HttpMethod.DELETE == "DELETE"
         assert strapi_kit.MethodNotAllowedError is not None
         assert strapi_kit.UnstructuredResponseError is not None
+        assert strapi_kit.UnstructuredResponseReason.EMPTY_BODY == "empty_body"
 
 
 class TestHonestSuccessBodies:
@@ -237,7 +238,19 @@ class TestHonestSuccessBodies:
                 client.post("articles", json={"data": {"title": "x"}})
             assert exc_info.value.status_code == 201
             assert exc_info.value.reason is UnstructuredResponseReason.EMPTY_BODY
+            assert exc_info.value.details["reason"] == UnstructuredResponseReason.EMPTY_BODY.value
             assert "empty body" in str(exc_info.value)
+
+    def test_reason_is_required_and_overwrites_details(self) -> None:
+        with pytest.raises(TypeError):
+            UnstructuredResponseError("x")  # type: ignore[call-arg]
+        err = UnstructuredResponseError(
+            "x",
+            details={"reason": "other"},
+            reason=UnstructuredResponseReason.NON_JSON,
+        )
+        assert err.reason is UnstructuredResponseReason.NON_JSON
+        assert err.details["reason"] == "non_json"
 
     @pytest.mark.respx
     def test_created_string_body_raises(self, strapi_config, respx_mock: respx.Router) -> None:
@@ -249,6 +262,7 @@ class TestHonestSuccessBodies:
             with pytest.raises(UnstructuredResponseError) as exc_info:
                 client.post("articles", json={"data": {"title": "x"}})
             assert exc_info.value.status_code == 201
+            assert exc_info.value.reason is UnstructuredResponseReason.NON_OBJECT
             assert exc_info.value.details.get("parsed_type") == "str"
 
     @pytest.mark.respx
@@ -366,6 +380,7 @@ class TestHonestSuccessBodies:
             with pytest.raises(UnstructuredResponseError) as exc_info:
                 client.get_one("articles/1")
             assert exc_info.value.status_code == 200
+            assert exc_info.value.reason is UnstructuredResponseReason.UNPARSEABLE_ENTITY
 
     @pytest.mark.respx
     def test_delete_200_empty_is_success(self, strapi_config, respx_mock: respx.Router) -> None:

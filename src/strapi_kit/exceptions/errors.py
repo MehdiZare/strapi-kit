@@ -183,7 +183,7 @@ class UnstructuredResponseError(StrapiError):
         """Initialize with a closed ``reason``."""
         super().__init__(message, details, status_code=status_code)
         self.reason = reason
-        self.details.setdefault("reason", reason.value)
+        self.details["reason"] = reason.value
 
 
 # Network Related Errors

@@ -613,6 +613,31 @@ class TestMarkdownToBlocks:
         assert len(blocks) == 1
         assert blocks[0]["type"] == "image"
 
+    def test_heading_image_is_root_sibling(self) -> None:
+        blocks = markdown_to_blocks("# Title ![alt](https://example.com/a.png)")
+        assert blocks[0] == _heading(1, _text("Title "))
+        assert blocks[1]["type"] == "image"
+        assert blocks[1]["image"]["url"] == "https://example.com/a.png"
+
+    def test_quote_mixed_text_image_is_split(self) -> None:
+        blocks = markdown_to_blocks("> See ![alt](https://example.com/a.png) after")
+        assert blocks[0]["type"] == "quote"
+        assert blocks[0]["children"] == [_text("See ")]
+        assert blocks[1]["type"] == "image"
+        assert blocks[2] == {"type": "quote", "children": [_text(" after")]}
+
+    def test_list_item_mixed_text_image_splits_list(self) -> None:
+        blocks = markdown_to_blocks("- See ![alt](https://example.com/a.png)")
+        assert blocks[0]["type"] == "list"
+        assert blocks[0]["children"][0]["children"] == [_text("See ")]
+        assert blocks[1]["type"] == "image"
+
+    def test_nested_list_image_is_root_sibling(self) -> None:
+        blocks = markdown_to_blocks("- parent\n  - ![alt](https://example.com/a.png)")
+        assert blocks[0]["type"] == "list"
+        assert blocks[0]["children"][0]["children"][0]["text"] == "parent"
+        assert blocks[1]["type"] == "image"
+
     def test_nested_indented_list(self) -> None:
         blocks = markdown_to_blocks("- parent\n  - child")
         assert blocks[0]["type"] == "list"

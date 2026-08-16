@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `markdown_to_blocks` lifts images to root siblings ([#89](https://github.com/MehdiZare/strapi-kit/issues/89)).
+- v5 multi-page streams keep `status=draft` after detect; later v4 pages use `publicationState`.
 
 ### Added
 
@@ -23,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PUT `?status=published`. `unpublish` / `discard_draft` stay custom-route only.
 - **Stream/export completeness** ([#81](https://github.com/MehdiZare/strapi-kit/issues/81),
   [#67](https://github.com/MehdiZare/strapi-kit/issues/67)): pagination echo in
-  streamers; default v5 `status=draft` with `include_drafts=False` opt-out.
+  streamers; default `document_status=DRAFT`, `None` for published-only.
 - **Inline `markdown_to_blocks`** ([#77](https://github.com/MehdiZare/strapi-kit/issues/77))
   and line-prefix escaping in `blocks_to_markdown` ([#78](https://github.com/MehdiZare/strapi-kit/issues/78)).
 

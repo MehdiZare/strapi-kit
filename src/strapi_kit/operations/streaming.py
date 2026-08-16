@@ -48,16 +48,24 @@ def _apply_stream_document_status(
 
 
 def _reconcile_v4_after_detect(
+    current_query: StrapiQuery,
     caller_query: StrapiQuery,
     client: Any,
     document_status: DocumentStatus | None,
 ) -> tuple[StrapiQuery, bool]:
-    """After the first page, drop ``status=`` if the client is now v4."""
-    if document_status is None or client.api_version != "v4":
-        return caller_query, False
-    if caller_query.document_status is not None or caller_query.publication_state is not None:
-        return caller_query, False
-    return _apply_stream_document_status(caller_query.copy(), client, document_status)
+    """Keep the applied default, or switch ``status=`` to v4 ``publicationState=``.
+
+    After page 1, auto-detect may have pinned ``client.api_version``. A v5
+    client must keep ``current_query`` (usually ``status=draft``) on later
+    pages. A newly confirmed v4 client must not keep sending ``status=``.
+    """
+    if document_status is None:
+        return current_query, False
+    if client.api_version == "v4":
+        if caller_query.document_status is not None or caller_query.publication_state is not None:
+            return caller_query, False
+        return _apply_stream_document_status(caller_query.copy(), client, document_status)
+    return current_query, True
 
 
 def _should_stop_after_page(
@@ -119,9 +127,10 @@ def stream_entities(
     ``status=`` or ``publicationState=`` is left alone.
 
     ``api_version="auto"`` may send ``status=draft`` on the first page
-    before detection. After a v4 detect, later pages use
-    ``publicationState`` and never ``status=``. If the applied default
-    400s (Draft & Publish off), the first page is retried without it.
+    before detection. Later v5 pages keep that ``status=``. After a v4
+    detect, later pages use ``publicationState`` and never ``status=``.
+    If the applied default 400s (Draft & Publish off), the first page
+    is retried without it.
 
     Each page is checked with :func:`assert_pagination_echo`. The
     stream stops after ``total`` items (or raises if the echo is
@@ -159,7 +168,7 @@ def stream_entities(
 
     # Build base query - create copy to avoid mutating caller's query
     caller_query = query.copy() if query is not None else StrapiQuery()
-    base_query, applied_default_draft = _apply_stream_document_status(
+    base_query, applied_stream_default = _apply_stream_document_status(
         caller_query.copy(), client, document_status
     )
 
@@ -170,22 +179,22 @@ def stream_entities(
         try:
             response = client.get_many(endpoint, query=page_query)
         except ValidationError:
-            if current_page == 1 and applied_default_draft:
+            if current_page == 1 and applied_stream_default:
                 # D&P-off / unknown status= — retry without the default.
                 base_query = caller_query.copy()
-                applied_default_draft = False
+                applied_stream_default = False
                 continue
             raise
 
         yield from response.data
         yielded += len(response.data)
 
-        if current_page == 1 and applied_default_draft:
+        if current_page == 1 and applied_stream_default:
             reconciled, still_applied = _reconcile_v4_after_detect(
-                caller_query.copy(), client, document_status
+                base_query, caller_query.copy(), client, document_status
             )
             base_query = reconciled
-            applied_default_draft = still_applied
+            applied_stream_default = still_applied
 
         if _should_stop_after_page(
             data_len=len(response.data),
@@ -243,7 +252,7 @@ async def stream_entities_async(
 
     # Build base query - create copy to avoid mutating caller's query
     caller_query = query.copy() if query is not None else StrapiQuery()
-    base_query, applied_default_draft = _apply_stream_document_status(
+    base_query, applied_stream_default = _apply_stream_document_status(
         caller_query.copy(), client, document_status
     )
 
@@ -254,9 +263,9 @@ async def stream_entities_async(
         try:
             response = await client.get_many(endpoint, query=page_query)
         except ValidationError:
-            if current_page == 1 and applied_default_draft:
+            if current_page == 1 and applied_stream_default:
                 base_query = caller_query.copy()
-                applied_default_draft = False
+                applied_stream_default = False
                 continue
             raise
 
@@ -264,12 +273,12 @@ async def stream_entities_async(
             yield entity
         yielded += len(response.data)
 
-        if current_page == 1 and applied_default_draft:
+        if current_page == 1 and applied_stream_default:
             reconciled, still_applied = _reconcile_v4_after_detect(
-                caller_query.copy(), client, document_status
+                base_query, caller_query.copy(), client, document_status
             )
             base_query = reconciled
-            applied_default_draft = still_applied
+            applied_stream_default = still_applied
 
         if _should_stop_after_page(
             data_len=len(response.data),
