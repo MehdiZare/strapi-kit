@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Typed Blocks nodes (`BlockNode`, …) ([#87](https://github.com/MehdiZare/strapi-kit/issues/87)).
+- `ContentTypeOptions` with `extra="allow"`; D&P stripped from `options`
+  ([#88](https://github.com/MehdiZare/strapi-kit/issues/88)).
+
+### Added
+
 - Stream/export `document_status` ([#84](https://github.com/MehdiZare/strapi-kit/issues/84),
   [#85](https://github.com/MehdiZare/strapi-kit/issues/85)) replaces `include_drafts`.
 - `UnstructuredResponseError.reason` ([#86](https://github.com/MehdiZare/strapi-kit/issues/86)).

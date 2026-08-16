@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Typed Blocks JSON nodes** ([#87](https://github.com/MehdiZare/strapi-kit/issues/87))
+  - `BlockNode` / `TextNode` / … TypedDicts. `markdown_to_blocks()` returns `list[BlockNode]`
+  - `blocks_to_markdown` still accepts `Sequence[object]` so unknown/malformed nodes stay lossy, not validation errors
+- **`ContentTypeOptions`** ([#88](https://github.com/MehdiZare/strapi-kit/issues/88))
+  - Known fields + `extra="allow"`. `draftAndPublish` is stripped from `options`; use first-class `draft_and_publish`
+
+### Added
+
 - **Stream/export `document_status`** ([#84](https://github.com/MehdiZare/strapi-kit/issues/84), [#85](https://github.com/MehdiZare/strapi-kit/issues/85))
   - Replaces the `include_drafts` bool. Default `DocumentStatus.DRAFT` (v5 `status=draft`, confirmed v4 `publicationState=preview`)
   - `document_status=None` is published-only. `StrapiExporter.export_content_types` / `export_to_jsonl` take the same argument

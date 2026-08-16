@@ -16,7 +16,9 @@ HTML blocks, reference links, or thematic breaks).
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, cast
+
+from ..models.blocks import BlockNode
 
 # Official root/inline types from @strapi/blocks-react-renderer.
 _BLOCK_TYPES: Final[frozenset[str]] = frozenset(
@@ -126,7 +128,7 @@ def blocks_to_markdown(blocks: Sequence[object] | None) -> MarkdownConversion:
     return MarkdownConversion(markdown="\n\n".join(parts), lossy_reasons=reasons.as_tuple())
 
 
-def markdown_to_blocks(markdown: str) -> list[dict[str, Any]]:
+def markdown_to_blocks(markdown: str) -> list[BlockNode]:
     """Convert Markdown to a Strapi v5 Blocks tree (best-effort write path).
 
     Recognized block constructs: ATX headings (levels 1–6), paragraphs, fenced
@@ -151,7 +153,7 @@ def markdown_to_blocks(markdown: str) -> list[dict[str, Any]]:
         A list of Blocks root nodes suitable for a ``blocks`` field.
     """
     if not markdown or not markdown.strip():
-        return [_empty_paragraph()]
+        return cast(list[BlockNode], [_empty_paragraph()])
 
     normalized = markdown.replace("\r\n", "\n").replace("\r", "\n")
     lines = normalized.split("\n")
@@ -191,7 +193,8 @@ def markdown_to_blocks(markdown: str) -> list[dict[str, Any]]:
         paragraph_blocks, index = _consume_paragraph(lines, index)
         blocks.extend(paragraph_blocks)
 
-    return blocks if blocks else [_empty_paragraph()]
+    built = blocks if blocks else [_empty_paragraph()]
+    return cast(list[BlockNode], built)
 
 
 def _empty_paragraph() -> dict[str, Any]:

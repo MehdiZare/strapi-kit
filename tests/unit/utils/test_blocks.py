@@ -47,10 +47,24 @@ class TestPublicExports:
     """Converters and FieldType are part of the public API."""
 
     def test_package_exports(self) -> None:
+        from strapi_kit import BlockNode, TextNode
+
         assert FieldType.BLOCKS == "blocks"
         assert callable(blocks_to_markdown)
         assert callable(markdown_to_blocks)
         assert MarkdownConversion(markdown="", lossy_reasons=()).lossy_reasons == ()
+        assert BlockNode is not None
+        assert TextNode is not None
+
+    def test_markdown_to_blocks_returns_typed_json_dicts(self) -> None:
+        """Write path stays a JSON list suitable for create/update payloads."""
+        from strapi_kit.models.blocks import HeadingNode
+
+        blocks = markdown_to_blocks("# Title")
+        heading: HeadingNode = blocks[0]  # type: ignore[assignment]
+        assert heading["type"] == "heading"
+        assert heading["level"] == 1
+        assert heading["children"][0]["text"] == "Title"
 
     def test_utils_reexports(self) -> None:
         from strapi_kit.utils import (

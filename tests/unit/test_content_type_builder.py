@@ -587,7 +587,7 @@ class TestSyncContentTypeBuilder:
             assert schema.singular_name == "article"
             assert schema.plural_name == "articles"
             assert schema.draft_and_publish is True
-            assert schema.options == {"draftAndPublish": True}
+            assert schema.options is None
 
     @pytest.mark.respx
     def test_get_content_type_schema_helper_methods(
@@ -982,7 +982,7 @@ class TestSyncContentTypeBuilderV5:
             assert schema.singular_name == "article"
             assert schema.plural_name == "articles"
             assert schema.draft_and_publish is True
-            assert schema.options == {"draftAndPublish": True}
+            assert schema.options is None
 
             # Test helper methods work with v5 normalized data
             assert schema.get_field_type("title") == "string"
@@ -1508,7 +1508,6 @@ class TestDraftAndPublishExtraction:
             "schema": {"options": {"draftAndPublish": False, "bar": 2}},
         }
         assert extract_content_type_options(item) == {
-            "draftAndPublish": False,
             "foo": 1,
             "bar": 2,
         }
@@ -1526,7 +1525,7 @@ class TestDraftAndPublishExtraction:
             }
         )
         assert payload["draftAndPublish"] is True
-        assert payload["options"] == {"foo": 1, "draftAndPublish": True, "bar": 2}
+        assert payload["options"] == {"foo": 1, "bar": 2}
 
     def test_apply_sources_leaves_non_dict_unchanged(self) -> None:
         """Non-dict payloads are returned as-is."""
@@ -1546,10 +1545,9 @@ class TestDraftAndPublishExtraction:
             }
         )
         assert item.draft_and_publish is False
-        assert item.options == {
-            "populateCreatorFields": True,
-            "draftAndPublish": False,
-        }
+        assert item.options is not None
+        assert item.options.populate_creator_fields is True
+        assert "draftAndPublish" not in item.options.model_dump(by_alias=True)
 
     def test_list_item_none_by_default(self) -> None:
         """ContentTypeListItem defaults draft_and_publish to None."""
@@ -1569,7 +1567,9 @@ class TestDraftAndPublishExtraction:
             }
         )
         assert item.draft_and_publish is False
-        assert item.options == {"draftAndPublish": False, "populateCreatorFields": True}
+        assert item.options is not None
+        assert item.options.populate_creator_fields is True
+        assert "draftAndPublish" not in item.options.model_dump(by_alias=True)
 
     def test_list_item_true_from_schema_source(self) -> None:
         """Nested schema.draftAndPublish is visible on the list item."""
@@ -1581,6 +1581,47 @@ class TestDraftAndPublishExtraction:
             }
         )
         assert item.draft_and_publish is True
+        assert item.options is None
+
+
+class TestContentTypeOptions:
+    """#88: typed options; D&P is first-class only."""
+
+    def test_extra_keys_are_kept(self) -> None:
+        item = ContentTypeListItem.model_validate(
+            {
+                "uid": "api::article.article",
+                "info": {"displayName": "Article"},
+                "options": {
+                    "draftAndPublish": True,
+                    "populateCreatorFields": True,
+                    "customPlugin": "kept",
+                },
+            }
+        )
+        assert item.draft_and_publish is True
+        assert item.options is not None
+        assert item.options.populate_creator_fields is True
+        assert item.options.customPlugin == "kept"  # type: ignore[attr-defined]
+        assert "draftAndPublish" not in item.options.model_dump(by_alias=True)
+
+    def test_content_type_options_is_public(self) -> None:
+        from strapi_kit import ContentTypeOptions
+
+        opts = ContentTypeOptions.model_validate({"populateCreatorFields": True})
+        assert opts.populate_creator_fields is True
+
+    def test_direct_options_strip_draft_and_publish(self) -> None:
+        """Direct construction must not keep D&P in extras."""
+        from strapi_kit import ContentTypeOptions
+
+        opts = ContentTypeOptions.model_validate(
+            {"draftAndPublish": True, "draft_and_publish": False, "visible": True}
+        )
+        assert opts.visible is True
+        dumped = opts.model_dump(by_alias=True)
+        assert "draftAndPublish" not in dumped
+        assert "draft_and_publish" not in dumped
 
     def test_schema_model_none_by_default(self) -> None:
         """ContentTypeSchema defaults draft_and_publish to None."""
@@ -1640,8 +1681,11 @@ class TestDraftAndPublishWireShapes:
         if shape == "absent":
             assert article.options is None
         else:
-            assert article.options is not None
-            assert article.options["draftAndPublish"] is True
+            # D&P is first-class only; options is None when no other keys remain.
+            if article.options is not None:
+                dumped = article.options.model_dump(by_alias=True)
+                assert "draftAndPublish" not in dumped
+                assert "draft_and_publish" not in dumped
 
     @pytest.mark.respx
     @pytest.mark.parametrize(
@@ -1673,8 +1717,10 @@ class TestDraftAndPublishWireShapes:
         if shape == "absent":
             assert schema.options is None
         else:
-            assert schema.options is not None
-            assert schema.options["draftAndPublish"] is True
+            if schema.options is not None:
+                dumped = schema.options.model_dump(by_alias=True)
+                assert "draftAndPublish" not in dumped
+                assert "draft_and_publish" not in dumped
 
     @pytest.mark.respx
     @pytest.mark.parametrize(
@@ -1751,10 +1797,9 @@ class TestDraftAndPublishWireShapes:
 
         article = content_types[0]
         assert article.draft_and_publish is False
-        assert article.options == {
-            "populateCreatorFields": True,
-            "draftAndPublish": False,
-        }
+        assert article.options is not None
+        assert article.options.populate_creator_fields is True
+        assert "draftAndPublish" not in article.options.model_dump(by_alias=True)
 
     @pytest.mark.respx
     def test_published_at_does_not_imply_draft_and_publish(
@@ -1782,7 +1827,7 @@ class TestDraftAndPublishWireShapes:
 
         assert "schema" not in normalized
         assert normalized["draftAndPublish"] is True
-        assert normalized["options"] == {"draftAndPublish": True}
+        assert normalized["options"] is None
         assert normalized["info"]["displayName"] == "Article"
 
     @pytest.mark.respx
@@ -1819,12 +1864,13 @@ class TestDraftAndPublishWireShapes:
         article = content_types[0]
         assert article.draft_and_publish is True
         assert article.options is not None
-        assert article.options["populateCreatorFields"] is True
-        assert article.options["draftAndPublish"] is True
-        assert article.options["visible"] is True
-        assert article.options["restrictRelationsTo"] is None
-        assert "displayName" not in article.options
-        assert "attributes" not in article.options
+        assert article.options.populate_creator_fields is True
+        assert article.options.visible is True
+        assert article.options.restrict_relations_to is None
+        dumped = article.options.model_dump(by_alias=True)
+        assert "draftAndPublish" not in dumped
+        assert "displayName" not in dumped
+        assert "attributes" not in dumped
 
     @pytest.mark.respx
     def test_get_content_types_top_level_options_on_nested_item(
@@ -1844,10 +1890,9 @@ class TestDraftAndPublishWireShapes:
 
         article = content_types[0]
         assert article.draft_and_publish is True
-        assert article.options == {
-            "draftAndPublish": True,
-            "populateCreatorFields": True,
-        }
+        assert article.options is not None
+        assert article.options.populate_creator_fields is True
+        assert "draftAndPublish" not in article.options.model_dump(by_alias=True)
 
 
 class TestUnparsableContentTypes:
