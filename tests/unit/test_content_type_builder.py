@@ -1611,6 +1611,18 @@ class TestContentTypeOptions:
         opts = ContentTypeOptions.model_validate({"populateCreatorFields": True})
         assert opts.populate_creator_fields is True
 
+    def test_direct_options_strip_draft_and_publish(self) -> None:
+        """Direct construction must not keep D&P in extras."""
+        from strapi_kit import ContentTypeOptions
+
+        opts = ContentTypeOptions.model_validate(
+            {"draftAndPublish": True, "draft_and_publish": False, "visible": True}
+        )
+        assert opts.visible is True
+        dumped = opts.model_dump(by_alias=True)
+        assert "draftAndPublish" not in dumped
+        assert "draft_and_publish" not in dumped
+
     def test_schema_model_none_by_default(self) -> None:
         """ContentTypeSchema defaults draft_and_publish to None."""
         schema = CTBContentTypeSchema.model_validate(

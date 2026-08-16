@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, cast
 
-from strapi_kit.models.blocks import BlockNode
+from ..models.blocks import BlockNode
 
 # Official root/inline types from @strapi/blocks-react-renderer.
 _BLOCK_TYPES: Final[frozenset[str]] = frozenset(

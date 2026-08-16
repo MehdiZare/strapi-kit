@@ -151,9 +151,9 @@ def extract_draft_and_publish(item: dict[str, Any]) -> bool | None:
 def apply_draft_and_publish_sources(data: Any) -> Any:
     """Copy a payload and populate first-class Draft & Publish fields.
 
-    Sets ``draftAndPublish`` from all known wire locations. Merges top-level
-    ``options`` with ``schema.options`` (nested keys win) so extra keys are
-    retained even when both objects are present.
+    Sets ``draftAndPublish`` from all known wire locations. Always assigns
+    ``options`` (possibly ``None``) after stripping D&P keys so the first-class
+    field is the only remaining source of truth. Extra non-D&P keys are kept.
 
     Args:
         data: Raw model payload (typically a dict)

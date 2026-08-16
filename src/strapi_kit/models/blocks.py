@@ -62,7 +62,7 @@ class HeadingNode(TypedDict):
     """Root heading (levels 1–6)."""
 
     type: Literal["heading"]
-    level: int
+    level: Literal[1, 2, 3, 4, 5, 6]
     children: list[TextNode | LinkNode]
 
 

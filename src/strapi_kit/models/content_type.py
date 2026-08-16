@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..utils.schema import apply_draft_and_publish_sources
 
+_DRAFT_AND_PUBLISH_OPTION_KEYS = ("draftAndPublish", "draft_and_publish")
+
 
 class ContentTypeOptions(BaseModel):
     """Content-Type Builder ``options`` (plus lifted schema-root option keys).
@@ -30,6 +32,17 @@ class ContentTypeOptions(BaseModel):
     review_workflows: bool | None = Field(None, alias="reviewWorkflows")
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_draft_and_publish(cls, data: Any) -> Any:
+        """Keep D&P off this model even when constructed directly."""
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        for key in _DRAFT_AND_PUBLISH_OPTION_KEYS:
+            payload.pop(key, None)
+        return payload
 
 
 class ContentTypeInfo(BaseModel):
