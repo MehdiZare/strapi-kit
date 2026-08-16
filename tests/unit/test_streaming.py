@@ -1109,3 +1109,28 @@ def test_stream_retries_without_status_when_draft_param_rejected(
     assert route.call_count == 2
     assert route.calls[0].request.url.params["status"] == "draft"
     assert "status" not in route.calls[1].request.url.params
+
+
+@pytest.mark.respx
+def test_stream_does_not_drop_status_on_unrelated_validation_error(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """A first-page populate/filter 400 must not retry as published-only."""
+    route = respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "Invalid key populate",
+                    "name": "ValidationError",
+                }
+            },
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ValidationError, match="Invalid key populate"):
+            list(stream_entities(client, "articles"))
+
+    assert route.call_count == 1
+    assert route.calls[0].request.url.params["status"] == "draft"

@@ -9,8 +9,10 @@ import respx
 
 from strapi_kit import StrapiConfig, StrapiExporter, StrapiImporter
 from strapi_kit.client.sync_client import SyncClient
-from strapi_kit.exceptions import FormatError
+from strapi_kit.exceptions import FormatError, ImportExportError
+from strapi_kit.export.jsonl_writer import JSONLExportWriter
 from strapi_kit.models import (
+    ConflictResolution,
     ExportData,
     ExportedEntity,
     ExportedMediaFile,
@@ -18,6 +20,13 @@ from strapi_kit.models import (
     ImportOptions,
 )
 from strapi_kit.utils.uid import uid_to_endpoint
+
+
+def _mock_document_missing(respx_mock: respx.Router, collection: str, document_id: str) -> None:
+    """Both published and draft existence probes 404."""
+    respx_mock.get(f"http://localhost:1337/api/{collection}/{document_id}").mock(
+        return_value=httpx.Response(404, json={"error": {"status": 404, "message": "Not found"}})
+    )
 
 
 @pytest.fixture
@@ -389,6 +398,8 @@ def test_import_data_creates_entities(
     respx_mock: respx.Router,
 ) -> None:
     """Test import actually creates entities."""
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
     # Mock create responses
     respx_mock.post("http://localhost:1337/api/articles").mock(
         side_effect=[
@@ -425,6 +436,8 @@ def test_import_with_validation_error(
     respx_mock: respx.Router,
 ) -> None:
     """Test import handles validation errors."""
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
     # First succeeds, second fails
     respx_mock.post("http://localhost:1337/api/articles").mock(
         side_effect=[
@@ -456,6 +469,8 @@ def test_import_with_progress_callback(
     respx_mock: respx.Router,
 ) -> None:
     """Test import with progress callback."""
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
     respx_mock.post("http://localhost:1337/api/articles").mock(
         side_effect=[
             httpx.Response(200, json={"data": {"id": 10, "documentId": "doc1"}}),
@@ -500,6 +515,102 @@ def test_import_validation_warns_on_version_mismatch(
 
         # Should have warning about version mismatch
         assert any("version" in warning.lower() for warning in result.warnings)
+
+
+@pytest.mark.respx
+def test_import_skips_existing_draft_document(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+) -> None:
+    """Draft-only documents must not be treated as missing (no second create)."""
+
+    def articles_doc1(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("status") == "draft":
+            return httpx.Response(
+                200,
+                json={"data": {"id": 42, "documentId": "doc1", "title": "Draft"}},
+            )
+        return httpx.Response(404, json={"error": {"status": 404, "message": "Not found"}})
+
+    respx_mock.get("http://localhost:1337/api/articles/doc1").mock(side_effect=articles_doc1)
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {"id": 11, "documentId": "new_doc2", "title": "Article 2"}},
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        importer = StrapiImporter(client)
+        result = importer.import_data(
+            sample_export_data,
+            ImportOptions(conflict_resolution=ConflictResolution.SKIP),
+        )
+
+    assert result.entities_skipped == 1
+    assert result.entities_imported == 1
+    assert result.id_mapping["api::article.article"][1] == 42
+    assert create_route.call_count == 1
+
+
+@pytest.mark.respx
+def test_import_existence_auth_error_does_not_create(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+) -> None:
+    """A 401 on the existence probe must not look like a missing document."""
+    respx_mock.get("http://localhost:1337/api/articles/doc1").mock(
+        return_value=httpx.Response(401, json={"error": {"message": "Unauthorized"}})
+    )
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {"id": 11, "documentId": "new_doc2", "title": "Article 2"}},
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        importer = StrapiImporter(client)
+        result = importer.import_data(sample_export_data)
+
+    assert result.entities_failed == 1
+    assert result.entities_imported == 1
+    assert not result.success
+    assert create_route.call_count == 1
+
+
+@pytest.mark.respx
+def test_import_from_jsonl_fail_aborts_on_existing(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+    tmp_path: Path,
+) -> None:
+    """JSONL ConflictResolution.FAIL must abort, not record a per-entity error."""
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(sample_export_data.metadata)
+        for entity in sample_export_data.entities["api::article.article"]:
+            writer.write_entity(entity)
+
+    respx_mock.get("http://localhost:1337/api/articles/doc1").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {"id": 42, "documentId": "doc1", "title": "Live"}},
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        importer = StrapiImporter(client)
+        with pytest.raises(ImportExportError, match="already exists"):
+            importer.import_from_jsonl(
+                jsonl_path,
+                ImportOptions(conflict_resolution=ConflictResolution.FAIL),
+            )
 
 
 # Model Tests
@@ -765,6 +876,9 @@ def test_import_resolves_relations_with_schema(
     }
 
     export_data = ExportData(metadata=metadata, entities=entities)
+
+    _mock_document_missing(respx_mock, "authors", "author-doc1")
+    _mock_document_missing(respx_mock, "articles", "article-doc1")
 
     # Mock author creation
     respx_mock.post("http://localhost:1337/api/authors").mock(

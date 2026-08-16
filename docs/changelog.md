@@ -29,6 +29,12 @@ stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55)
 - `get_components()` and `get_content_types()` raise on unparsable items
   unless `skip_unparsable=True`.
 - `StrapiQuery.filter()` / `.populate()` fail immediately on the wrong type.
+- Import existence checks are draft-inclusive (published GET, then
+  `status=draft`). Auth / 5xx / network errors on the probe are no longer
+  treated as “does not exist”.
+- Export/import still extracts relations and media from the v4
+  `{data: ...}` populate shape. Flat Strapi 5 `populate=*` objects are a
+  follow-up (do not treat 0.2.0 as a complete v5 migrate path).
 
 ### Added
 

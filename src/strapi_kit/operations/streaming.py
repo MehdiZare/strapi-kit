@@ -88,6 +88,17 @@ def _after_first_page_version_detect(
     return reconciled, still_applied, refetch
 
 
+def _is_unknown_stream_status_param(error: ValidationError) -> bool:
+    """Return True when Strapi rejected the applied ``status=`` / ``publicationState=``.
+
+    The first-page retry exists for Draft & Publish being off (or the
+    param being unknown). A populate/filter 400 must not drop the
+    completeness default and silently become published-only.
+    """
+    text = str(error).lower()
+    return "invalid key status" in text or "invalid key publicationstate" in text
+
+
 def _should_stop_after_page(
     *,
     data_len: int,
@@ -149,8 +160,9 @@ def stream_entities(
     ``api_version="auto"`` may probe page 1 with ``status=draft`` before
     detection. If that response pins v4, page 1 is **re-fetched** with
     ``publicationState`` (the probe body is not yielded). Later v5 pages
-    keep ``status=``. If the applied default 400s (Draft & Publish off),
-    the first page is retried without it.
+    keep ``status=``. If the applied default 400s with an unknown
+    ``status`` / ``publicationState`` key (Draft & Publish off), the
+    first page is retried without it. Other first-page 400s raise.
 
     Each page is checked with :func:`assert_pagination_echo`. The
     stream stops after ``total`` items (or raises if the echo is
@@ -198,8 +210,12 @@ def stream_entities(
 
         try:
             response = client.get_many(endpoint, query=page_query)
-        except ValidationError:
-            if current_page == 1 and applied_stream_default:
+        except ValidationError as error:
+            if (
+                current_page == 1
+                and applied_stream_default
+                and _is_unknown_stream_status_param(error)
+            ):
                 # D&P-off / unknown status= — retry without the default.
                 base_query = caller_query.copy()
                 applied_stream_default = False
@@ -282,8 +298,12 @@ async def stream_entities_async(
 
         try:
             response = await client.get_many(endpoint, query=page_query)
-        except ValidationError:
-            if current_page == 1 and applied_stream_default:
+        except ValidationError as error:
+            if (
+                current_page == 1
+                and applied_stream_default
+                and _is_unknown_stream_status_param(error)
+            ):
                 base_query = caller_query.copy()
                 applied_stream_default = False
                 continue

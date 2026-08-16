@@ -92,6 +92,15 @@ defaults to `document_status=DocumentStatus.DRAFT` (v5 `status=draft`,
 confirmed v4 `publicationState=preview`). Pass `document_status=None`
 for published-only.
 
+Import conflict detection follows that default: a published miss is
+retried with `status=draft` so a draft-only re-import does not create a
+second document.
+
+**Limitation (0.2.0):** relation and media extraction still expect the
+v4 `{ "data": ... }` populate wrapper. Flat Strapi 5 `populate=*`
+objects (a relation or file at the field root) are not collected; a
+follow-up will switch extract/write to `documentId` + `relation_write()`.
+
 ### Export with Media
 
 ```python
