@@ -360,10 +360,6 @@ class StrapiImporter:
                             entity.data, media_maps, content_type
                         )
 
-                        if options.dry_run:
-                            result.entities_imported += 1
-                            continue
-
                         self._import_one_entity(
                             entity,
                             endpoint=endpoint,
@@ -469,6 +465,21 @@ class StrapiImporter:
                 )
                 return
 
+            if options.dry_run:
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=this_locale.id,
+                    dest_document_id=dest_doc,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                result.entities_updated += 1
+                return
+
             write_query = self._write_query(entity)
             response = self.client.update(
                 endpoint, entity_data, query=write_query, document_id=dest_doc
@@ -495,6 +506,22 @@ class StrapiImporter:
             any_locale = self._probe_any_document(endpoint, source_doc)
             if any_locale is not None:
                 dest_doc = any_locale.document_id or source_doc
+
+        if options.dry_run:
+            dest_for_map = dest_doc or source_doc
+            self._record_entity_mappings(
+                content_type=content_type,
+                entity_id=entity.id,
+                source_document_id=source_doc,
+                new_id=0,
+                dest_document_id=dest_for_map,
+                id_mapping=id_mapping,
+                doc_id_mapping=doc_id_mapping,
+                doc_id_to_new_id=doc_id_to_new_id,
+                doc_id_to_new_document_id=doc_id_to_new_document_id,
+            )
+            result.entities_imported += 1
+            return
 
         if dest_doc is not None:
             response = self.client.update(
@@ -1345,10 +1372,6 @@ class StrapiImporter:
                         entity_data = self._entity_data_for_write(
                             entity.data, media_maps, content_type
                         )
-
-                        if options.dry_run:
-                            result.entities_imported += 1
-                            continue
 
                         self._import_one_entity(
                             entity,

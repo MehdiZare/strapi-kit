@@ -187,6 +187,7 @@ document is not a conflict.
   their outbound relations. Then raise `ImportExportError` (import-level
   failure, not fail-fast on the first hit). The exception `details` include
   what already landed (`entities_imported`, `relations_imported`, `errors`).
+  Dry-run still probes `(documentId, locale)` and raises; it does not write.
 
 ## Working with Relations
 
