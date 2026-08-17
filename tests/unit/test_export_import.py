@@ -38,7 +38,7 @@ def _collection_locale_all_docs(respx_mock: respx.Router, collection: str) -> di
         _COLLECTION_LOCALE_ALL.append((respx_mock, collection, docs))
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.params.get("locale") != "all":
+        if request.url.params.get("locale") not in {"all", "*"}:
             return httpx.Response(200, json={"data": []})
         document_id = request.url.params.get("filters[documentId][$eq]")
         present = docs.get(document_id or "", set())
@@ -1040,13 +1040,13 @@ def test_import_publishes_after_relation_write(
 def test_export_retries_without_locale_on_invalid_key(
     strapi_config: StrapiConfig, mock_article_schema_response: dict, respx_mock: respx.Router
 ) -> None:
-    """Non-i18n types that reject locale=all are retried without locale."""
+    """Non-i18n types that reject locale=* / locale=all are retried without locale."""
     respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
 
     def articles(request: httpx.Request) -> httpx.Response:
-        if request.url.params.get("locale") == "all":
+        if request.url.params.get("locale") in {"all", "*"}:
             return httpx.Response(
                 400, json={"error": {"status": 400, "message": "Invalid key locale"}}
             )
@@ -1065,9 +1065,10 @@ def test_export_retries_without_locale_on_invalid_key(
             ["api::article.article"], include_media=False
         )
 
-    assert route.call_count == 2
-    assert route.calls[0].request.url.params["locale"] == "all"
-    assert "locale" not in route.calls[1].request.url.params
+    assert route.call_count == 3
+    assert route.calls[0].request.url.params["locale"] == "*"
+    assert route.calls[1].request.url.params["locale"] == "all"
+    assert "locale" not in route.calls[2].request.url.params
     assert export_data.get_entity_count() == 1
 
 
@@ -1132,7 +1133,7 @@ def test_export_records_published_at_and_locale(
 def test_export_extracts_flat_v5_populate_relations(
     strapi_config: StrapiConfig, respx_mock: respx.Router
 ) -> None:
-    """Live export must send populate=* / locale=all and store documentIds."""
+    """Live export must send populate=* / locale=* and store documentIds."""
     respx_mock.get(
         "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
     ).mock(
@@ -1191,7 +1192,7 @@ def test_export_extracts_flat_v5_populate_relations(
 
     params = route.calls.last.request.url.params
     assert params["populate"] == "*"
-    assert params["locale"] == "all"
+    assert params["locale"] == "*"
     entity = export_data.entities["api::article.article"][0]
     assert entity.relations["author"] == ["auth-doc"]
     assert entity.relations["categories"] == ["cat-a", "cat-b"]

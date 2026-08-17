@@ -127,7 +127,7 @@ class StrapiExporter:
 
                 endpoint = self._get_endpoint(content_type)
 
-                export_query = StrapiQuery().populate_all().with_locale("all")
+                export_query = StrapiQuery().populate_all().with_locale("*")
                 schema = self._schema_cache.get_schema(content_type)
 
                 entities = []
@@ -349,7 +349,12 @@ class StrapiExporter:
         query: StrapiQuery,
         document_status: DocumentStatus | None,
     ) -> Iterator[Any]:
-        """Stream entities; drop ``locale=all`` if the type is not i18n."""
+        """Stream entities; drop i18n locale wildcards if the type is not i18n.
+
+        Strapi 5.34 accepts ``locale=all`` with an empty list; ``locale=*``
+        returns every locale. Try ``*`` first, then legacy ``all``, then
+        drop the param.
+        """
         try:
             yield from stream_entities(
                 self.client,
@@ -360,6 +365,21 @@ class StrapiExporter:
         except ValidationError as error:
             if "invalid key locale" not in str(error).lower():
                 raise
+            current_locale = None
+            if query is not None:
+                current_locale = query.to_query_params().get("locale")
+            if current_locale == "*":
+                try:
+                    yield from stream_entities(
+                        self.client,
+                        endpoint,
+                        query=StrapiQuery().populate_all().with_locale("all"),
+                        document_status=document_status,
+                    )
+                    return
+                except ValidationError as all_error:
+                    if "invalid key locale" not in str(all_error).lower():
+                        raise
             fallback = StrapiQuery().populate_all()
             yield from stream_entities(
                 self.client,
@@ -448,7 +468,7 @@ class StrapiExporter:
 
                     endpoint = self._get_endpoint(content_type)
                     schema = schemas[content_type]
-                    export_query = StrapiQuery().populate_all().with_locale("all")
+                    export_query = StrapiQuery().populate_all().with_locale("*")
 
                     for entity in self._stream_export_entities(
                         endpoint, export_query, document_status

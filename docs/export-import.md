@@ -74,7 +74,8 @@ Media fields are converted to a dest write id (`documentId` when the
 upload recorded one, otherwise the remapped numeric id). Populate blobs
 (`mime`, `url`, source `documentId`) are not posted.
 
-`locale=all` export yields one row per locale with the same `documentId`.
+`locale=*` export yields one row per locale with the same `documentId`
+(``locale=all`` is a fallback when ``*`` is rejected).
 Import keys existence and writes by `(documentId, locale)`. The first locale
 of a source document creates (or updates/skips that locale). Later locales
 of the same source `documentId` write `PUT {destDoc}?locale=`. Relation

@@ -566,15 +566,16 @@ class StrapiImporter:
     def _probe_any_document(self, endpoint: str, document_id: str) -> _ExistingDocument | None:
         """Find a dest document across locales.
 
-        A no-locale GET is the default locale only. ``locale=all`` plus a
+        A no-locale GET is the default locale only. ``locale=*`` plus a
         ``documentId`` filter sees a dest that exists only in a non-default
-        locale. ``Invalid key locale`` falls back to the default-locale
-        document GET (non-i18n types).
+        locale. Strapi 5.34 accepts ``locale=all`` with an empty list.
+        ``Invalid key locale`` falls back to the default-locale document GET
+        (non-i18n types).
         """
         published = (
             StrapiQuery()
             .filter(FilterBuilder().eq("documentId", document_id))
-            .with_locale("all")
+            .with_locale("*")
             .paginate(page=1, page_size=1)
         )
         try:
