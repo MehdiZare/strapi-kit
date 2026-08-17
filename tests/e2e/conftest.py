@@ -136,16 +136,18 @@ def _stop_strapi() -> None:
     )
 
 
-def _wait_for_strapi(url: str, timeout: int = 180) -> bool:
+def _wait_for_strapi(url: str, timeout: int | None = None) -> bool:
     """Wait for Strapi to become healthy.
 
     Args:
         url: Strapi base URL
-        timeout: Maximum seconds to wait
+        timeout: Seconds to wait. Defaults to ``STRAPI_E2E_WAIT`` or 180.
 
     Returns:
         True if Strapi is healthy, False if timeout reached
     """
+    if timeout is None:
+        timeout = int(os.environ.get("STRAPI_E2E_WAIT", "180"))
     health_url = f"{url}/_health"
     start_time = time.time()
 

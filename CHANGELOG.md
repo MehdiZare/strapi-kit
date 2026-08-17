@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Live e2e: FAIL writes the missing locale then raises (#117)
 - Shared e2e ``delete_document`` helper for draft and per-locale DELETE
   (#119)
+- GitHub Actions `E2E` workflow rebuilds the Docker fixture and runs
+  `pytest tests/e2e --e2e` on a schedule, manually, or when e2e paths
+  change (#122)
 - FAIL writes missing locales, then aborts if any locale already existed (#111)
 - Nested component / dynamic-zone relation writes on import (`seo[0].author`)
   (#105)
