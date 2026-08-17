@@ -189,6 +189,8 @@ class StrapiImporter:
 
             return result
 
+        except ImportExportError:
+            raise
         except Exception as e:
             result.add_error(f"Import failed: {e}")
             raise ImportExportError(f"Import failed: {e}") from e
@@ -362,7 +364,6 @@ class StrapiImporter:
                         result.entities_failed += 1
 
                     except ImportExportError:
-                        # Re-raise ImportExportError (e.g., from FAIL conflict resolution)
                         raise
 
                     except StrapiError as e:
@@ -1333,6 +1334,8 @@ class StrapiImporter:
             result.success = result.entities_failed == 0 and not result.errors
             return result
 
+        except ImportExportError:
+            raise
         except Exception as e:
             result.add_error(f"JSONL import failed: {e}")
             raise ImportExportError(f"JSONL import failed: {e}") from e
