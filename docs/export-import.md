@@ -66,8 +66,12 @@ paths such as `seo[0].author` are extracted for inspection but omitted from
 the relation write payload.
 
 `locale=all` export yields one row per locale with the same `documentId`.
-Import keys existence on `documentId` only, so additional locales are not
-restored as localizations of one document.
+Import keys existence and writes by `(documentId, locale)`. The first locale
+of a source document creates (or updates/skips that locale). Later locales
+of the same source `documentId` write `PUT {destDoc}?locale=`. Relation
+updates and publish pass the row locale. `ConflictResolution.SKIP` is
+per-locale: a missing locale is written even when another locale of the
+same document already exists.
 
 ### Schema Structure
 

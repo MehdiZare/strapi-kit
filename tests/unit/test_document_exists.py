@@ -109,6 +109,24 @@ class TestSyncExists:
         assert route.call_count == 2
 
     @pytest.mark.respx
+    def test_draft_400_unrelated_populate_raises(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        """A populate/filter 400 on the draft probe must not look like absent."""
+        route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(
+                _not_found(),
+                Response(400, json={"error": {"message": "Invalid key populate"}}),
+            )
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="Invalid key populate"):
+                client.exists(COLLECTION, DOCUMENT_ID)
+
+        assert route.call_count == 2
+
+    @pytest.mark.respx
     def test_401_on_first_get_raises(
         self, strapi_config: StrapiConfig, respx_mock: respx.Router
     ) -> None:
@@ -281,6 +299,24 @@ class TestAsyncExists:
 
         async with AsyncClient(strapi_config) as client:
             assert await client.exists(COLLECTION, DOCUMENT_ID) is False
+
+        assert route.call_count == 2
+
+    @pytest.mark.respx
+    async def test_draft_400_unrelated_populate_raises(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        """A populate/filter 400 on the draft probe must not look like absent."""
+        route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(
+                _not_found(),
+                Response(400, json={"error": {"message": "Invalid key populate"}}),
+            )
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="Invalid key populate"):
+                await client.exists(COLLECTION, DOCUMENT_ID)
 
         assert route.call_count == 2
 

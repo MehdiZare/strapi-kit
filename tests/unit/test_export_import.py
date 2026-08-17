@@ -1678,3 +1678,461 @@ def test_import_resolves_relations_with_schema(
         assert "api::article.article" in result.id_mapping
         assert 1 in result.id_mapping["api::article.article"]
         assert result.id_mapping["api::article.article"][1] == 200
+
+
+def _article_schema() -> ContentTypeSchema:
+    return ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={"title": FieldSchema(type=FieldType.STRING)},
+    )
+
+
+def _locale_entities(
+    *,
+    en_first: bool = True,
+    published: bool = False,
+) -> list[ExportedEntity]:
+    published_at = datetime(2026, 8, 16, 12, 0, 0) if published else None
+    en = ExportedEntity(
+        id=1,
+        document_id="shared-doc",
+        content_type="api::article.article",
+        data={"title": "Hello"},
+        locale="en",
+        published_at=published_at,
+    )
+    fr = ExportedEntity(
+        id=2,
+        document_id="shared-doc",
+        content_type="api::article.article",
+        data={"title": "Bonjour"},
+        locale="fr",
+        published_at=published_at,
+    )
+    return [en, fr] if en_first else [fr, en]
+
+
+def _locale_export(entities: list[ExportedEntity]) -> ExportData:
+    return ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::article.article"],
+            total_entities=len(entities),
+            schemas={"api::article.article": _article_schema()},
+        ),
+        entities={"api::article.article": entities},
+    )
+
+
+def _mock_locales(
+    respx_mock: respx.Router,
+    collection: str,
+    document_id: str,
+    present: set[str],
+) -> None:
+    """200 when request locale is in ``present``; 404 otherwise."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        locale = request.url.params.get("locale")
+        if locale in present or (locale is None and present):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "id": 1,
+                        "documentId": document_id,
+                        "title": locale,
+                    }
+                },
+            )
+        return httpx.Response(404, json={"error": {"status": 404, "message": "Not found"}})
+
+    respx_mock.get(f"http://localhost:1337/api/{collection}/{document_id}").mock(
+        side_effect=handler
+    )
+
+
+@pytest.mark.respx
+def test_import_restores_localization_of_shared_document_id(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """New dest: one POST ?locale=en and one PUT dest?locale=fr."""
+    export_data = _locale_export(_locale_entities())
+    _mock_document_missing(respx_mock, "articles", "shared-doc")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 10, "documentId": "dest-doc", "title": "Hello"}}
+        )
+    )
+    update_route = respx_mock.put("http://localhost:1337/api/articles/dest-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 11, "documentId": "dest-doc", "title": "Bonjour"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.entities_imported == 2
+    assert create_route.call_count == 1
+    assert update_route.call_count == 1
+    assert create_route.calls[0].request.url.params["locale"] == "en"
+    assert update_route.calls[0].request.url.params["locale"] == "fr"
+    assert result.doc_id_to_new_document_id["api::article.article"]["shared-doc"] == "dest-doc"
+
+
+@pytest.mark.respx
+def test_import_localization_order_independent(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """fr first still creates once and localizes the other locale."""
+    export_data = _locale_export(_locale_entities(en_first=False))
+    _mock_document_missing(respx_mock, "articles", "shared-doc")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 10, "documentId": "dest-doc", "title": "Bonjour"}}
+        )
+    )
+    update_route = respx_mock.put("http://localhost:1337/api/articles/dest-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 11, "documentId": "dest-doc", "title": "Hello"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.entities_imported == 2
+    assert create_route.call_count == 1
+    assert update_route.call_count == 1
+    assert create_route.calls[0].request.url.params["locale"] == "fr"
+    assert update_route.calls[0].request.url.params["locale"] == "en"
+
+
+@pytest.mark.respx
+def test_import_skip_writes_missing_locale(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """SKIP is per-locale: existing en is skipped, missing fr is written."""
+    export_data = _locale_export(_locale_entities())
+    _mock_locales(respx_mock, "articles", "shared-doc", {"en"})
+    update_route = respx_mock.put("http://localhost:1337/api/articles/shared-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 2, "documentId": "shared-doc", "title": "Bonjour"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(
+            export_data, ImportOptions(conflict_resolution=ConflictResolution.SKIP)
+        )
+
+    assert result.success is True
+    assert result.entities_skipped == 1
+    assert result.entities_imported == 1
+    assert update_route.call_count == 1
+    assert update_route.calls[0].request.url.params["locale"] == "fr"
+
+
+@pytest.mark.respx
+def test_import_skip_both_locales_exist(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """SKIP both locales when dest already has them."""
+    export_data = _locale_export(_locale_entities())
+    _mock_locales(respx_mock, "articles", "shared-doc", {"en", "fr"})
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not create"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(
+            export_data, ImportOptions(conflict_resolution=ConflictResolution.SKIP)
+        )
+
+    assert result.success is True
+    assert result.entities_skipped == 2
+    assert result.entities_imported == 0
+    assert create_route.call_count == 0
+
+
+@pytest.mark.respx
+def test_import_fail_only_when_this_locale_exists(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """FAIL aborts only the existing locale; a missing sibling is still written."""
+    export_data = _locale_export(_locale_entities())
+    _mock_locales(respx_mock, "articles", "shared-doc", {"en"})
+    update_route = respx_mock.put("http://localhost:1337/api/articles/shared-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 2, "documentId": "shared-doc", "title": "Bonjour"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ImportExportError, match="already exists"):
+            StrapiImporter(client).import_data(
+                export_data, ImportOptions(conflict_resolution=ConflictResolution.FAIL)
+            )
+
+    # FAIL raises on the first existing locale, so fr is not reached.
+    assert update_route.call_count == 0
+
+
+@pytest.mark.respx
+def test_import_fail_writes_missing_locale_when_it_is_first(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """A missing locale is not a conflict even under FAIL."""
+    export_data = _locale_export(_locale_entities(en_first=False))
+    _mock_locales(respx_mock, "articles", "shared-doc", {"en"})
+    update_route = respx_mock.put("http://localhost:1337/api/articles/shared-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 2, "documentId": "shared-doc", "title": "Bonjour"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ImportExportError, match="already exists"):
+            StrapiImporter(client).import_data(
+                export_data, ImportOptions(conflict_resolution=ConflictResolution.FAIL)
+            )
+
+    assert update_route.call_count == 1
+    assert update_route.calls[0].request.url.params["locale"] == "fr"
+
+
+@pytest.mark.respx
+def test_import_relation_put_includes_locale(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Relation writes for a French row include locale=fr."""
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        plural_name="authors",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::author.author", "api::article.article"],
+            total_entities=2,
+            schemas={
+                "api::author.author": author_schema,
+                "api::article.article": article_schema,
+            },
+        ),
+        entities={
+            "api::author.author": [
+                ExportedEntity(
+                    id=1,
+                    document_id="auth-src",
+                    content_type="api::author.author",
+                    data={"name": "Ada"},
+                )
+            ],
+            "api::article.article": [
+                ExportedEntity(
+                    id=2,
+                    document_id="art-src",
+                    content_type="api::article.article",
+                    data={"title": "Bonjour"},
+                    relations={"author": ["auth-src"]},
+                    locale="fr",
+                )
+            ],
+        },
+    )
+    _mock_document_missing(respx_mock, "authors", "auth-src")
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    respx_mock.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
+        )
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Bonjour"}}
+        )
+    )
+    relation_route = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Bonjour"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.relations_imported == 1
+    assert relation_route.calls.last.request.url.params["locale"] == "fr"
+
+
+@pytest.mark.respx
+def test_import_publishes_french_live_row_with_locale(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """A live French source row is published with locale=fr."""
+    export_data = _locale_export(_locale_entities(published=True)[1:])
+    _mock_document_missing(respx_mock, "articles", "shared-doc")
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 10, "documentId": "dest-doc", "title": "Bonjour"}}
+        )
+    )
+    publish_route = respx_mock.put("http://localhost:1337/api/articles/dest-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 10, "documentId": "dest-doc", "title": "Bonjour"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert publish_route.call_count == 1
+    assert publish_route.calls.last.request.url.params["status"] == "published"
+    assert publish_route.calls.last.request.url.params["locale"] == "fr"
+
+
+@pytest.mark.respx
+def test_import_from_jsonl_restores_localization(
+    strapi_config: StrapiConfig, respx_mock: respx.Router, tmp_path: Path
+) -> None:
+    """JSONL follows the same create-then-localize contract."""
+    export_data = _locale_export(_locale_entities())
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(export_data.metadata)
+        for entity in export_data.entities["api::article.article"]:
+            writer.write_entity(entity)
+
+    _mock_document_missing(respx_mock, "articles", "shared-doc")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 10, "documentId": "dest-doc", "title": "Hello"}}
+        )
+    )
+    update_route = respx_mock.put("http://localhost:1337/api/articles/dest-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 11, "documentId": "dest-doc", "title": "Bonjour"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_from_jsonl(jsonl_path)
+
+    assert result.success is True
+    assert result.entities_imported == 2
+    assert create_route.call_count == 1
+    assert update_route.call_count == 1
+    assert create_route.calls[0].request.url.params["locale"] == "en"
+    assert update_route.calls[0].request.url.params["locale"] == "fr"
+    assert result.doc_id_to_new_document_id["api::article.article"]["shared-doc"] == "dest-doc"
+
+
+@pytest.mark.respx
+def test_import_row_without_locale_omits_locale_param(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Rows with no locale do not send locale= on create."""
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        side_effect=[
+            httpx.Response(
+                200, json={"data": {"id": 10, "documentId": "new_doc1", "title": "Article 1"}}
+            ),
+            httpx.Response(
+                200, json={"data": {"id": 11, "documentId": "new_doc2", "title": "Article 2"}}
+            ),
+        ]
+    )
+
+    with SyncClient(strapi_config) as client:
+        StrapiImporter(client).import_data(
+            ExportData(
+                metadata=ExportMetadata(
+                    strapi_version="v5",
+                    source_url="http://localhost:1337",
+                    content_types=["api::article.article"],
+                    total_entities=2,
+                    schemas={"api::article.article": _article_schema()},
+                ),
+                entities={
+                    "api::article.article": [
+                        ExportedEntity(
+                            id=1,
+                            document_id="doc1",
+                            content_type="api::article.article",
+                            data={"title": "Article 1"},
+                        ),
+                        ExportedEntity(
+                            id=2,
+                            document_id="doc2",
+                            content_type="api::article.article",
+                            data={"title": "Article 2"},
+                        ),
+                    ]
+                },
+            )
+        )
+
+    assert create_route.call_count == 2
+    assert "locale" not in create_route.calls[0].request.url.params
+    assert "locale" not in create_route.calls[1].request.url.params
+
+
+@pytest.mark.respx
+def test_import_existence_invalid_key_locale_retries_without_locale(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Invalid key locale on the probe retries that GET without locale."""
+    export_data = _locale_export(_locale_entities()[:1])
+
+    def articles(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("locale"):
+            return httpx.Response(
+                400, json={"error": {"status": 400, "message": "Invalid key locale"}}
+            )
+        return httpx.Response(404, json={"error": {"status": 404, "message": "Not found"}})
+
+    route = respx_mock.get("http://localhost:1337/api/articles/shared-doc").mock(
+        side_effect=articles
+    )
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 10, "documentId": "dest-doc", "title": "Hello"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.entities_imported == 1
+    assert create_route.call_count == 1
+    locales = [call.request.url.params.get("locale") for call in route.calls]
+    assert "en" in locales
+    assert None in locales

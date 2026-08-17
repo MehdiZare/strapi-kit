@@ -7,7 +7,7 @@ allowing memory-efficient iteration over large datasets.
 from collections.abc import AsyncGenerator, Generator
 from typing import TYPE_CHECKING, Any
 
-from ..exceptions import ValidationError
+from ..exceptions import ValidationError, is_unknown_status_param
 from ..models import StrapiQuery
 from ..models.enums import DocumentStatus, PublicationState
 from ..models.response.normalized import NormalizedEntity
@@ -89,14 +89,8 @@ def _after_first_page_version_detect(
 
 
 def _is_unknown_stream_status_param(error: ValidationError) -> bool:
-    """Return True when Strapi rejected the applied ``status=`` / ``publicationState=``.
-
-    The first-page retry exists for Draft & Publish being off (or the
-    param being unknown). A populate/filter 400 must not drop the
-    completeness default and silently become published-only.
-    """
-    text = str(error).lower()
-    return "invalid key status" in text or "invalid key publicationstate" in text
+    """Return True when Strapi rejected the applied ``status=`` / ``publicationState=``."""
+    return is_unknown_status_param(error)
 
 
 def _should_stop_after_page(

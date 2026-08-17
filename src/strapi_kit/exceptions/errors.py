@@ -346,6 +346,22 @@ def _parse_field_errors_mapping(errors: dict[object, object]) -> list[tuple[str,
     return parsed
 
 
+def is_unknown_status_param(error: ValidationError) -> bool:
+    """Return True when Strapi rejected ``status=`` / ``publicationState=``.
+
+    Draft-inclusive reads retry with ``status=draft``. A 400 for an unknown
+    status param means Draft & Publish is off and the published miss should
+    stand. A populate/filter 400 must not look like “does not exist”.
+    """
+    text = str(error).lower()
+    return "invalid key status" in text or "invalid key publicationstate" in text
+
+
+def is_unknown_locale_param(error: ValidationError) -> bool:
+    """Return True when Strapi rejected ``locale=`` (type is not i18n)."""
+    return "invalid key locale" in str(error).lower()
+
+
 def is_uniqueness_violation(exc: ValidationError) -> bool:
     """Return True if ``exc`` is a Strapi unique-index collision.
 
