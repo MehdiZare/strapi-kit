@@ -320,7 +320,9 @@ the UID).
 ## Best Practices
 
 1. **Export Complete Sets**: Always export related content types together
-2. **Test First**: Use `dry_run=True` to validate imports
+2. **Test First**: Use `dry_run=True` to validate imports. Dry-run
+   counts missing dests as imported but does not map them to dest
+   id `0` or the source `documentId`.
 3. **Check Results**: Always review warnings and errors after import
 4. **Media Handling**: Download media files if needed for offline migration
 5. **Version Compatibility**: Ensure source and target Strapi versions are compatible

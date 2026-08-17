@@ -159,21 +159,11 @@ class RelationResolver:
                     relations[field_name] = ids
 
             elif field_schema.type == FieldType.COMPONENT and schema_cache:
-                # Recursively extract from component
                 component_uid = field_schema.component
                 if component_uid and field_value:
-                    if field_schema.repeatable and isinstance(field_value, list):
-                        # Repeatable component - list of components
-                        for idx, item in enumerate(field_value):
-                            if isinstance(item, dict):
-                                nested = RelationResolver._extract_from_component(
-                                    item, component_uid, schema_cache, f"{field_name}[{idx}]."
-                                )
-                                relations.update(nested)
-                    elif isinstance(field_value, dict):
-                        # Single component
+                    for suffix, item in RelationResolver._component_items(field_value):
                         nested = RelationResolver._extract_from_component(
-                            field_value, component_uid, schema_cache, f"{field_name}."
+                            item, component_uid, schema_cache, f"{field_name}{suffix}"
                         )
                         relations.update(nested)
 
@@ -234,16 +224,9 @@ class RelationResolver:
             elif field_schema.type == FieldType.COMPONENT:
                 nested_uid = field_schema.component
                 if nested_uid and field_value:
-                    if field_schema.repeatable and isinstance(field_value, list):
-                        for idx, item in enumerate(field_value):
-                            if isinstance(item, dict):
-                                nested = RelationResolver._extract_from_component(
-                                    item, nested_uid, schema_cache, f"{full_key}[{idx}]."
-                                )
-                                relations.update(nested)
-                    elif isinstance(field_value, dict):
+                    for suffix, item in RelationResolver._component_items(field_value):
                         nested = RelationResolver._extract_from_component(
-                            field_value, nested_uid, schema_cache, f"{full_key}."
+                            item, nested_uid, schema_cache, f"{full_key}{suffix}"
                         )
                         relations.update(nested)
 
@@ -369,12 +352,11 @@ class RelationResolver:
                 and schema_cache is not None
                 and field_schema.component
             ):
-                if field_schema.repeatable and isinstance(field_value, list):
+                if isinstance(field_value, list):
+                    component_schema = schema_cache.get_component_schema(field_schema.component)
                     cleaned_data[field_name] = [
                         RelationResolver.strip_relations_with_schema(
-                            item,
-                            schema_cache.get_component_schema(field_schema.component),
-                            schema_cache,
+                            item, component_schema, schema_cache
                         )
                         if isinstance(item, dict)
                         else item
@@ -414,6 +396,23 @@ class RelationResolver:
             cleaned_data[field_name] = field_value
 
         return cleaned_data
+
+    @staticmethod
+    def _component_items(field_value: Any) -> list[tuple[str, dict[str, Any]]]:
+        """Walk a component field by payload shape, not ``repeatable``.
+
+        A ``repeatable=False`` schema with a list still yields ``seo[0].``
+        prefixes so nested paths such as ``seo[0].author`` are not dropped.
+        """
+        if isinstance(field_value, list):
+            return [
+                (f"[{idx}].", item)
+                for idx, item in enumerate(field_value)
+                if isinstance(item, dict)
+            ]
+        if isinstance(field_value, dict):
+            return [(".", field_value)]
+        return []
 
     @staticmethod
     def split_field_path(field_path: str) -> list[tuple[str, int | None]]:

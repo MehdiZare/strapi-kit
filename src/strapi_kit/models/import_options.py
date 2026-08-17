@@ -119,11 +119,18 @@ class ImportResult(BaseModel):
     warnings: list[str] = Field(default_factory=list, description="Warning messages")
     id_mapping: dict[str, dict[int, int]] = Field(
         default_factory=dict,
-        description="Mapping of old IDs to new IDs per content type",
+        description=(
+            "Mapping of old IDs to dest IDs per content type. Dry-run only "
+            "includes dests that already exist; missing dests are counted "
+            "but not mapped as write targets."
+        ),
     )
     doc_id_mapping: dict[str, dict[int, str]] = Field(
         default_factory=dict,
-        description="Mapping of old IDs to document_ids per content type (for v5 endpoints)",
+        description=(
+            "Mapping of old IDs to dest documentIds per content type. "
+            "Dry-run does not record a source documentId as dest."
+        ),
     )
     doc_id_to_new_id: dict[str, dict[str, int]] = Field(
         default_factory=dict,

@@ -181,7 +181,7 @@ class StrapiImporter:
             )
 
             # Step 5: Import relations (if not skipped)
-            if not options.skip_relations:
+            if not options.skip_relations and not options.dry_run:
                 if options.progress_callback:
                     options.progress_callback(60, 100, "Importing relations")
 
@@ -508,18 +508,8 @@ class StrapiImporter:
                 dest_doc = any_locale.document_id or source_doc
 
         if options.dry_run:
-            dest_for_map = dest_doc or source_doc
-            self._record_entity_mappings(
-                content_type=content_type,
-                entity_id=entity.id,
-                source_document_id=source_doc,
-                new_id=0,
-                dest_document_id=dest_for_map,
-                id_mapping=id_mapping,
-                doc_id_mapping=doc_id_mapping,
-                doc_id_to_new_id=doc_id_to_new_id,
-                doc_id_to_new_document_id=doc_id_to_new_document_id,
-            )
+            # Missing dest: do not invent dest id 0 or reuse the source
+            # documentId. Later passes must not treat these as write targets.
             result.entities_imported += 1
             return
 
@@ -1115,7 +1105,7 @@ class StrapiImporter:
             remapped_data,
         )
         new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
-        if resolved_nums and new_id is not None:
+        if resolved_nums and new_id:
             numeric_payload = RelationResolver.build_nested_numeric_payload(
                 resolved_nums,
                 schema,

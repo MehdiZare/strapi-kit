@@ -222,3 +222,151 @@ def test_build_v5_payload_records_skipped_nested_without_entity_data() -> None:
     )
     assert payload == {}
     assert skipped == ["seo[0].author"]
+
+
+def test_extract_component_dispatches_on_list_shape() -> None:
+    """A list payload is walked even when the schema flag is not repeatable."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=False,
+            ),
+        },
+    )
+    data = {
+        "seo": [{"author": {"id": 1, "documentId": "auth-src"}}],
+    }
+    relations = RelationResolver.extract_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    assert relations == {"seo[0].author": ["auth-src"]}
+
+
+def test_extract_component_dispatches_on_dict_shape() -> None:
+    """A dict payload is walked even when the schema flag is repeatable."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=True,
+            ),
+        },
+    )
+    data = {"seo": {"author": {"id": 1, "documentId": "auth-src"}}}
+    relations = RelationResolver.extract_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    assert relations == {"seo.author": ["auth-src"]}
+
+
+def test_strip_component_dispatches_on_list_shape() -> None:
+    """A list payload is stripped even when the schema flag is not repeatable."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=False,
+            ),
+        },
+    )
+    data = {
+        "title": "Hello",
+        "seo": [{"metaTitle": "T", "author": {"documentId": "auth-src"}}],
+    }
+    stripped = RelationResolver.strip_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    assert stripped == {"title": "Hello", "seo": [{"metaTitle": "T"}]}
+
+
+def test_extract_nested_component_dispatches_on_list_shape() -> None:
+    """Nested components also walk list payloads when repeatable is false."""
+    byline_schema = ContentTypeSchema(
+        uid="shared.byline",
+        display_name="Byline",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "byline": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.byline",
+                repeatable=False,
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=False,
+            ),
+        },
+    )
+    data = {
+        "seo": {"byline": [{"author": {"id": 1, "documentId": "auth-src"}}]},
+    }
+    relations = RelationResolver.extract_relations_with_schema(
+        data, article_schema, _component_cache(byline_schema, seo_schema)
+    )
+    assert relations == {"seo.byline[0].author": ["auth-src"]}

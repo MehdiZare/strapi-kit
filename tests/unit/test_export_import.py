@@ -73,6 +73,123 @@ def _mock_document_missing(respx_mock: respx.Router, collection: str, document_i
     _collection_locale_all_docs(respx_mock, collection)[document_id] = set()
 
 
+def _nested_component_schemas() -> tuple[ContentTypeSchema, ContentTypeSchema, ContentTypeSchema]:
+    """Article + author + repeatable seo.author component used by nested import tests."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        plural_name="authors",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=True,
+            ),
+        },
+    )
+    return seo_schema, author_schema, article_schema
+
+
+def _nested_component_export(*, include_component_schemas: bool = True) -> ExportData:
+    """In-memory export of author + article with ``seo[0].author``."""
+    seo_schema, author_schema, article_schema = _nested_component_schemas()
+    return ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::author.author", "api::article.article"],
+            total_entities=2,
+            schemas={
+                "api::author.author": author_schema,
+                "api::article.article": article_schema,
+            },
+            component_schemas={"shared.seo": seo_schema} if include_component_schemas else {},
+        ),
+        entities={
+            "api::author.author": [
+                ExportedEntity(
+                    id=1,
+                    document_id="auth-src",
+                    content_type="api::author.author",
+                    data={"name": "Ada"},
+                )
+            ],
+            "api::article.article": [
+                ExportedEntity(
+                    id=2,
+                    document_id="art-src",
+                    content_type="api::article.article",
+                    data={"title": "Hello", "seo": [{"metaTitle": "T"}]},
+                    relations={"seo[0].author": ["auth-src"]},
+                )
+            ],
+        },
+    )
+
+
+def _write_nested_component_jsonl(jsonl_path: Path) -> None:
+    """Stream the nested-component fixture to JSONL."""
+    export_data = _nested_component_export()
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(export_data.metadata)
+        for content_type in export_data.metadata.content_types:
+            for entity in export_data.entities[content_type]:
+                writer.write_entity(entity)
+
+
+def _mock_nested_component_writes(
+    respx_mock: respx.Router, *, mock_component_ctb: bool = False
+) -> tuple[object, object | None]:
+    """Create/PUT mocks for the nested-component fixture.
+
+    Returns:
+        ``(relation_route, component_route)``. ``component_route`` is only
+        set when ``mock_component_ctb`` is true.
+    """
+    _mock_document_missing(respx_mock, "authors", "auth-src")
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    respx_mock.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
+        )
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    relation_route = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    component_route = None
+    if mock_component_ctb:
+        component_route = respx_mock.get(
+            "http://localhost:1337/api/content-type-builder/components/shared.seo"
+        ).mock(return_value=httpx.Response(500, json={"error": {"message": "offline dest"}}))
+    return relation_route, component_route
+
+
 @pytest.fixture
 def strapi_config() -> StrapiConfig:
     """Create test configuration."""
@@ -448,6 +565,10 @@ def test_import_data_dry_run(
         assert result.entities_imported == 2
         assert result.entities_failed == 0
         assert create_route.call_count == 0
+        assert result.id_mapping == {}
+        assert result.doc_id_mapping == {}
+        assert result.doc_id_to_new_id == {}
+        assert result.doc_id_to_new_document_id == {}
 
 
 @pytest.mark.respx
@@ -479,6 +600,9 @@ def test_import_skip_and_update_dry_run_does_not_write(
         assert skip_result.entities_imported == 1
         assert update_route.call_count == 0
         assert create_route.call_count == 0
+        assert skip_result.id_mapping["api::article.article"] == {1: 42}
+        assert 2 not in skip_result.id_mapping["api::article.article"]
+        assert 0 not in skip_result.id_mapping["api::article.article"].values()
 
         update_result = StrapiImporter(client).import_data(
             sample_export_data,
@@ -488,6 +612,9 @@ def test_import_skip_and_update_dry_run_does_not_write(
         assert update_result.entities_imported == 1
         assert update_route.call_count == 0
         assert create_route.call_count == 0
+        assert update_result.id_mapping["api::article.article"] == {1: 42}
+        assert 2 not in update_result.id_mapping["api::article.article"]
+        assert 0 not in update_result.id_mapping["api::article.article"].values()
 
 
 @pytest.mark.respx
@@ -1872,95 +1999,17 @@ def test_import_nested_relation_uses_exported_component_schemas(
     """Nested write works from export component_schemas; dest CTB is not called (#118)."""
     import json
 
-    seo_schema = ContentTypeSchema(
-        uid="shared.seo",
-        display_name="SEO",
-        fields={
-            "metaTitle": FieldSchema(type=FieldType.STRING),
-            "author": FieldSchema(
-                type=FieldType.RELATION,
-                relation=RelationType.MANY_TO_ONE,
-                target="api::author.author",
-            ),
-        },
+    export_data = _nested_component_export()
+    relation_route, component_route = _mock_nested_component_writes(
+        respx_mock, mock_component_ctb=True
     )
-    author_schema = ContentTypeSchema(
-        uid="api::author.author",
-        display_name="Author",
-        plural_name="authors",
-        fields={"name": FieldSchema(type=FieldType.STRING)},
-    )
-    article_schema = ContentTypeSchema(
-        uid="api::article.article",
-        display_name="Article",
-        plural_name="articles",
-        fields={
-            "title": FieldSchema(type=FieldType.STRING),
-            "seo": FieldSchema(
-                type=FieldType.COMPONENT,
-                component="shared.seo",
-                repeatable=True,
-            ),
-        },
-    )
-    export_data = ExportData(
-        metadata=ExportMetadata(
-            strapi_version="v5",
-            source_url="http://localhost:1337",
-            content_types=["api::author.author", "api::article.article"],
-            total_entities=2,
-            schemas={
-                "api::author.author": author_schema,
-                "api::article.article": article_schema,
-            },
-            component_schemas={"shared.seo": seo_schema},
-        ),
-        entities={
-            "api::author.author": [
-                ExportedEntity(
-                    id=1,
-                    document_id="auth-src",
-                    content_type="api::author.author",
-                    data={"name": "Ada"},
-                )
-            ],
-            "api::article.article": [
-                ExportedEntity(
-                    id=2,
-                    document_id="art-src",
-                    content_type="api::article.article",
-                    data={"title": "Hello", "seo": [{"metaTitle": "T"}]},
-                    relations={"seo[0].author": ["auth-src"]},
-                )
-            ],
-        },
-    )
-    _mock_document_missing(respx_mock, "authors", "auth-src")
-    _mock_document_missing(respx_mock, "articles", "art-src")
-    respx_mock.post("http://localhost:1337/api/authors").mock(
-        return_value=httpx.Response(
-            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
-        )
-    )
-    respx_mock.post("http://localhost:1337/api/articles").mock(
-        return_value=httpx.Response(
-            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
-        )
-    )
-    relation_route = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
-        return_value=httpx.Response(
-            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
-        )
-    )
-    component_route = respx_mock.get(
-        "http://localhost:1337/api/content-type-builder/components/shared.seo"
-    ).mock(return_value=httpx.Response(500, json={"error": {"message": "offline dest"}}))
 
     with SyncClient(strapi_config) as client:
         result = StrapiImporter(client).import_data(export_data)
 
     assert result.success is True
     assert result.relations_imported == 1
+    assert component_route is not None
     assert component_route.call_count == 0
     body = json.loads(relation_route.calls.last.request.content)
     assert body["data"]["seo"][0]["author"] == "auth-new"
@@ -1973,95 +2022,18 @@ def test_import_from_jsonl_uses_exported_component_schemas(
     """JSONL import caches metadata.component_schemas; dest CTB is not called."""
     import json
 
-    seo_schema = ContentTypeSchema(
-        uid="shared.seo",
-        display_name="SEO",
-        fields={
-            "metaTitle": FieldSchema(type=FieldType.STRING),
-            "author": FieldSchema(
-                type=FieldType.RELATION,
-                relation=RelationType.MANY_TO_ONE,
-                target="api::author.author",
-            ),
-        },
-    )
-    author_schema = ContentTypeSchema(
-        uid="api::author.author",
-        display_name="Author",
-        plural_name="authors",
-        fields={"name": FieldSchema(type=FieldType.STRING)},
-    )
-    article_schema = ContentTypeSchema(
-        uid="api::article.article",
-        display_name="Article",
-        plural_name="articles",
-        fields={
-            "title": FieldSchema(type=FieldType.STRING),
-            "seo": FieldSchema(
-                type=FieldType.COMPONENT,
-                component="shared.seo",
-                repeatable=True,
-            ),
-        },
-    )
-    metadata = ExportMetadata(
-        strapi_version="v5",
-        source_url="http://localhost:1337",
-        content_types=["api::author.author", "api::article.article"],
-        total_entities=2,
-        schemas={
-            "api::author.author": author_schema,
-            "api::article.article": article_schema,
-        },
-        component_schemas={"shared.seo": seo_schema},
-    )
     jsonl_path = tmp_path / "export.jsonl"
-    with JSONLExportWriter(jsonl_path) as writer:
-        writer.write_metadata(metadata)
-        writer.write_entity(
-            ExportedEntity(
-                id=1,
-                document_id="auth-src",
-                content_type="api::author.author",
-                data={"name": "Ada"},
-            )
-        )
-        writer.write_entity(
-            ExportedEntity(
-                id=2,
-                document_id="art-src",
-                content_type="api::article.article",
-                data={"title": "Hello", "seo": [{"metaTitle": "T"}]},
-                relations={"seo[0].author": ["auth-src"]},
-            )
-        )
-
-    _mock_document_missing(respx_mock, "authors", "auth-src")
-    _mock_document_missing(respx_mock, "articles", "art-src")
-    respx_mock.post("http://localhost:1337/api/authors").mock(
-        return_value=httpx.Response(
-            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
-        )
+    _write_nested_component_jsonl(jsonl_path)
+    relation_route, component_route = _mock_nested_component_writes(
+        respx_mock, mock_component_ctb=True
     )
-    respx_mock.post("http://localhost:1337/api/articles").mock(
-        return_value=httpx.Response(
-            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
-        )
-    )
-    relation_route = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
-        return_value=httpx.Response(
-            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
-        )
-    )
-    component_route = respx_mock.get(
-        "http://localhost:1337/api/content-type-builder/components/shared.seo"
-    ).mock(return_value=httpx.Response(500, json={"error": {"message": "offline dest"}}))
 
     with SyncClient(strapi_config) as client:
         result = StrapiImporter(client).import_from_jsonl(jsonl_path)
 
     assert result.success is True
     assert result.relations_imported == 1
+    assert component_route is not None
     assert component_route.call_count == 0
     body = json.loads(relation_route.calls.last.request.content)
     assert body["data"]["seo"][0]["author"] == "auth-new"
@@ -2738,7 +2710,7 @@ def test_import_relation_put_includes_locale(
 def test_import_data_dry_run_does_not_write_relations(
     strapi_config: StrapiConfig, respx_mock: respx.Router
 ) -> None:
-    """Dry-run records mappings but must not PUT relations (#121)."""
+    """Dry-run does not write, and missing dests are not mapped as dest ids (#121 #131)."""
     author_schema = ContentTypeSchema(
         uid="api::author.author",
         display_name="Author",
@@ -2817,6 +2789,10 @@ def test_import_data_dry_run_does_not_write_relations(
     assert result.dry_run
     assert result.entities_imported == 2
     assert result.relations_imported == 0
+    assert result.id_mapping == {}
+    assert result.doc_id_mapping == {}
+    assert result.doc_id_to_new_id == {}
+    assert result.doc_id_to_new_document_id == {}
     assert create_authors.call_count == 0
     assert create_articles.call_count == 0
     assert source_put.call_count == 0
@@ -3276,85 +3252,9 @@ def test_import_writes_nested_component_relation(
     """Nested seo[0].author is written on the component payload (#105)."""
     import json
 
-    seo_schema = ContentTypeSchema(
-        uid="shared.seo",
-        display_name="SEO",
-        fields={
-            "metaTitle": FieldSchema(type=FieldType.STRING),
-            "author": FieldSchema(
-                type=FieldType.RELATION,
-                relation=RelationType.MANY_TO_ONE,
-                target="api::author.author",
-            ),
-        },
-    )
-    author_schema = ContentTypeSchema(
-        uid="api::author.author",
-        display_name="Author",
-        plural_name="authors",
-        fields={"name": FieldSchema(type=FieldType.STRING)},
-    )
-    article_schema = ContentTypeSchema(
-        uid="api::article.article",
-        display_name="Article",
-        plural_name="articles",
-        fields={
-            "title": FieldSchema(type=FieldType.STRING),
-            "seo": FieldSchema(
-                type=FieldType.COMPONENT,
-                component="shared.seo",
-                repeatable=True,
-            ),
-        },
-    )
-    export_data = ExportData(
-        metadata=ExportMetadata(
-            strapi_version="v5",
-            source_url="http://localhost:1337",
-            content_types=["api::author.author", "api::article.article"],
-            total_entities=2,
-            schemas={
-                "api::author.author": author_schema,
-                "api::article.article": article_schema,
-            },
-        ),
-        entities={
-            "api::author.author": [
-                ExportedEntity(
-                    id=1,
-                    document_id="auth-src",
-                    content_type="api::author.author",
-                    data={"name": "Ada"},
-                )
-            ],
-            "api::article.article": [
-                ExportedEntity(
-                    id=2,
-                    document_id="art-src",
-                    content_type="api::article.article",
-                    data={"title": "Hello", "seo": [{"metaTitle": "T"}]},
-                    relations={"seo[0].author": ["auth-src"]},
-                )
-            ],
-        },
-    )
-    _mock_document_missing(respx_mock, "authors", "auth-src")
-    _mock_document_missing(respx_mock, "articles", "art-src")
-    respx_mock.post("http://localhost:1337/api/authors").mock(
-        return_value=httpx.Response(
-            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
-        )
-    )
-    respx_mock.post("http://localhost:1337/api/articles").mock(
-        return_value=httpx.Response(
-            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
-        )
-    )
-    relation_route = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
-        return_value=httpx.Response(
-            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
-        )
-    )
+    seo_schema, _, _ = _nested_component_schemas()
+    export_data = _nested_component_export(include_component_schemas=False)
+    relation_route, _ = _mock_nested_component_writes(respx_mock)
 
     with SyncClient(strapi_config) as client:
         importer = StrapiImporter(client)
