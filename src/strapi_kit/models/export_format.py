@@ -39,6 +39,8 @@ class ExportMetadata(BaseModel):
         content_types: List of exported content type UIDs
         total_entities: Total number of entities exported
         total_media: Total number of media files exported
+        schemas: Content-type schemas used for relation resolution
+        component_schemas: Component schemas walked during export
     """
 
     version: str = Field(
@@ -72,6 +74,10 @@ class ExportMetadata(BaseModel):
     schemas: dict[str, ContentTypeSchema] = Field(
         default_factory=dict,
         description="Content type schemas (for relation resolution)",
+    )
+    component_schemas: dict[str, ContentTypeSchema] = Field(
+        default_factory=dict,
+        description="Component schemas walked during export (nested relations/media)",
     )
 
 

@@ -20,6 +20,8 @@ Import writes nested component/dynamic-zone relations, posts dest media
 ids (`media_write()`), and falls back to numeric relation PUTs on a v4
 destination.
 The e2e Docker fixture includes an i18n `localized-articles` type.
+Export metadata includes walked component schemas. Media remapping
+follows `FieldType.MEDIA` when a schema is present.
 
 ## [0.3.0] - 2026-08-16
 

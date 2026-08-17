@@ -4,6 +4,8 @@ This module handles downloading media files during export and
 uploading them during import.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 import unicodedata
@@ -13,8 +15,10 @@ from typing import TYPE_CHECKING, Any
 from strapi_kit.models.export_format import ExportedMediaFile
 from strapi_kit.models.request.media_write import MediaWriteId, media_write
 from strapi_kit.models.response.media import MediaFile
+from strapi_kit.models.schema import ContentTypeSchema, FieldType
 
 if TYPE_CHECKING:
+    from strapi_kit.cache.schema_cache import InMemorySchemaCache
     from strapi_kit.client.sync_client import SyncClient
 
 logger = logging.getLogger(__name__)
@@ -183,7 +187,7 @@ class MediaHandler:
 
     @staticmethod
     def download_media_file(
-        client: "SyncClient",
+        client: SyncClient,
         media: MediaFile,
         output_dir: Path,
     ) -> Path:
@@ -243,7 +247,7 @@ class MediaHandler:
 
     @staticmethod
     def upload_media_file(
-        client: "SyncClient",
+        client: SyncClient,
         file_path: Path,
         original_metadata: ExportedMediaFile,
     ) -> MediaFile:
@@ -283,6 +287,9 @@ class MediaHandler:
         media_id_mapping: dict[int, int],
         media_doc_mapping: dict[str, str] | None = None,
         id_to_dest_doc: dict[int, str] | None = None,
+        *,
+        schema: ContentTypeSchema | None = None,
+        schema_cache: InMemorySchemaCache | None = None,
     ) -> dict[str, Any]:
         """Convert media populate objects to dest write ids.
 
@@ -292,25 +299,176 @@ class MediaHandler:
         omitted. Source ``mime`` / ``url`` / ``documentId`` blobs are
         not written.
 
+        When ``schema`` is provided, remaps ``FieldType.MEDIA`` fields and
+        media nested in resolved components / dynamic zones. Unknown
+        fields and unresolved component / dynamic-zone schemas fall back
+        to the ``mime`` heuristic. Resolved ``FieldType.RELATION`` values
+        are left unchanged. Without a schema the heuristic is used for
+        every field.
+
         Args:
             data: Entity attributes dictionary
             media_id_mapping: Mapping of old media IDs to new IDs
             media_doc_mapping: Optional old file documentId → dest documentId
             id_to_dest_doc: Optional old numeric id → dest documentId
+            schema: Optional content-type schema for a typed walk
+            schema_cache: Component cache used with ``schema``
 
         Returns:
             Updated data with media fields as dest ids
         """
-        updated_data = {}
         docs = media_doc_mapping or {}
         id_docs = id_to_dest_doc or {}
-
+        if schema is not None:
+            return MediaHandler._remap_with_schema(
+                data, schema, schema_cache, media_id_mapping, docs, id_docs
+            )
+        updated_data = {}
         for field_name, field_value in data.items():
             updated_data[field_name] = MediaHandler._remap_media_value(
                 field_value, media_id_mapping, docs, id_docs
             )
-
         return updated_data
+
+    @staticmethod
+    def _remap_with_schema(
+        data: dict[str, Any],
+        schema: ContentTypeSchema,
+        schema_cache: InMemorySchemaCache | None,
+        media_id_mapping: dict[int, int],
+        media_doc_mapping: dict[str, str],
+        id_to_dest_doc: dict[int, str],
+    ) -> dict[str, Any]:
+        """Remap schema-declared media fields; heuristic if schema is missing."""
+        updated: dict[str, Any] = {}
+        for field_name, field_value in data.items():
+            field_schema = schema.fields.get(field_name)
+            if field_schema is None:
+                updated[field_name] = MediaHandler._remap_media_value(
+                    field_value, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                )
+                continue
+            if field_schema.type == FieldType.MEDIA:
+                updated[field_name] = MediaHandler._media_field_to_write(
+                    field_value, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                )
+                continue
+            if field_schema.type == FieldType.COMPONENT:
+                component_schema = (
+                    MediaHandler._component_schema(schema_cache, field_schema.component)
+                    if field_schema.component
+                    else None
+                )
+                if component_schema is None:
+                    updated[field_name] = MediaHandler._remap_media_value(
+                        field_value, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                    )
+                elif isinstance(field_value, list):
+                    updated[field_name] = [
+                        MediaHandler._remap_with_schema(
+                            item,
+                            component_schema,
+                            schema_cache,
+                            media_id_mapping,
+                            media_doc_mapping,
+                            id_to_dest_doc,
+                        )
+                        if isinstance(item, dict)
+                        else item
+                        for item in field_value
+                    ]
+                elif isinstance(field_value, dict):
+                    updated[field_name] = MediaHandler._remap_with_schema(
+                        field_value,
+                        component_schema,
+                        schema_cache,
+                        media_id_mapping,
+                        media_doc_mapping,
+                        id_to_dest_doc,
+                    )
+                else:
+                    updated[field_name] = field_value
+                continue
+            if field_schema.type == FieldType.DYNAMIC_ZONE and isinstance(field_value, list):
+                remapped_zone: list[Any] = []
+                for item in field_value:
+                    if not isinstance(item, dict):
+                        remapped_zone.append(item)
+                        continue
+                    uid = item.get("__component")
+                    dz_schema = (
+                        MediaHandler._component_schema(schema_cache, uid)
+                        if isinstance(uid, str)
+                        else None
+                    )
+                    if dz_schema is None:
+                        remapped_zone.append(
+                            MediaHandler._remap_media_value(
+                                item, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                            )
+                        )
+                        continue
+                    remapped_item = MediaHandler._remap_with_schema(
+                        item,
+                        dz_schema,
+                        schema_cache,
+                        media_id_mapping,
+                        media_doc_mapping,
+                        id_to_dest_doc,
+                    )
+                    remapped_item["__component"] = uid
+                    remapped_zone.append(remapped_item)
+                updated[field_name] = remapped_zone
+                continue
+            updated[field_name] = field_value
+        return updated
+
+    @staticmethod
+    def _component_schema(
+        schema_cache: InMemorySchemaCache | None, component_uid: str
+    ) -> ContentTypeSchema | None:
+        if schema_cache is None:
+            return None
+        try:
+            return schema_cache.get_component_schema(component_uid)
+        except Exception:  # noqa: BLE001 - missing dest component is not a media error
+            return None
+
+    @staticmethod
+    def _media_field_to_write(
+        value: Any,
+        media_id_mapping: dict[int, int],
+        media_doc_mapping: dict[str, str],
+        id_to_dest_doc: dict[int, str],
+    ) -> Any:
+        """Convert one MEDIA field value to a dest write id or list."""
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            if "data" in value and "documentId" not in value and "document_id" not in value:
+                return MediaHandler._media_field_to_write(
+                    value.get("data"), media_id_mapping, media_doc_mapping, id_to_dest_doc
+                )
+            dest = MediaHandler._dest_media_id(
+                value, media_id_mapping, media_doc_mapping, id_to_dest_doc
+            )
+            return media_write(file_ids=[] if dest is None else [dest], multiple=False)
+        if isinstance(value, list):
+            dests: list[MediaWriteId] = []
+            for item in value:
+                remapped = MediaHandler._media_field_to_write(
+                    item, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                )
+                if remapped is None:
+                    continue
+                if isinstance(remapped, list):
+                    dests.extend(remapped)
+                elif isinstance(remapped, str) or (
+                    isinstance(remapped, int) and not isinstance(remapped, bool)
+                ):
+                    dests.append(remapped)
+            return media_write(file_ids=dests, multiple=True)
+        return value
 
     @staticmethod
     def _dest_media_id(

@@ -275,3 +275,313 @@ def test_update_media_references_drops_source_document_id() -> None:
 
     assert updated["cover"] == "media-dest"
     assert updated["seo"]["ogImage"] == "og-dest"
+
+
+def test_update_media_references_schema_skips_relation_data_wrapper() -> None:
+    """With a schema, v4 {data: null} on a relation is not treated as media (#120)."""
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
+
+    schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+            "cover": FieldSchema(type=FieldType.MEDIA),
+        },
+    )
+    data = {
+        "title": "Hello",
+        "author": {"data": None},
+        "cover": {"id": 5, "documentId": "media-src", "mime": "image/jpeg"},
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {5: 50},
+        media_doc_mapping={"media-src": "media-dest"},
+        schema=schema,
+    )
+    assert updated["author"] == {"data": None}
+    assert updated["cover"] == "media-dest"
+
+
+def test_update_media_references_schema_walks_component_media() -> None:
+    """Schema walk remaps FieldType.MEDIA inside a component (#120)."""
+    from strapi_kit.cache.schema_cache import InMemorySchemaCache
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType
+
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "ogImage": FieldSchema(type=FieldType.MEDIA),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(type=FieldType.COMPONENT, component="shared.seo"),
+        },
+    )
+    cache = InMemorySchemaCache(client=None)  # type: ignore[arg-type]
+    cache.cache_component_schema("shared.seo", seo_schema)
+    data = {
+        "seo": {
+            "metaTitle": "T",
+            "ogImage": {"id": 7, "documentId": "og-src", "mime": "image/png"},
+        }
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {7: 70},
+        media_doc_mapping={"og-src": "og-dest"},
+        schema=article_schema,
+        schema_cache=cache,
+    )
+    assert updated["seo"]["metaTitle"] == "T"
+    assert updated["seo"]["ogImage"] == "og-dest"
+
+
+def test_update_media_references_schema_unknown_field_uses_heuristic() -> None:
+    """Unknown fields fall back to the mime heuristic, not a raw blob."""
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
+
+    schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+            "cover": FieldSchema(type=FieldType.MEDIA),
+        },
+    )
+    data = {
+        "author": {"data": None},
+        "cover": {"id": 5, "documentId": "media-src", "mime": "image/jpeg"},
+        "legacyOg": {"id": 9, "documentId": "extra-src", "mime": "image/png"},
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {5: 50, 9: 90},
+        media_doc_mapping={"media-src": "media-dest", "extra-src": "extra-dest"},
+        schema=schema,
+    )
+    assert updated["author"] == {"data": None}
+    assert updated["cover"] == "media-dest"
+    assert updated["legacyOg"] == "extra-dest"
+
+
+def test_update_media_references_unresolved_component_uses_heuristic() -> None:
+    """Cache-miss component schemas remap nested media via the mime heuristic."""
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType
+
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(type=FieldType.COMPONENT, component="shared.seo"),
+        },
+    )
+    data = {
+        "seo": {
+            "metaTitle": "T",
+            "ogImage": {"id": 7, "documentId": "og-src", "mime": "image/png"},
+        }
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {7: 70},
+        media_doc_mapping={"og-src": "og-dest"},
+        schema=article_schema,
+        schema_cache=None,
+    )
+    assert updated["seo"]["metaTitle"] == "T"
+    assert updated["seo"]["ogImage"] == "og-dest"
+
+
+def test_update_media_references_unresolved_dynamic_zone_uses_heuristic() -> None:
+    """Unresolved dynamic-zone items remap nested media and keep __component."""
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType
+
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "blocks": FieldSchema(type=FieldType.DYNAMIC_ZONE, components=["shared.seo"]),
+        },
+    )
+    data = {
+        "blocks": [
+            {
+                "__component": "shared.seo",
+                "ogImage": {"id": 7, "documentId": "og-src", "mime": "image/png"},
+            }
+        ]
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {7: 70},
+        media_doc_mapping={"og-src": "og-dest"},
+        schema=article_schema,
+        schema_cache=None,
+    )
+    assert updated["blocks"][0]["__component"] == "shared.seo"
+    assert updated["blocks"][0]["ogImage"] == "og-dest"
+
+
+def test_update_media_references_schema_v4_media_without_mime() -> None:
+    """A typed MEDIA field unwraps v4 {data: {id}} even when mime is absent."""
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType
+
+    schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={"cover": FieldSchema(type=FieldType.MEDIA)},
+    )
+    updated = MediaHandler.update_media_references(
+        {"cover": {"data": {"id": 3}}},
+        {3: 30},
+        schema=schema,
+    )
+    assert updated["cover"] == 30
+
+
+def test_update_media_references_schema_walks_dynamic_zone_media() -> None:
+    """Resolved dynamic-zone items remap media and preserve __component."""
+    from strapi_kit.cache.schema_cache import InMemorySchemaCache
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType
+
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "ogImage": FieldSchema(type=FieldType.MEDIA),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "blocks": FieldSchema(type=FieldType.DYNAMIC_ZONE, components=["shared.seo"]),
+        },
+    )
+    cache = InMemorySchemaCache(client=None)  # type: ignore[arg-type]
+    cache.cache_component_schema("shared.seo", seo_schema)
+    data = {
+        "blocks": [
+            {
+                "__component": "shared.seo",
+                "metaTitle": "T",
+                "ogImage": {"id": 7, "documentId": "og-src", "mime": "image/png"},
+            }
+        ]
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {7: 70},
+        media_doc_mapping={"og-src": "og-dest"},
+        schema=article_schema,
+        schema_cache=cache,
+    )
+    assert updated["blocks"][0]["__component"] == "shared.seo"
+    assert updated["blocks"][0]["metaTitle"] == "T"
+    assert updated["blocks"][0]["ogImage"] == "og-dest"
+
+
+def test_update_media_references_schema_walks_repeatable_component_list() -> None:
+    """Repeatable COMPONENT lists remap media on each item."""
+    from strapi_kit.cache.schema_cache import InMemorySchemaCache
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType
+
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "ogImage": FieldSchema(type=FieldType.MEDIA),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(type=FieldType.COMPONENT, component="shared.seo", repeatable=True),
+        },
+    )
+    cache = InMemorySchemaCache(client=None)  # type: ignore[arg-type]
+    cache.cache_component_schema("shared.seo", seo_schema)
+    data = {
+        "seo": [
+            {
+                "metaTitle": "A",
+                "ogImage": {"id": 7, "documentId": "og-src", "mime": "image/png"},
+            },
+            {
+                "metaTitle": "B",
+                "ogImage": {"id": 8, "documentId": "og-src-2", "mime": "image/jpeg"},
+            },
+        ]
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {7: 70, 8: 80},
+        media_doc_mapping={"og-src": "og-dest", "og-src-2": "og-dest-2"},
+        schema=article_schema,
+        schema_cache=cache,
+    )
+    assert updated["seo"][0]["metaTitle"] == "A"
+    assert updated["seo"][0]["ogImage"] == "og-dest"
+    assert updated["seo"][1]["ogImage"] == "og-dest-2"
+
+
+def test_update_media_references_component_dispatches_on_list_shape() -> None:
+    """A list value is walked even when the schema flag is not repeatable."""
+    from strapi_kit.cache.schema_cache import InMemorySchemaCache
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType
+
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={"ogImage": FieldSchema(type=FieldType.MEDIA)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(type=FieldType.COMPONENT, component="shared.seo", repeatable=False),
+        },
+    )
+    cache = InMemorySchemaCache(client=None)  # type: ignore[arg-type]
+    cache.cache_component_schema("shared.seo", seo_schema)
+    data = {
+        "seo": [
+            {"ogImage": {"id": 7, "documentId": "og-src", "mime": "image/png"}},
+        ]
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {7: 70},
+        media_doc_mapping={"og-src": "og-dest"},
+        schema=article_schema,
+        schema_cache=cache,
+    )
+    assert updated["seo"][0]["ogImage"] == "og-dest"

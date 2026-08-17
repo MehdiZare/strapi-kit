@@ -9,7 +9,7 @@ from httpx import Response
 from strapi_kit import StrapiConfig, SyncClient
 from strapi_kit.cache.schema_cache import InMemorySchemaCache
 from strapi_kit.exceptions import StrapiError
-from strapi_kit.models.schema import ContentTypeSchema, FieldType, RelationType
+from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
 
 
 @pytest.fixture
@@ -497,3 +497,53 @@ def test_schema_cache_v5_relation_methods(
         # Test get_field_target
         assert schema.get_field_target("author") == "api::author.author"
         assert schema.get_field_target("title") is None
+
+
+@pytest.mark.respx
+def test_prefetch_components_returns_walked_uids(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """prefetch_components fetches nested UIDs and reports the visited set."""
+    respx_mock.get("http://localhost:1337/api/content-type-builder/components/shared.seo").mock(
+        return_value=Response(
+            200,
+            json={
+                "data": {
+                    "uid": "shared.seo",
+                    "info": {"displayName": "SEO"},
+                    "attributes": {
+                        "metaTitle": {"type": "string"},
+                        "share": {"type": "component", "component": "shared.share"},
+                    },
+                }
+            },
+        )
+    )
+    respx_mock.get("http://localhost:1337/api/content-type-builder/components/shared.share").mock(
+        return_value=Response(
+            200,
+            json={
+                "data": {
+                    "uid": "shared.share",
+                    "info": {"displayName": "Share"},
+                    "attributes": {"label": {"type": "string"}},
+                }
+            },
+        )
+    )
+
+    article = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        fields={
+            "seo": FieldSchema(type=FieldType.COMPONENT, component="shared.seo"),
+        },
+    )
+
+    with SyncClient(strapi_config) as client:
+        cache = InMemorySchemaCache(client)
+        walked = cache.prefetch_components(article)
+
+    assert walked == {"shared.seo", "shared.share"}
+    assert "shared.seo" in cache.cached_component_schemas()
+    assert "shared.share" in cache.cached_component_schemas()

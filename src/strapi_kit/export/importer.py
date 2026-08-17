@@ -21,7 +21,12 @@ from strapi_kit.exceptions import (
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.export.relation_resolver import RelationResolver
 from strapi_kit.models.enums import DocumentStatus
-from strapi_kit.models.export_format import ExportData, ExportedEntity, ExportedMediaFile
+from strapi_kit.models.export_format import (
+    ExportData,
+    ExportedEntity,
+    ExportedMediaFile,
+    ExportMetadata,
+)
 from strapi_kit.models.import_options import ConflictResolution, ImportOptions, ImportResult
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.query import StrapiQuery
@@ -351,7 +356,9 @@ class StrapiImporter:
                     try:
                         # Always convert populate blobs so create never POSTs
                         # leftover mime/url/source documentId.
-                        entity_data = self._entity_data_for_write(entity.data, media_maps)
+                        entity_data = self._entity_data_for_write(
+                            entity.data, media_maps, content_type
+                        )
 
                         if options.dry_run:
                             result.entities_imported += 1
@@ -917,11 +924,19 @@ class StrapiImporter:
         Args:
             export_data: Export data containing schemas
         """
-        # Load all schemas into cache
-        for content_type, schema in export_data.metadata.schemas.items():
-            self._schema_cache.cache_schema(content_type, schema)
+        self._cache_export_metadata_schemas(export_data.metadata)
+        logger.info(
+            f"Loaded {self._schema_cache.cache_size} content-type schemas and "
+            f"{len(self._schema_cache.cached_component_schemas())} component "
+            f"schemas from export"
+        )
 
-        logger.info(f"Loaded {self._schema_cache.cache_size} schemas from export")
+    def _cache_export_metadata_schemas(self, metadata: ExportMetadata) -> None:
+        """Cache content-type and component schemas from export metadata."""
+        for content_type, schema in metadata.schemas.items():
+            self._schema_cache.cache_schema(content_type, schema)
+        for component_uid, schema in metadata.component_schemas.items():
+            self._schema_cache.cache_component_schema(component_uid, schema)
 
     def _find_media_by_hash(self, file_hash: str) -> tuple[int, str | None] | None:
         """Find existing media file by hash.
@@ -1041,7 +1056,7 @@ class StrapiImporter:
         """
         skipped: list[str] = []
         write_query = self._write_query(entity)
-        remapped_data = self._entity_data_for_write(entity.data, media_maps)
+        remapped_data = self._entity_data_for_write(entity.data, media_maps, entity.content_type)
         resolved_docs = self._resolve_relation_document_ids(
             entity.relations,
             schema,
@@ -1089,16 +1104,23 @@ class StrapiImporter:
         self._mark_unwritten_nested_relations(entity.relations, {}, skipped)
         return False, skipped
 
-    @staticmethod
     def _entity_data_for_write(
-        entity_data: dict[str, Any], media_maps: _MediaMaps
+        self,
+        entity_data: dict[str, Any],
+        media_maps: _MediaMaps,
+        content_type: str | None = None,
     ) -> dict[str, Any]:
         """Return a new dict with media populate blobs as dest write ids."""
+        schema = None
+        if content_type and self._schema_cache.has_schema(content_type):
+            schema = self._schema_cache.get_schema(content_type)
         return MediaHandler.update_media_references(
             entity_data,
             media_maps.id_to_id,
             media_maps.doc_to_doc,
             media_maps.id_to_doc,
+            schema=schema,
+            schema_cache=self._schema_cache,
         )
 
     @staticmethod
@@ -1228,9 +1250,7 @@ class StrapiImporter:
 
                 metadata = reader.read_metadata()
 
-                # Load schemas from metadata
-                for ct, schema in metadata.schemas.items():
-                    self._schema_cache.cache_schema(ct, schema)
+                self._cache_export_metadata_schemas(metadata)
 
                 # Step 2: Import media first (if requested)
                 # Use separate reader to avoid consuming entity stream (Issue #30)
@@ -1322,7 +1342,9 @@ class StrapiImporter:
                         doc_id_to_new_document_id_mappings[content_type] = {}
 
                     try:
-                        entity_data = self._entity_data_for_write(entity.data, media_maps)
+                        entity_data = self._entity_data_for_write(
+                            entity.data, media_maps, content_type
+                        )
 
                         if options.dry_run:
                             result.entities_imported += 1

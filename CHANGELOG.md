@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and writes key on `(documentId, locale)`; later locales
   `PUT {destDoc}?locale=` (#104)
 - SKIP is per-locale — a missing locale is not treated as a conflict
+- Export metadata stores walked component schemas so nested import does
+  not need a dest Content-Type Builder fetch (#118)
+- Import remaps media via `FieldType.MEDIA` / component / dynamic-zone
+  schema walk; `mime` heuristic is used when no schema is present or a
+  field/component schema cannot be resolved (#120)
 - FAIL writes missing locales, then aborts if any locale already existed (#111)
 - Nested component / dynamic-zone relation writes on import (`seo[0].author`)
   (#105)

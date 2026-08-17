@@ -311,22 +311,30 @@ class StrapiExporter:
         """
         logger.info(f"Fetching schemas for {len(content_types)} content types")
 
+        walked_components: set[str] = set()
         for idx, content_type in enumerate(content_types):
             try:
                 schema = self._schema_cache.get_schema(content_type)
                 export_data.metadata.schemas[content_type] = schema
-
-                if progress_callback:
-                    progress_callback(
-                        idx + 1, len(content_types), f"Fetched schema: {content_type}"
-                    )
             except Exception as e:
                 raise ImportExportError(
                     f"Schema with pluralName is required to export {content_type}",
                     details={"uid": content_type},
                 ) from e
 
+            walked_components.update(self._schema_cache.prefetch_components(schema))
+            if progress_callback:
+                progress_callback(idx + 1, len(content_types), f"Fetched schema: {content_type}")
+
+        export_data.metadata.component_schemas = self._component_schemas_for_export(
+            walked_components
+        )
         logger.info(f"Cached {self._schema_cache.cache_size} schemas")
+
+    def _component_schemas_for_export(self, walked_uids: set[str]) -> dict[str, ContentTypeSchema]:
+        """Return cached component schemas visited during this export only."""
+        cached = self._schema_cache.cached_component_schemas()
+        return {uid: cached[uid] for uid in walked_uids if uid in cached}
 
     def _get_endpoint(self, uid: str) -> str:
         """Return the REST collection id from the cached schema ``pluralName``.
@@ -451,6 +459,7 @@ class StrapiExporter:
 
             # Fetch schemas upfront
             schemas: dict[str, ContentTypeSchema] = {}
+            walked_components: set[str] = set()
             for content_type in content_types:
                 try:
                     ct_schema = self._schema_cache.get_schema(content_type)
@@ -461,6 +470,9 @@ class StrapiExporter:
                         f"Schema with pluralName is required to export {content_type}",
                         details={"uid": content_type},
                     ) from e
+                walked_components.update(self._schema_cache.prefetch_components(ct_schema))
+
+            metadata.component_schemas = self._component_schemas_for_export(walked_components)
 
             all_media_ids: set[int] = set()
 
