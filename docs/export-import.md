@@ -68,6 +68,7 @@ Relation writes cover top-level fields and nested component / dynamic-zone
 paths such as `seo[0].author`. Nested writes merge dest `documentId`s into
 a copy of the exported component object so scalar component fields are
 kept. Paths that cannot be applied are import errors (`success=False`).
+On dry-run those dest gaps are warnings and do not flip `success`.
 
 On a v4 destination (create returns no `documentId`), import falls back to
 numeric `build_nested_numeric_payload` / `PUT {endpoint}/{new_id}`.
@@ -323,7 +324,9 @@ the UID).
 2. **Test First**: Use `dry_run=True` to validate imports. Dry-run
    counts missing dests as imported but does not map them to dest
    id `0` or the source `documentId`. It still reports unresolved
-   dest relations as warnings and counts `entities_to_publish`. Existing dests (SKIP/UPDATE, or
+   dest relations as warnings and counts `entities_to_publish` (live source
+   rows this import would attempt to publish; SKIP/FAIL existing locales are
+   not counted). Existing dests (SKIP/UPDATE, or
    a missing locale of an existing document) still map real dest ids.
 3. **Check Results**: Always review warnings and errors after import
 4. **Media Handling**: Download media files if needed for offline migration

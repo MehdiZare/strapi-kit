@@ -240,10 +240,6 @@ class StrapiImporter:
         if entity_count == 0:
             result.add_warning("No entities to import")
 
-    def _validate_export_data(self, export_data: ExportData, result: ImportResult) -> None:
-        """Validate export data format and compatibility."""
-        self._validate_export_metadata(export_data.metadata, result, export_data.get_entity_count())
-
     def _validate_relations(self, export_data: ExportData, result: ImportResult) -> None:
         """Validate that all relation targets exist in export data.
 
@@ -267,14 +263,13 @@ class StrapiImporter:
 
         for ct, entities in export_data.entities.items():
             schema = export_data.metadata.schemas.get(ct)
-            if not schema:
-                continue
             for entity in entities:
+                if schema is None:
+                    self._warn_missing_export_schema(entity, result)
+                    continue
                 self._warn_missing_relation_targets(entity, schema, available_ids, result)
 
-    def _validate_relations_from_jsonl(
-        self, jsonl_path: Path, options: ImportOptions, result: ImportResult
-    ) -> None:
+    def _validate_relations_from_jsonl(self, jsonl_path: Path, result: ImportResult) -> None:
         """Same export-ID relation checks as ``_validate_relations``, streamed."""
         from strapi_kit.export.jsonl_reader import JSONLImportReader
 
@@ -282,8 +277,6 @@ class StrapiImporter:
         with JSONLImportReader(jsonl_path) as reader:
             reader.read_metadata()
             for entity in reader.iter_entities():
-                if options.content_types and entity.content_type not in options.content_types:
-                    continue
                 ids = available_ids.setdefault(entity.content_type, set())
                 ids.add(entity.id)
                 if entity.document_id:
@@ -292,12 +285,21 @@ class StrapiImporter:
         with JSONLImportReader(jsonl_path) as reader:
             metadata = reader.read_metadata()
             for entity in reader.iter_entities():
-                if options.content_types and entity.content_type not in options.content_types:
-                    continue
                 schema = metadata.schemas.get(entity.content_type)
-                if not schema:
+                if schema is None:
+                    self._warn_missing_export_schema(entity, result)
                     continue
                 self._warn_missing_relation_targets(entity, schema, available_ids, result)
+
+    @staticmethod
+    def _warn_missing_export_schema(entity: ExportedEntity, result: ImportResult) -> None:
+        """Warn when a row has relations but export metadata has no schema."""
+        if not entity.relations:
+            return
+        result.add_warning(
+            f"Cannot validate relations for {entity.content_type}#{entity.id}: "
+            "no schema in export metadata"
+        )
 
     def _warn_missing_relation_targets(
         self,
@@ -312,6 +314,10 @@ class StrapiImporter:
                 schema, field_name, self._schema_cache, entity.data
             )
             if not target_ct:
+                result.add_warning(
+                    f"{entity.content_type}#{entity.id}.{field_name} -> cannot resolve "
+                    "relation target (missing field or component schema)"
+                )
                 continue
 
             if target_ct not in available_ids:
@@ -885,10 +891,14 @@ class StrapiImporter:
 
         new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
         if not new_id:
-            result.add_warning(
+            message = (
                 f"Cannot import relations for {entity.content_type} #{entity.id}: "
                 "entity not in dest mapping"
             )
+            if options.dry_run:
+                result.add_warning(message)
+            else:
+                result.add_error(message)
             return
 
         try:
@@ -933,7 +943,9 @@ class StrapiImporter:
                 else:
                     result.add_error(message)
         except Exception as e:
-            result.add_error(f"Failed to import relations for {entity.content_type} #{new_id}: {e}")
+            result.add_error(
+                f"Failed to import relations for {entity.content_type} #{entity.id}: {e}"
+            )
 
     def _import_media(
         self,
@@ -1382,17 +1394,27 @@ class StrapiImporter:
                 metadata = reader.read_metadata()
 
                 self._cache_export_metadata_schemas(metadata)
-                self._validate_export_metadata(metadata, result, metadata.total_entities)
+                # export_to_jsonl writes metadata first and leaves
+                # total_entities / total_media at 0. Count the file when
+                # those fields are unset so preflight matches import_data.
+                entity_count = metadata.total_entities or reader.get_entity_count()
+                self._validate_export_metadata(metadata, result, entity_count)
                 if options.validate_relations:
                     if options.progress_callback:
                         options.progress_callback(5, 100, "Validating relations")
-                    self._validate_relations_from_jsonl(jsonl_path, options, result)
+                    self._validate_relations_from_jsonl(jsonl_path, result)
 
                 # Step 2: Import media first (if requested)
                 # Use separate reader to avoid consuming entity stream (Issue #30)
                 media_maps = _MediaMaps(id_to_id={}, doc_to_doc={}, id_to_doc={})
-                if options.import_media and media_dir is None and metadata.total_media:
-                    self._warn_missing_media_dir(result)
+                if options.import_media and media_dir is None:
+                    has_media = metadata.total_media > 0
+                    if not has_media:
+                        with JSONLImportReader(jsonl_path) as media_probe:
+                            media_probe.read_metadata()
+                            has_media = bool(media_probe.read_media_manifest())
+                    if has_media:
+                        self._warn_missing_media_dir(result)
                 if options.import_media and media_dir:
                     if options.progress_callback:
                         options.progress_callback(10, 100, "Importing media files")

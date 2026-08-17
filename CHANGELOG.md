@@ -39,7 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dry-run reports unresolved dest relations / nested skips as warnings and
   counts `entities_to_publish` without writing (#135)
 - JSONL import shares export-metadata preflight and relation-target
-  validation with `import_data` (#136)
+  validation with `import_data`. Preflight indexes every type in the
+  file, including types omitted from `content_types`. When streaming
+  metadata leaves `total_entities` / `total_media` at 0, import counts
+  the file instead of trusting those fields (#136)
+- Relation preflight warns when a row has relations but no export schema,
+  or a path cannot resolve to a target type (#136)
 
 ### Changed
 
@@ -56,8 +61,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSONL import no longer pre-creates empty per-type mapping dicts; missing
   dests stay `{}`. Unmapped relation rows are recorded on `ImportResult`
   (#136)
-- Component extract/strip unwraps v4 `{data: ...}` wrappers and logs
-  unexpected scalar / non-dict list payloads (#137)
+- Component extract/strip unwraps v4 `{data: ...}` wrappers only when
+  the object is `{data}` / `{data, meta}`, and logs unexpected scalar /
+  non-dict list payloads (#137)
+- Live import records an unmapped relation row as an error; dry-run
+  still records it as a warning (#136)
 
 ### Removed
 

@@ -28,7 +28,7 @@ Dry-run no longer maps missing dests to id `0` or the source
 unresolved dest relations as warnings and counts `entities_to_publish`.
 JSONL import shares preflight validation with `import_data` and does
 not pre-create empty mapping dicts. Component extract/strip unwraps
-v4 `{data: ...}` wrappers and logs unexpected payload shapes.
+v4 `{data}` / `{data, meta}` wrappers and logs unexpected payload shapes.
 The e2e workflow also runs on library path changes and keeps the
 compose stack until logs are collected.
 

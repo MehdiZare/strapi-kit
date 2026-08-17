@@ -363,14 +363,23 @@ class RelationResolver:
                     except StrapiError:
                         cleaned_data[field_name] = field_value
                         continue
-                    cleaned_data[field_name] = [
-                        RelationResolver.strip_relations_with_schema(
-                            item, component_schema, schema_cache
+                    cleaned_items: list[Any] = []
+                    for idx, item in enumerate(field_value):
+                        if isinstance(item, dict):
+                            cleaned_items.append(
+                                RelationResolver.strip_relations_with_schema(
+                                    item, component_schema, schema_cache
+                                )
+                            )
+                            continue
+                        logger.warning(
+                            "Unexpected component list item at %s[%s]: %s",
+                            field_name,
+                            idx,
+                            type(item).__name__,
                         )
-                        if isinstance(item, dict)
-                        else item
-                        for item in field_value
-                    ]
+                        cleaned_items.append(item)
+                    cleaned_data[field_name] = cleaned_items
                     continue
                 if isinstance(field_value, dict):
                     try:
@@ -391,7 +400,7 @@ class RelationResolver:
                 cleaned_data[field_name] = field_value
                 continue
             if field_schema.type == FieldType.DYNAMIC_ZONE and isinstance(field_value, list):
-                cleaned_items: list[Any] = []
+                cleaned_zone: list[Any] = []
                 for item in field_value:
                     if (
                         isinstance(item, dict)
@@ -402,34 +411,39 @@ class RelationResolver:
                         try:
                             dz_schema = schema_cache.get_component_schema(dz_uid)
                         except StrapiError:
-                            cleaned_items.append(item)
+                            cleaned_zone.append(item)
                             continue
-                        cleaned_items.append(
+                        cleaned_zone.append(
                             RelationResolver.strip_relations_with_schema(
                                 item, dz_schema, schema_cache
                             )
                         )
                     else:
-                        cleaned_items.append(item)
-                cleaned_data[field_name] = cleaned_items
+                        cleaned_zone.append(item)
+                cleaned_data[field_name] = cleaned_zone
                 continue
             cleaned_data[field_name] = field_value
 
         return cleaned_data
 
+    _V4_COMPONENT_WRAPPER_KEYS = frozenset({"data", "meta"})
+
     @staticmethod
     def _unwrap_component_payload(field_value: Any) -> Any:
-        """Unwrap a v4 ``{data: dict|list}`` component wrapper when present."""
-        if (
-            isinstance(field_value, dict)
-            and "data" in field_value
-            and "documentId" not in field_value
-            and "document_id" not in field_value
-            and "__component" not in field_value
-        ):
-            inner = field_value["data"]
-            if inner is None or isinstance(inner, (dict, list)):
-                return inner
+        """Unwrap a v4 ``{data: dict|list}`` component wrapper when present.
+
+        Only ``{"data": ...}`` / ``{"data": ..., "meta": ...}`` are wrappers.
+        A real component that also has a ``data`` field keeps its siblings.
+        """
+        if not isinstance(field_value, dict) or "data" not in field_value:
+            return field_value
+        if field_value.keys() - RelationResolver._V4_COMPONENT_WRAPPER_KEYS:
+            return field_value
+        if any(key in field_value for key in ("documentId", "document_id", "__component")):
+            return field_value
+        inner = field_value["data"]
+        if inner is None or isinstance(inner, (dict, list)):
+            return inner
         return field_value
 
     @staticmethod

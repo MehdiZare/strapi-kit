@@ -1,5 +1,7 @@
 """Tests for relation resolver."""
 
+import logging
+
 import pytest
 
 from strapi_kit.cache.schema_cache import InMemorySchemaCache
@@ -498,8 +500,6 @@ def test_extract_component_unwraps_v4_list_wrapper() -> None:
 
 def test_extract_component_warns_on_scalar_payload(caplog: pytest.LogCaptureFixture) -> None:
     """A scalar component value is skipped and logged."""
-    import logging
-
     seo_schema = ContentTypeSchema(
         uid="shared.seo",
         display_name="SEO",
@@ -535,8 +535,6 @@ def test_extract_component_warns_on_non_dict_list_item(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Non-dict list items are skipped; dict siblings are still walked."""
-    import logging
-
     seo_schema = ContentTypeSchema(
         uid="shared.seo",
         display_name="SEO",
@@ -566,4 +564,134 @@ def test_extract_component_warns_on_non_dict_list_item(
             data, article_schema, _component_cache(seo_schema)
         )
     assert relations == {"seo[1].author": ["auth-src"]}
+    assert any("Unexpected component list item" in rec.message for rec in caplog.records)
+
+
+def _seo_article_schemas(*, repeatable: bool) -> tuple[ContentTypeSchema, ContentTypeSchema]:
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=repeatable,
+            ),
+        },
+    )
+    return seo_schema, article_schema
+
+
+def test_strip_component_unwraps_v4_list_wrapper() -> None:
+    """Strip unwraps ``{data: [...]}`` before removing nested relations."""
+    seo_schema, article_schema = _seo_article_schemas(repeatable=True)
+    data = {
+        "title": "Hello",
+        "seo": {"data": [{"metaTitle": "T", "author": {"documentId": "auth-src"}}]},
+    }
+    stripped = RelationResolver.strip_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    assert stripped == {"title": "Hello", "seo": [{"metaTitle": "T"}]}
+
+
+def test_strip_component_unwraps_v4_dict_wrapper() -> None:
+    """Strip unwraps ``{data: {...}}`` before removing nested relations."""
+    seo_schema, article_schema = _seo_article_schemas(repeatable=False)
+    data = {
+        "title": "Hello",
+        "seo": {"data": {"metaTitle": "T", "author": {"documentId": "auth-src"}}},
+    }
+    stripped = RelationResolver.strip_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    assert stripped == {"title": "Hello", "seo": {"metaTitle": "T"}}
+
+
+def test_unwrap_keeps_component_with_data_sibling() -> None:
+    """A component that also has a ``data`` field is not treated as a wrapper."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "data": FieldSchema(type=FieldType.JSON),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=False,
+            ),
+        },
+    )
+    data = {
+        "seo": {
+            "metaTitle": "T",
+            "data": {"note": "keep"},
+            "author": {"documentId": "auth-src"},
+        }
+    }
+    relations = RelationResolver.extract_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    stripped = RelationResolver.strip_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    assert relations == {"seo.author": ["auth-src"]}
+    assert stripped == {"seo": {"metaTitle": "T", "data": {"note": "keep"}}}
+
+
+def test_strip_component_warns_on_scalar_payload(caplog: pytest.LogCaptureFixture) -> None:
+    """A scalar component value is kept and logged."""
+    seo_schema, article_schema = _seo_article_schemas(repeatable=False)
+    with caplog.at_level(logging.WARNING):
+        stripped = RelationResolver.strip_relations_with_schema(
+            {"title": "Hello", "seo": "oops"},
+            article_schema,
+            _component_cache(seo_schema),
+        )
+    assert stripped == {"title": "Hello", "seo": "oops"}
+    assert any("Unexpected component payload" in rec.message for rec in caplog.records)
+    assert any("seo" in rec.message for rec in caplog.records)
+
+
+def test_strip_component_warns_on_non_dict_list_item(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Non-dict list items are kept and logged; dict siblings are stripped."""
+    seo_schema, article_schema = _seo_article_schemas(repeatable=True)
+    data = {
+        "title": "Hello",
+        "seo": ["x", {"metaTitle": "T", "author": {"documentId": "auth-src"}}],
+    }
+    with caplog.at_level(logging.WARNING):
+        stripped = RelationResolver.strip_relations_with_schema(
+            data, article_schema, _component_cache(seo_schema)
+        )
+    assert stripped == {"title": "Hello", "seo": ["x", {"metaTitle": "T"}]}
     assert any("Unexpected component list item" in rec.message for rec in caplog.records)
