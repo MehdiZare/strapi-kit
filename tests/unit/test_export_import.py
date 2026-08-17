@@ -1112,6 +1112,7 @@ def test_export_records_published_at_and_locale(
                         "title": "Live",
                         "locale": "fr",
                         "publishedAt": "2026-08-16T12:00:00.000Z",
+                        "localizations": [],
                     }
                 ],
                 "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 1}},
@@ -1127,6 +1128,7 @@ def test_export_records_published_at_and_locale(
     entity = export_data.entities["api::article.article"][0]
     assert entity.locale == "fr"
     assert entity.published_at is not None
+    assert "localizations" not in entity.data
 
 
 @pytest.mark.respx

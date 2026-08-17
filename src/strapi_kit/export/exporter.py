@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# populate=* includes i18n sibling stubs that dest writes reject.
+_NON_WRITABLE_ATTRIBUTES = frozenset({"localizations"})
+
 
 class StrapiExporter:
     """Export Strapi content and media to portable format.
@@ -142,6 +145,7 @@ class StrapiExporter:
                     clean_data = RelationResolver.strip_relations_with_schema(
                         entity.attributes, schema, self._schema_cache
                     )
+                    clean_data = self._writable_entity_data(clean_data)
 
                     exported_entity = ExportedEntity(
                         id=entity.id,
@@ -343,6 +347,11 @@ class StrapiExporter:
                 details={"uid": uid},
             ) from e
 
+    @staticmethod
+    def _writable_entity_data(data: dict[str, Any]) -> dict[str, Any]:
+        """Drop populate fields dest writes reject (i18n ``localizations``)."""
+        return {key: value for key, value in data.items() if key not in _NON_WRITABLE_ATTRIBUTES}
+
     def _stream_export_entities(
         self,
         endpoint: str,
@@ -483,6 +492,7 @@ class StrapiExporter:
                         clean_data = RelationResolver.strip_relations_with_schema(
                             entity.attributes, schema, self._schema_cache
                         )
+                        clean_data = self._writable_entity_data(clean_data)
 
                         exported_entity = ExportedEntity(
                             id=entity.id,
