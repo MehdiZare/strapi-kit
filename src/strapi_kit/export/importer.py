@@ -186,6 +186,7 @@ class StrapiImporter:
                     options,
                     result,
                     fail_conflict_keys,
+                    media_maps,
                 )
 
             # Publish after relations so stock v5 PUT ?status=published
@@ -264,7 +265,9 @@ class StrapiImporter:
 
             for entity in entities:
                 for field_name, target_ids in entity.relations.items():
-                    target_ct = schema.get_field_target(field_name)
+                    target_ct = RelationResolver.target_for_field_path(
+                        schema, field_name, self._schema_cache, entity.data
+                    )
                     if not target_ct:
                         continue
 
@@ -346,15 +349,9 @@ class StrapiImporter:
 
                 for entity in batch:
                     try:
-                        # Update media references if we have mappings
-                        entity_data = entity.data
-                        if media_maps.id_to_id or media_maps.doc_to_doc:
-                            entity_data = MediaHandler.update_media_references(
-                                entity.data,
-                                media_maps.id_to_id,
-                                media_maps.doc_to_doc,
-                                media_maps.id_to_doc,
-                            )
+                        # Always convert populate blobs so create never POSTs
+                        # leftover mime/url/source documentId.
+                        entity_data = self._entity_data_for_write(entity.data, media_maps)
 
                         if options.dry_run:
                             result.entities_imported += 1
@@ -735,6 +732,7 @@ class StrapiImporter:
         options: ImportOptions,
         result: ImportResult,
         fail_conflict_keys: set[tuple[str, int]],
+        media_maps: _MediaMaps,
     ) -> None:
         """Import relations for entities.
 
@@ -748,6 +746,7 @@ class StrapiImporter:
             result: Result object to update
             fail_conflict_keys: FAIL-conflicted locales; keep inbound mappings
                 but do not overwrite those dest rows
+            media_maps: Destination media id / documentId mappings
         """
         for content_type in content_types:
             entities = export_data.entities.get(content_type, [])
@@ -795,6 +794,7 @@ class StrapiImporter:
                         result.doc_id_mapping,
                         result.doc_id_to_new_id,
                         result.doc_id_to_new_document_id,
+                        media_maps,
                     )
                     if skipped:
                         result.add_error(
@@ -1027,8 +1027,12 @@ class StrapiImporter:
         doc_id_mapping: dict[str, dict[int, str]],
         doc_id_to_new_id: dict[str, dict[str, int]],
         doc_id_to_new_document_id: dict[str, dict[str, str]],
+        media_maps: _MediaMaps,
     ) -> tuple[bool, list[str]]:
         """Write resolved relations.
+
+        Nested component / dynamic-zone shells are copied from a remapped
+        media write-shape, not from source populate blobs.
 
         Returns:
             Tuple of (whether an update was sent, nested paths that could not
@@ -1036,6 +1040,7 @@ class StrapiImporter:
         """
         skipped: list[str] = []
         write_query = self._write_query(entity)
+        remapped_data = self._entity_data_for_write(entity.data, media_maps)
         resolved_docs = self._resolve_relation_document_ids(
             entity.relations,
             schema,
@@ -1043,26 +1048,28 @@ class StrapiImporter:
             doc_id_mapping,
             doc_id_to_new_id,
             doc_id_to_new_document_id,
-            entity.data,
+            remapped_data,
         )
         payload = RelationResolver.build_v5_relation_payload(
             resolved_docs,
             schema,
             self._schema_cache,
-            entity_data=entity.data,
+            entity_data=remapped_data,
             skipped=skipped,
         )
         new_document_id = doc_id_mapping.get(entity.content_type, {}).get(entity.id)
         if payload and new_document_id:
             self.client.update(endpoint, payload, document_id=new_document_id, query=write_query)
+            self._mark_unwritten_nested_relations(entity.relations, resolved_docs, skipped)
             return True, skipped
 
+        skipped.clear()
         resolved_nums = self._resolve_relations_with_schema(
             entity.relations,
             schema,
             id_mapping,
             doc_id_to_new_id,
-            entity.data,
+            remapped_data,
         )
         new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
         if resolved_nums and new_id is not None:
@@ -1070,14 +1077,42 @@ class StrapiImporter:
                 resolved_nums,
                 schema,
                 self._schema_cache,
-                entity_data=entity.data,
+                entity_data=remapped_data,
                 skipped=skipped,
             )
             if numeric_payload:
                 self.client.update(f"{endpoint}/{new_id}", numeric_payload, query=write_query)
+                self._mark_unwritten_nested_relations(entity.relations, resolved_nums, skipped)
                 return True, skipped
 
+        self._mark_unwritten_nested_relations(entity.relations, {}, skipped)
         return False, skipped
+
+    @staticmethod
+    def _entity_data_for_write(
+        entity_data: dict[str, Any], media_maps: _MediaMaps
+    ) -> dict[str, Any]:
+        """Return a new dict with media populate blobs as dest write ids."""
+        return MediaHandler.update_media_references(
+            entity_data,
+            media_maps.id_to_id,
+            media_maps.doc_to_doc,
+            media_maps.id_to_doc,
+        )
+
+    @staticmethod
+    def _mark_unwritten_nested_relations(
+        relations: dict[str, list[int | str]],
+        resolved: dict[str, list[Any]],
+        skipped: list[str],
+    ) -> None:
+        """Record prefixed relation keys that were not written as skipped."""
+        written = set(resolved) - set(skipped)
+        for field_name in relations:
+            if "." not in field_name and "[" not in field_name:
+                continue
+            if field_name not in written and field_name not in skipped:
+                skipped.append(field_name)
 
     def _resolve_relation_document_ids(
         self,
@@ -1286,15 +1321,7 @@ class StrapiImporter:
                         doc_id_to_new_document_id_mappings[content_type] = {}
 
                     try:
-                        # Update media references
-                        entity_data = entity.data
-                        if media_maps.id_to_id or media_maps.doc_to_doc:
-                            entity_data = MediaHandler.update_media_references(
-                                entity.data,
-                                media_maps.id_to_id,
-                                media_maps.doc_to_doc,
-                                media_maps.id_to_doc,
-                            )
+                        entity_data = self._entity_data_for_write(entity.data, media_maps)
 
                         if options.dry_run:
                             result.entities_imported += 1
@@ -1374,6 +1401,7 @@ class StrapiImporter:
                                 doc_id_mappings,
                                 doc_id_to_new_id_mappings,
                                 doc_id_to_new_document_id_mappings,
+                                media_maps,
                             )
                             if skipped:
                                 result.add_error(

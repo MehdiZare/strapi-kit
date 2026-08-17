@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Unused export/import UID pluralization fallbacks and heuristic
   `extract_relations` / `strip_relations` (schema-aware extract/strip
-  remain). `build_relation_payload` is kept for v4 dest writes (#109)
+  remain). `build_relation_payload` remains a public helper (#109)
 
 ### Fixed
 

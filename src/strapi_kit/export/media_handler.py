@@ -287,8 +287,10 @@ class MediaHandler:
         """Convert media populate objects to dest write ids.
 
         Prefers destination ``documentId`` when the upload (or hash match)
-        recorded one. Falls back to the remapped numeric id. Source
-        ``mime`` / ``url`` / ``documentId`` blobs are not written.
+        recorded one. Falls back to the remapped numeric id. Unmapped
+        one-side files become ``None``; unmapped many-side entries are
+        omitted. Source ``mime`` / ``url`` / ``documentId`` blobs are
+        not written.
 
         Args:
             data: Entity attributes dictionary
@@ -329,7 +331,6 @@ class MediaHandler:
                 return id_to_dest_doc[old_id]
             if old_id in media_id_mapping:
                 return media_id_mapping[old_id]
-            return old_id
         return None
 
     @staticmethod

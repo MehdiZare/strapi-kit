@@ -168,8 +168,8 @@ def test_update_media_references_partial_mapping() -> None:
     mapping = {10: 100}  # Only one ID mapped
     updated = MediaHandler.update_media_references(data, mapping)
 
-    # Mapped id becomes dest write id; unmapped keeps the source numeric id
-    assert updated["gallery"] == [100, 11]
+    # Mapped id becomes dest write id; unmapped entries are omitted
+    assert updated["gallery"] == [100]
 
 
 def test_update_media_references_no_mapping() -> None:
@@ -181,7 +181,8 @@ def test_update_media_references_no_mapping() -> None:
     mapping = {}  # Empty mapping
     updated = MediaHandler.update_media_references(data, mapping)
 
-    assert updated["cover"] == 5
+    # Unmapped one-side media is a write-shape clear, not the source id/blob
+    assert updated["cover"] is None
 
 
 def test_update_media_references_preserves_non_media_fields() -> None:
