@@ -227,7 +227,8 @@ client.remove("articles", document_id="abc123", classify_write_404=True)
 
 Strapi 5 omitted `status=` means published. Draft-only documents 404 on
 the default GET. `exists()` retries once with `status=draft`. A draft
-`ValidationError` (Draft & Publish off) is `False`. Auth / 5xx / network
+`ValidationError` is `False` only for unknown `status` / `publicationState`
+(Draft & Publish off). A populate/filter 400 raises. Auth / 5xx / network
 on either read raise. Collection must be one path segment; `document_id`
 is percent-encoded. A 200 with no `id` / `documentId` is `False`.
 

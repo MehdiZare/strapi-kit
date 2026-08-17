@@ -18,7 +18,9 @@ class ConflictResolution(StrEnum):
     Attributes:
         SKIP: Skip locales that already exist; write missing locales
         UPDATE: Overwrite existing locales; write missing locales
-        FAIL: Abort the import when this locale already exists
+        FAIL: Write missing locales (and later rows); do not overwrite
+            existing locale fields or their outbound relations; then raise
+            after the entity/relation/publish pass
     """
 
     SKIP = "skip"
