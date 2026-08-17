@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and writes key on `(documentId, locale)`; later locales
   `PUT {destDoc}?locale=` (#104)
 - SKIP is per-locale — a missing locale is not treated as a conflict
+- FAIL writes missing locales, then aborts if any locale already existed (#111)
 
 ### Fixed
 

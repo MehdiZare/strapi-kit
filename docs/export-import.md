@@ -169,8 +169,8 @@ document is not a conflict.
 
 - `SKIP`: Skip locales that already exist; write missing locales
 - `UPDATE`: Overwrite existing locales; write missing locales
-- `FAIL`: Abort the import when this locale already exists (fail-fast;
-  later rows in the file are not processed)
+- `FAIL`: Write missing locales, then abort if any locale already existed
+  (import-level failure, not fail-fast on the first hit)
 
 ## Working with Relations
 

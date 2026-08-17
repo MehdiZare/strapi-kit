@@ -656,6 +656,13 @@ def test_import_from_jsonl_fail_aborts_on_existing(
             json={"data": {"id": 42, "documentId": "doc1", "title": "Live"}},
         )
     )
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": {"id": 11, "documentId": "new_doc2", "title": "Article 2"}},
+        )
+    )
 
     with SyncClient(strapi_config) as client:
         importer = StrapiImporter(client)
@@ -664,6 +671,8 @@ def test_import_from_jsonl_fail_aborts_on_existing(
                 jsonl_path,
                 ImportOptions(conflict_resolution=ConflictResolution.FAIL),
             )
+
+    assert create_route.call_count == 1
 
 
 @pytest.mark.respx
@@ -1912,10 +1921,10 @@ def test_import_skip_both_locales_exist(
 
 
 @pytest.mark.respx
-def test_import_fail_only_when_this_locale_exists(
+def test_import_fail_writes_missing_locale_then_raises(
     strapi_config: StrapiConfig, respx_mock: respx.Router
 ) -> None:
-    """FAIL is fail-fast: an existing locale aborts before later rows run."""
+    """FAIL still raises, but missing sibling locales are written first."""
     export_data = _locale_export(_locale_entities())
     _mock_locales(respx_mock, "articles", "shared-doc", {"en"})
     update_route = respx_mock.put("http://localhost:1337/api/articles/shared-doc").mock(
@@ -1930,8 +1939,8 @@ def test_import_fail_only_when_this_locale_exists(
                 export_data, ImportOptions(conflict_resolution=ConflictResolution.FAIL)
             )
 
-    # FAIL raises on the first existing locale, so fr is not reached.
-    assert update_route.call_count == 0
+    assert update_route.call_count == 1
+    assert update_route.calls[0].request.url.params["locale"] == "fr"
 
 
 @pytest.mark.respx
@@ -1951,6 +1960,38 @@ def test_import_fail_writes_missing_locale_when_it_is_first(
         with pytest.raises(ImportExportError, match="already exists"):
             StrapiImporter(client).import_data(
                 export_data, ImportOptions(conflict_resolution=ConflictResolution.FAIL)
+            )
+
+    assert update_route.call_count == 1
+    assert update_route.calls[0].request.url.params["locale"] == "fr"
+
+
+@pytest.mark.respx
+def test_import_from_jsonl_fail_writes_missing_locale(
+    strapi_config: StrapiConfig,
+    respx_mock: respx.Router,
+    tmp_path: Path,
+) -> None:
+    """JSONL FAIL writes missing locales, then aborts (not a per-row add_error)."""
+    export_data = _locale_export(_locale_entities())
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(export_data.metadata)
+        for entity in export_data.entities["api::article.article"]:
+            writer.write_entity(entity)
+
+    _mock_locales(respx_mock, "articles", "shared-doc", {"en"})
+    update_route = respx_mock.put("http://localhost:1337/api/articles/shared-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 2, "documentId": "shared-doc", "title": "Bonjour"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ImportExportError, match="already exists"):
+            StrapiImporter(client).import_from_jsonl(
+                jsonl_path,
+                ImportOptions(conflict_resolution=ConflictResolution.FAIL),
             )
 
     assert update_route.call_count == 1

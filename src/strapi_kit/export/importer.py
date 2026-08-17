@@ -153,6 +153,7 @@ class StrapiImporter:
                 options.progress_callback(40, 100, "Importing entities")
 
             pending_publish: list[tuple[str, Any, str]] = []
+            fail_conflicts: list[str] = []
             self._import_entities(
                 export_data,
                 content_types_to_import,
@@ -160,6 +161,7 @@ class StrapiImporter:
                 options,
                 result,
                 pending_publish,
+                fail_conflicts,
             )
 
             # Step 5: Import relations (if not skipped)
@@ -180,6 +182,8 @@ class StrapiImporter:
 
             if options.progress_callback:
                 options.progress_callback(100, 100, "Import complete")
+
+            self._raise_fail_conflicts(fail_conflicts)
 
             result.success = result.entities_failed == 0 and not result.errors
 
@@ -292,13 +296,15 @@ class StrapiImporter:
         options: ImportOptions,
         result: ImportResult,
         pending_publish: list[tuple[str, Any, str]],
+        fail_conflicts: list[str],
     ) -> None:
         """Import entities for specified content types.
 
         Handles conflict resolution based on options:
         - SKIP: Skip locales that already exist; write missing locales
         - UPDATE: Overwrite existing locales; write missing locales
-        - FAIL: Abort the import when this locale already exists
+        - FAIL: Record an existing locale, keep writing missing locales,
+          then abort after the entity/relation/publish pass
 
         Args:
             export_data: Export data
@@ -306,6 +312,8 @@ class StrapiImporter:
             media_id_mapping: Mapping of old media IDs to new IDs
             options: Import options
             result: Result object to update
+            pending_publish: Live source rows to publish after relations
+            fail_conflicts: FAIL hits collected for a late abort
         """
         total_entities = sum(len(export_data.entities.get(ct, [])) for ct in content_types)
         processed = 0
@@ -344,6 +352,7 @@ class StrapiImporter:
                             doc_id_to_new_id=result.doc_id_to_new_id,
                             doc_id_to_new_document_id=result.doc_id_to_new_document_id,
                             result=result,
+                            fail_conflicts=fail_conflicts,
                         )
 
                     except ValidationError as e:
@@ -385,6 +394,7 @@ class StrapiImporter:
         doc_id_to_new_id: dict[str, dict[str, int]],
         doc_id_to_new_document_id: dict[str, dict[str, str]],
         result: ImportResult,
+        fail_conflicts: list[str],
     ) -> None:
         """Create, localize, skip, or update one exported entity."""
         source_doc = entity.document_id
@@ -415,10 +425,23 @@ class StrapiImporter:
 
             if options.conflict_resolution == ConflictResolution.FAIL:
                 locale_note = f" locale={entity.locale}" if entity.locale else ""
-                raise ImportExportError(
+                fail_conflicts.append(
                     f"Entity already exists: {content_type} with documentId "
                     f"{source_doc}{locale_note}. Use conflict_resolution=SKIP or UPDATE."
                 )
+                result.entities_failed += 1
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=this_locale.id,
+                    dest_document_id=dest_doc,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                return
 
             write_query = self._write_query(entity)
             response = self.client.update(
@@ -625,6 +648,18 @@ class StrapiImporter:
         if entity.locale:
             return StrapiQuery().with_locale(entity.locale)
         return None
+
+    @staticmethod
+    def _raise_fail_conflicts(fail_conflicts: list[str]) -> None:
+        """Abort after the write pass when FAIL collected existing locales."""
+        if not fail_conflicts:
+            return
+        if len(fail_conflicts) == 1:
+            raise ImportExportError(fail_conflicts[0])
+        raise ImportExportError(
+            f"{len(fail_conflicts)} locales already exist. "
+            "Use conflict_resolution=SKIP or UPDATE. " + "; ".join(fail_conflicts)
+        )
 
     @staticmethod
     def _queue_publish(
@@ -1091,6 +1126,7 @@ class StrapiImporter:
 
         result = ImportResult(success=False, dry_run=options.dry_run)
         jsonl_path = Path(jsonl_path)
+        fail_conflicts: list[str] = []
 
         try:
             # ============================================================
@@ -1214,6 +1250,7 @@ class StrapiImporter:
                             doc_id_to_new_id=doc_id_to_new_id_mappings,
                             doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
                             result=result,
+                            fail_conflicts=fail_conflicts,
                         )
 
                     except ImportExportError:
@@ -1290,6 +1327,8 @@ class StrapiImporter:
             result.doc_id_mapping = doc_id_mappings
             result.doc_id_to_new_id = doc_id_to_new_id_mappings
             result.doc_id_to_new_document_id = doc_id_to_new_document_id_mappings
+
+            self._raise_fail_conflicts(fail_conflicts)
 
             result.success = result.entities_failed == 0 and not result.errors
             return result
