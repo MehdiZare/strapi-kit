@@ -432,7 +432,12 @@ def test_import_data_dry_run(
     sample_export_data: ExportData,
     respx_mock: respx.Router,
 ) -> None:
-    """Test import with dry run mode."""
+    """Dry-run probes existence but does not write."""
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not create"}})
+    )
     with SyncClient(strapi_config) as client:
         importer = StrapiImporter(client)
         options = ImportOptions(dry_run=True)
@@ -442,7 +447,7 @@ def test_import_data_dry_run(
         assert result.dry_run
         assert result.entities_imported == 2
         assert result.entities_failed == 0
-        # No actual API calls should be made in dry run
+        assert create_route.call_count == 0
 
 
 @pytest.mark.respx
@@ -547,13 +552,17 @@ def test_import_with_progress_callback(
         assert len(progress_calls) >= 2  # At least validation and completion
 
 
+@pytest.mark.respx
 def test_import_validation_warns_on_version_mismatch(
     strapi_config: StrapiConfig,
     sample_export_data: ExportData,
+    respx_mock: respx.Router,
 ) -> None:
     """Test import validation warns about version mismatches."""
     # Modify export data to have different version
     sample_export_data.metadata.strapi_version = "v4"
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
 
     config = StrapiConfig(
         base_url=strapi_config.base_url,
@@ -2366,6 +2375,33 @@ def test_import_fail_writes_missing_locale_when_it_is_first(
 
     assert update_route.call_count == 1
     assert update_route.calls[0].request.url.params["locale"] == "fr"
+
+
+@pytest.mark.respx
+def test_import_fail_dry_run_probes_and_raises_without_writes(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """FAIL dry-run probes (documentId, locale) and aborts without writing (#121)."""
+    export_data = _locale_export(_locale_entities())
+    _mock_locales(respx_mock, "articles", "shared-doc", {"en"})
+    update_route = respx_mock.put("http://localhost:1337/api/articles/shared-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 2, "documentId": "shared-doc", "title": "Bonjour"}}
+        )
+    )
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not create"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ImportExportError, match="already exists"):
+            StrapiImporter(client).import_data(
+                export_data,
+                ImportOptions(dry_run=True, conflict_resolution=ConflictResolution.FAIL),
+            )
+
+    assert update_route.call_count == 0
+    assert create_route.call_count == 0
 
 
 @pytest.mark.respx
