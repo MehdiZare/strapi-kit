@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Import restores i18n localizations of a shared `documentId`: existence
+  and writes key on `(documentId, locale)`; later locales
+  `PUT {destDoc}?locale=` (#104)
+- SKIP is per-locale — a missing locale is not treated as a conflict
+
+### Fixed
+
+- `exists()` draft `ValidationError` is absent only for unknown
+  `status` / `publicationState` (a populate/filter 400 raises) (#107)
+
 ## [0.3.0] - 2026-08-16
 
 v5 export/import populate contract: extract and write flat `populate=*`

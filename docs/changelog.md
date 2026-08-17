@@ -11,6 +11,10 @@ user-facing summary.
 
 ## [Unreleased]
 
+Import restores i18n localizations of a shared `documentId` (first locale
+creates; later locales `PUT {destDoc}?locale=`). SKIP is per-locale.
+`exists()` no longer treats an unrelated draft 400 as “does not exist.”
+
 ## [0.3.0] - 2026-08-16
 
 v5 export/import populate contract. Trackers: #96 #97 #98 #99 #100 #101.

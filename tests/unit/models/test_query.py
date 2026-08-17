@@ -118,6 +118,14 @@ class TestStrapiQuery:
 
         assert params["locale"] == "fr"
 
+    def test_without_locale_clears_locale_keeps_status(self) -> None:
+        """Clearing locale must not drop ``status=draft``."""
+        query = StrapiQuery().with_document_status(DocumentStatus.DRAFT).with_locale("fr")
+        params = query.without_locale().to_query_params()
+
+        assert "locale" not in params
+        assert params["status"] == "draft"
+
     def test_with_publication_state(self) -> None:
         """Test publication state parameter."""
         query = StrapiQuery().with_publication_state(PublicationState.LIVE)

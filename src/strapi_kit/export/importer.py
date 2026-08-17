@@ -5,6 +5,7 @@ and media files into a Strapi instance.
 """
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,12 +15,15 @@ from strapi_kit.exceptions import (
     NotFoundError,
     StrapiError,
     ValidationError,
+    is_unknown_locale_param,
+    is_unknown_status_param,
 )
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.export.relation_resolver import RelationResolver
 from strapi_kit.models.enums import DocumentStatus
-from strapi_kit.models.export_format import ExportData
+from strapi_kit.models.export_format import ExportData, ExportedEntity
 from strapi_kit.models.import_options import ConflictResolution, ImportOptions, ImportResult
+from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.query import StrapiQuery
 from strapi_kit.models.schema import ContentTypeSchema
 from strapi_kit.utils.endpoints import collection_endpoint
@@ -28,6 +32,14 @@ if TYPE_CHECKING:
     from strapi_kit.client.sync_client import SyncClient
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _ExistingDocument:
+    """A dest document returned by the existence probe."""
+
+    id: int
+    document_id: str | None
 
 
 class StrapiImporter:
@@ -284,9 +296,9 @@ class StrapiImporter:
         """Import entities for specified content types.
 
         Handles conflict resolution based on options:
-        - SKIP: Skip entities that already exist
-        - UPDATE: Update existing entities with imported data
-        - FAIL: Fail import if conflicts are detected
+        - SKIP: Skip locales that already exist; write missing locales
+        - UPDATE: Overwrite existing locales; write missing locales
+        - FAIL: Abort the import when this locale already exists
 
         Args:
             export_data: Export data
@@ -317,89 +329,22 @@ class StrapiImporter:
                             )
 
                         if options.dry_run:
-                            # Just validate, don't actually create
                             result.entities_imported += 1
                             continue
 
-                        # Check for existing entity if document_id is available (for conflict handling)
-                        existing_id: int | None = None
-                        if entity.document_id:
-                            existing_id = self._check_entity_exists(endpoint, entity.document_id)
-
-                        if existing_id is not None:
-                            # Entity already exists - handle according to conflict resolution
-                            if options.conflict_resolution == ConflictResolution.SKIP:
-                                result.entities_skipped += 1
-                                self._record_entity_mappings(
-                                    content_type=content_type,
-                                    entity_id=entity.id,
-                                    source_document_id=entity.document_id,
-                                    new_id=existing_id,
-                                    dest_document_id=entity.document_id,
-                                    id_mapping=result.id_mapping,
-                                    doc_id_mapping=result.doc_id_mapping,
-                                    doc_id_to_new_id=result.doc_id_to_new_id,
-                                    doc_id_to_new_document_id=result.doc_id_to_new_document_id,
-                                )
-                                continue
-
-                            elif options.conflict_resolution == ConflictResolution.FAIL:
-                                raise ImportExportError(
-                                    f"Entity already exists: {content_type} with documentId "
-                                    f"{entity.document_id}. Use conflict_resolution=SKIP or UPDATE."
-                                )
-
-                            elif options.conflict_resolution == ConflictResolution.UPDATE:
-                                write_query = self._write_query(entity)
-                                response = self.client.update(
-                                    endpoint,
-                                    entity_data,
-                                    query=write_query,
-                                    document_id=entity.document_id,
-                                )
-                                if response.data:
-                                    dest_document_id = (
-                                        response.data.document_id or entity.document_id
-                                    )
-                                    self._record_entity_mappings(
-                                        content_type=content_type,
-                                        entity_id=entity.id,
-                                        source_document_id=entity.document_id,
-                                        new_id=response.data.id,
-                                        dest_document_id=dest_document_id,
-                                        id_mapping=result.id_mapping,
-                                        doc_id_mapping=result.doc_id_mapping,
-                                        doc_id_to_new_id=result.doc_id_to_new_id,
-                                        doc_id_to_new_document_id=result.doc_id_to_new_document_id,
-                                    )
-                                    self._queue_publish(
-                                        pending_publish, content_type, entity, dest_document_id
-                                    )
-                                    result.entities_updated += 1
-                                continue
-
-                        write_query = self._write_query(entity)
-                        response = self.client.create(endpoint, entity_data, query=write_query)
-
-                        if response.data:
-                            self._record_entity_mappings(
-                                content_type=content_type,
-                                entity_id=entity.id,
-                                source_document_id=entity.document_id,
-                                new_id=response.data.id,
-                                dest_document_id=response.data.document_id,
-                                id_mapping=result.id_mapping,
-                                doc_id_mapping=result.doc_id_mapping,
-                                doc_id_to_new_id=result.doc_id_to_new_id,
-                                doc_id_to_new_document_id=result.doc_id_to_new_document_id,
-                            )
-                            self._queue_publish(
-                                pending_publish,
-                                content_type,
-                                entity,
-                                response.data.document_id,
-                            )
-                            result.entities_imported += 1
+                        self._import_one_entity(
+                            entity,
+                            endpoint=endpoint,
+                            content_type=content_type,
+                            entity_data=entity_data,
+                            options=options,
+                            pending_publish=pending_publish,
+                            id_mapping=result.id_mapping,
+                            doc_id_mapping=result.doc_id_mapping,
+                            doc_id_to_new_id=result.doc_id_to_new_id,
+                            doc_id_to_new_document_id=result.doc_id_to_new_document_id,
+                            result=result,
+                        )
 
                     except ValidationError as e:
                         result.add_error(
@@ -426,44 +371,230 @@ class StrapiImporter:
                         progress, 100, f"Importing entities ({processed}/{total_entities})"
                     )
 
-    def _check_entity_exists(self, endpoint: str, document_id: str) -> int | None:
-        """Return the numeric id if a published or draft document exists.
+    def _import_one_entity(
+        self,
+        entity: ExportedEntity,
+        *,
+        endpoint: str,
+        content_type: str,
+        entity_data: dict[str, Any],
+        options: ImportOptions,
+        pending_publish: list[tuple[str, Any, str]],
+        id_mapping: dict[str, dict[int, int]],
+        doc_id_mapping: dict[str, dict[int, str]],
+        doc_id_to_new_id: dict[str, dict[str, int]],
+        doc_id_to_new_document_id: dict[str, dict[str, str]],
+        result: ImportResult,
+    ) -> None:
+        """Create, localize, skip, or update one exported entity."""
+        source_doc = entity.document_id
+        dest_doc = (
+            doc_id_to_new_document_id.get(content_type, {}).get(source_doc) if source_doc else None
+        )
 
-        Matches the stream/export default of ``status=draft``: a published
-        miss is retried once with the draft version. Auth, 5xx, and
-        network errors raise. A draft ``ValidationError`` (Draft &
-        Publish off) keeps the published miss as absent.
+        this_locale: _ExistingDocument | None = None
+        if source_doc:
+            this_locale = self._probe_document(endpoint, source_doc, entity.locale)
 
-        Args:
-            endpoint: API collection id (e.g. ``articles``)
-            document_id: Document ID to check
+        if this_locale is not None:
+            dest_doc = dest_doc or this_locale.document_id or source_doc
+            if options.conflict_resolution == ConflictResolution.SKIP:
+                result.entities_skipped += 1
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=this_locale.id,
+                    dest_document_id=dest_doc,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                return
 
-        Returns:
-            Entity's numeric ID if exists, None otherwise
+            if options.conflict_resolution == ConflictResolution.FAIL:
+                locale_note = f" locale={entity.locale}" if entity.locale else ""
+                raise ImportExportError(
+                    f"Entity already exists: {content_type} with documentId "
+                    f"{source_doc}{locale_note}. Use conflict_resolution=SKIP or UPDATE."
+                )
+
+            write_query = self._write_query(entity)
+            response = self.client.update(
+                endpoint, entity_data, query=write_query, document_id=dest_doc
+            )
+            if response.data:
+                dest_document_id = response.data.document_id or dest_doc
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=response.data.id,
+                    dest_document_id=dest_document_id,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                self._queue_publish(pending_publish, content_type, entity, dest_document_id)
+                result.entities_updated += 1
+            return
+
+        write_query = self._write_query(entity)
+        if dest_doc is None and source_doc and entity.locale:
+            any_locale = self._probe_any_document(endpoint, source_doc)
+            if any_locale is not None:
+                dest_doc = any_locale.document_id or source_doc
+
+        if dest_doc is not None:
+            response = self.client.update(
+                endpoint, entity_data, query=write_query, document_id=dest_doc
+            )
+            if response.data:
+                dest_document_id = response.data.document_id or dest_doc
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=response.data.id,
+                    dest_document_id=dest_document_id,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                self._queue_publish(pending_publish, content_type, entity, dest_document_id)
+                result.entities_imported += 1
+            return
+
+        response = self.client.create(endpoint, entity_data, query=write_query)
+        if response.data:
+            self._record_entity_mappings(
+                content_type=content_type,
+                entity_id=entity.id,
+                source_document_id=source_doc,
+                new_id=response.data.id,
+                dest_document_id=response.data.document_id,
+                id_mapping=id_mapping,
+                doc_id_mapping=doc_id_mapping,
+                doc_id_to_new_id=doc_id_to_new_id,
+                doc_id_to_new_document_id=doc_id_to_new_document_id,
+            )
+            self._queue_publish(
+                pending_publish,
+                content_type,
+                entity,
+                response.data.document_id,
+            )
+            result.entities_imported += 1
+
+    def _probe_document(
+        self, endpoint: str, document_id: str, locale: str | None
+    ) -> _ExistingDocument | None:
+        """Published-then-draft existence probe, optionally locale-scoped.
+
+        ``Invalid key locale`` retries that GET once without ``locale``.
+        A draft ``ValidationError`` is absent only for unknown
+        ``status`` / ``publicationState``.
         """
         path = self.client.document_path(endpoint, document_id)
+        published = StrapiQuery().with_locale(locale) if locale else None
         try:
-            response = self.client.get_one(path)
-            if response.data is not None:
-                return response.data.id
+            response = self._get_one_with_locale_fallback(path, published, had_locale=bool(locale))
+            found = self._existing_from_response(response)
+            if found is not None:
+                return found
         except NotFoundError:
             pass
 
+        draft = StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+        if locale:
+            draft = draft.with_locale(locale)
         try:
-            response = self.client.get_one(
-                path,
-                query=StrapiQuery().with_document_status(DocumentStatus.DRAFT),
-            )
-            if response.data is not None:
-                return response.data.id
+            response = self._get_one_with_locale_fallback(path, draft, had_locale=bool(locale))
+            return self._existing_from_response(response)
         except NotFoundError:
             return None
         except ValidationError as error:
-            text = str(error).lower()
-            if "invalid key status" not in text and "invalid key publicationstate" not in text:
-                raise
+            if is_unknown_status_param(error):
+                return None
+            raise
+
+    def _probe_any_document(self, endpoint: str, document_id: str) -> _ExistingDocument | None:
+        """Find a dest document across locales.
+
+        A no-locale GET is the default locale only. ``locale=all`` plus a
+        ``documentId`` filter sees a dest that exists only in a non-default
+        locale. ``Invalid key locale`` falls back to the default-locale
+        document GET (non-i18n types).
+        """
+        published = (
+            StrapiQuery()
+            .filter(FilterBuilder().eq("documentId", document_id))
+            .with_locale("all")
+            .paginate(page=1, page_size=1)
+        )
+        try:
+            found = self._existing_from_collection(self.client.get_many(endpoint, query=published))
+            if found is not None:
+                return found
+        except NotFoundError:
+            pass
+        except ValidationError as error:
+            if is_unknown_locale_param(error):
+                return self._probe_document(endpoint, document_id, locale=None)
+            raise
+
+        draft = published.copy().with_document_status(DocumentStatus.DRAFT)
+        try:
+            return self._existing_from_collection(self.client.get_many(endpoint, query=draft))
+        except NotFoundError:
             return None
-        return None
+        except ValidationError as error:
+            if is_unknown_locale_param(error):
+                return self._probe_document(endpoint, document_id, locale=None)
+            if is_unknown_status_param(error):
+                return None
+            raise
+
+    def _get_one_with_locale_fallback(
+        self, path: str, query: StrapiQuery | None, *, had_locale: bool
+    ) -> Any:
+        """GET once; if ``locale=`` is unknown, retry without it."""
+        try:
+            return self.client.get_one(path, query=query)
+        except ValidationError as error:
+            if had_locale and is_unknown_locale_param(error):
+                return self.client.get_one(path, query=self._without_locale(query))
+            raise
+
+    @staticmethod
+    def _without_locale(query: StrapiQuery | None) -> StrapiQuery | None:
+        """Return a copy of ``query`` with ``locale`` cleared."""
+        if query is None:
+            return None
+        copied = query.copy().without_locale()
+        return copied if copied.to_query_params() else None
+
+    @staticmethod
+    def _existing_from_response(response: Any) -> _ExistingDocument | None:
+        """Build a probe hit when the body identifies a document."""
+        data = response.data
+        if data is None or data.id is None:
+            return None
+        return _ExistingDocument(id=data.id, document_id=data.document_id)
+
+    @staticmethod
+    def _existing_from_collection(response: Any) -> _ExistingDocument | None:
+        """Build a probe hit from the first row of a collection GET."""
+        rows = response.data
+        if not rows:
+            return None
+        data = rows[0]
+        if data.id is None:
+            return None
+        return _ExistingDocument(id=data.id, document_id=data.document_id)
 
     @staticmethod
     def _record_entity_mappings(
@@ -489,8 +620,8 @@ class StrapiImporter:
                     dest_document_id
                 )
 
-    def _write_query(self, entity: Any) -> StrapiQuery | None:
-        """Locale query for create / update / publish, if the export recorded one."""
+    def _write_query(self, entity: ExportedEntity) -> StrapiQuery | None:
+        """Locale query for create, update, localize, publish, and relation PUT."""
         if entity.locale:
             return StrapiQuery().with_locale(entity.locale)
         return None
@@ -499,7 +630,7 @@ class StrapiImporter:
     def _queue_publish(
         pending_publish: list[tuple[str, Any, str]],
         content_type: str,
-        entity: Any,
+        entity: ExportedEntity,
         dest_document_id: str | None,
     ) -> None:
         """Queue a live source document to publish after relations are written."""
@@ -806,14 +937,15 @@ class StrapiImporter:
         if not payload:
             return False
 
+        write_query = self._write_query(entity)
         new_document_id = doc_id_mapping.get(entity.content_type, {}).get(entity.id)
         if new_document_id:
-            self.client.update(endpoint, payload, document_id=new_document_id)
+            self.client.update(endpoint, payload, document_id=new_document_id, query=write_query)
         else:
             new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
             if new_id is None:
                 return False
-            self.client.update(f"{endpoint}/{new_id}", payload)
+            self.client.update(f"{endpoint}/{new_id}", payload, query=write_query)
         return True
 
     def _resolve_relation_document_ids(
@@ -927,7 +1059,7 @@ class StrapiImporter:
         """Import data from JSONL file with two-pass streaming.
 
         This method uses two-pass streaming for true O(1) memory usage:
-        - Pass 1: Create entities, store only ID mappings (old_id -> new_id)
+        - Pass 1: Create, localize, skip, or update each row; store ID mappings
         - Pass 2: Re-read file to resolve relations using ID mappings
 
         Memory profile: O(entity_count x 2 ints) for ID mappings only,
@@ -1070,83 +1202,19 @@ class StrapiImporter:
                             result.entities_imported += 1
                             continue
 
-                        # Get endpoint
-                        endpoint = self._get_endpoint(content_type)
-
-                        # Check for existing entity
-                        existing_id = None
-                        if entity.document_id:
-                            existing_id = self._check_entity_exists(endpoint, entity.document_id)
-
-                        if existing_id is not None:
-                            if options.conflict_resolution == ConflictResolution.SKIP:
-                                self._record_entity_mappings(
-                                    content_type=content_type,
-                                    entity_id=entity.id,
-                                    source_document_id=entity.document_id,
-                                    new_id=existing_id,
-                                    dest_document_id=entity.document_id,
-                                    id_mapping=id_mappings,
-                                    doc_id_mapping=doc_id_mappings,
-                                    doc_id_to_new_id=doc_id_to_new_id_mappings,
-                                    doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
-                                )
-                                result.entities_skipped += 1
-                                continue
-                            elif options.conflict_resolution == ConflictResolution.FAIL:
-                                raise ImportExportError(
-                                    f"Entity already exists: {content_type} {entity.document_id}. "
-                                    "Use conflict_resolution=SKIP or UPDATE."
-                                )
-                            elif options.conflict_resolution == ConflictResolution.UPDATE:
-                                write_query = self._write_query(entity)
-                                response = self.client.update(
-                                    endpoint,
-                                    entity_data,
-                                    query=write_query,
-                                    document_id=entity.document_id,
-                                )
-                                dest_document_id = entity.document_id
-                                if response.data and response.data.document_id:
-                                    dest_document_id = response.data.document_id
-                                self._record_entity_mappings(
-                                    content_type=content_type,
-                                    entity_id=entity.id,
-                                    source_document_id=entity.document_id,
-                                    new_id=existing_id,
-                                    dest_document_id=dest_document_id,
-                                    id_mapping=id_mappings,
-                                    doc_id_mapping=doc_id_mappings,
-                                    doc_id_to_new_id=doc_id_to_new_id_mappings,
-                                    doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
-                                )
-                                self._queue_publish(
-                                    pending_publish, content_type, entity, dest_document_id
-                                )
-                                result.entities_updated += 1
-                                continue
-
-                        write_query = self._write_query(entity)
-                        response = self.client.create(endpoint, data=entity_data, query=write_query)
-                        if response.data:
-                            self._record_entity_mappings(
-                                content_type=content_type,
-                                entity_id=entity.id,
-                                source_document_id=entity.document_id,
-                                new_id=response.data.id,
-                                dest_document_id=response.data.document_id,
-                                id_mapping=id_mappings,
-                                doc_id_mapping=doc_id_mappings,
-                                doc_id_to_new_id=doc_id_to_new_id_mappings,
-                                doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
-                            )
-                            self._queue_publish(
-                                pending_publish,
-                                content_type,
-                                entity,
-                                response.data.document_id,
-                            )
-                        result.entities_imported += 1
+                        self._import_one_entity(
+                            entity,
+                            endpoint=self._get_endpoint(content_type),
+                            content_type=content_type,
+                            entity_data=entity_data,
+                            options=options,
+                            pending_publish=pending_publish,
+                            id_mapping=id_mappings,
+                            doc_id_mapping=doc_id_mappings,
+                            doc_id_to_new_id=doc_id_to_new_id_mappings,
+                            doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
+                            result=result,
+                        )
 
                     except ImportExportError:
                         raise

@@ -383,6 +383,15 @@ class StrapiQuery:
         self._locale = locale
         return self
 
+    def without_locale(self) -> StrapiQuery:
+        """Clear ``locale`` so the query does not send ``locale=``.
+
+        Returns:
+            Self for method chaining
+        """
+        self._locale = None
+        return self
+
     def with_publication_state(self, state: PublicationState) -> StrapiQuery:
         """Set the v4 ``publicationState`` filter (draft & publish).
 
