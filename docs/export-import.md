@@ -169,8 +169,11 @@ document is not a conflict.
 
 - `SKIP`: Skip locales that already exist; write missing locales
 - `UPDATE`: Overwrite existing locales; write missing locales
-- `FAIL`: Write missing locales, then abort if any locale already existed
-  (import-level failure, not fail-fast on the first hit)
+- `FAIL`: Finish the whole entity/relation/publish pass, including later
+  rows. Write missing locales. Do not overwrite existing locale fields or
+  their outbound relations. Then raise `ImportExportError` (import-level
+  failure, not fail-fast on the first hit). The exception `details` include
+  what already landed (`entities_imported`, `relations_imported`, `errors`).
 
 ## Working with Relations
 

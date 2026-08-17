@@ -438,8 +438,9 @@ with SyncClient(target_config) as client:
 1. **JSONL Streaming**: O(1) memory for large datasets via `JSONLExportWriter`/`JSONLImportReader`
 2. **Schema-based Relation Resolution**: `RelationResolver` uses Strapi schema to detect and resolve relations
 3. **Conflict Resolution**: per `(documentId, locale)`. SKIP/UPDATE write
-   missing locales. FAIL writes missing locales, then aborts if any locale
-   already existed (import-level raise, not a per-row `add_error`).
+   missing locales. FAIL finishes the entity/relation/publish pass (including
+   later rows), writes missing locales, does not overwrite existing locale
+   fields or their outbound relations, then raises `ImportExportError`.
 4. **Media Handling**: `MediaHandler` downloads/uploads media with deduplication
 5. **Dry-run Mode**: Validate imports without writing to Strapi
 6. **Progress Callbacks**: Track long-running operations with `progress_callback`

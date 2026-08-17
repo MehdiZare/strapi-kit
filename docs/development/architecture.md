@@ -275,8 +275,9 @@ export/
 
 - **Streaming**: JSONL format for large datasets (O(1) memory)
 - **Conflict Resolution**: SKIP, UPDATE, or FAIL per `(documentId, locale)`.
-  A missing locale is not a conflict. FAIL writes missing locales, then
-  aborts if any locale already existed.
+  A missing locale is not a conflict. FAIL writes missing locales, does not
+  overwrite existing locale fields or their outbound relations, then raises
+  after the entity/relation/publish pass.
 - **Dry-run Mode**: Validate imports without writing
 - **Progress Callbacks**: Track long-running operations
 - **Media Handling**: Download/upload with deduplication
