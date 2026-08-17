@@ -116,13 +116,11 @@ class TestMediaDownload:
             tmp_path = tmp.name
 
         try:
-            content = sync_client.download_file(media.url, save_path=tmp_path)
+            saved_path = sync_client.download_file(media.url, save_path=tmp_path)
 
-            assert content is not None
-            assert len(content) > 0
-
-            # Verify file was saved
-            saved_path = Path(tmp_path)
+            # When save_path is provided, download_file returns Path (not bytes)
+            assert isinstance(saved_path, Path)
+            assert saved_path == Path(tmp_path)
             assert saved_path.exists()
             assert saved_path.stat().st_size > 0
 
