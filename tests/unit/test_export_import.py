@@ -2830,7 +2830,10 @@ def test_import_data_dry_run_does_not_write_relations(
     assert result.dry_run
     assert result.entities_imported == 2
     assert result.relations_imported == 0
+    assert result.entities_to_publish == 2
     assert "Importing relations" not in progress
+    assert "Reporting relations" in progress
+    assert any("not in dest mapping" in warning for warning in result.warnings)
     assert result.id_mapping == {}
     assert result.doc_id_mapping == {}
     assert result.doc_id_to_new_id == {}
@@ -2943,6 +2946,130 @@ def test_import_from_jsonl_dry_run_maps_existing_dest_only(
     assert "doc2" not in result.doc_id_to_new_id.get("api::article.article", {})
     assert update_route.call_count == 0
     assert create_route.call_count == 0
+
+
+@pytest.mark.respx
+def test_import_from_jsonl_dry_run_missing_dests_leave_mapping_empty(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+    tmp_path: Path,
+) -> None:
+    """JSONL dry-run does not pre-create empty per-type mapping dicts (#136)."""
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(sample_export_data.metadata)
+        for entity in sample_export_data.entities["api::article.article"]:
+            writer.write_entity(entity)
+
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not create"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_from_jsonl(jsonl_path, ImportOptions(dry_run=True))
+
+    assert result.entities_imported == 2
+    assert result.id_mapping == {}
+    assert result.doc_id_mapping == {}
+    assert create_route.call_count == 0
+
+
+@pytest.mark.respx
+def test_import_from_jsonl_validates_missing_relation_targets(
+    strapi_config: StrapiConfig, respx_mock: respx.Router, tmp_path: Path
+) -> None:
+    """JSONL preflight warns when a relation target is absent from the export (#136)."""
+    export_data = _nested_component_export()
+    export_data.entities["api::article.article"][0].relations = {"seo[0].author": [99]}
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(export_data.metadata)
+        for content_type in export_data.metadata.content_types:
+            for entity in export_data.entities[content_type]:
+                writer.write_entity(entity)
+
+    _mock_document_missing(respx_mock, "authors", "auth-src")
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    respx_mock.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
+        )
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_from_jsonl(jsonl_path)
+
+    assert any("seo[0].author" in warning and "99" in warning for warning in result.warnings)
+
+
+@pytest.mark.respx
+def test_import_from_jsonl_warns_without_media_dir(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+    tmp_path: Path,
+) -> None:
+    """JSONL import_media with no media_dir records the same skip warning (#136)."""
+    sample_export_data.metadata.total_media = 1
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(sample_export_data.metadata)
+        for entity in sample_export_data.entities["api::article.article"]:
+            writer.write_entity(entity)
+
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        side_effect=[
+            httpx.Response(
+                200, json={"data": {"id": 10, "documentId": "new_doc1", "title": "Article 1"}}
+            ),
+            httpx.Response(
+                200, json={"data": {"id": 11, "documentId": "new_doc2", "title": "Article 2"}}
+            ),
+        ]
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_from_jsonl(jsonl_path)
+
+    assert any("Media directory not specified" in warning for warning in result.warnings)
+
+
+@pytest.mark.respx
+def test_import_data_dry_run_reports_publish_intent_for_live_rows(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Dry-run counts live rows that would publish without calling publish (#135)."""
+    export_data = _locale_export(_locale_entities(published=True)[1:])
+    _mock_document_missing(respx_mock, "articles", "shared-doc")
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not create"}})
+    )
+    publish_route = respx_mock.put("http://localhost:1337/api/articles/dest-doc").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not publish"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data, ImportOptions(dry_run=True))
+
+    assert result.entities_imported == 1
+    assert result.entities_to_publish == 1
+    assert create_route.call_count == 0
+    assert publish_route.call_count == 0
 
 
 @pytest.mark.respx

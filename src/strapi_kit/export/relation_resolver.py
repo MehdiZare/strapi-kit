@@ -161,7 +161,9 @@ class RelationResolver:
             elif field_schema.type == FieldType.COMPONENT and schema_cache:
                 component_uid = field_schema.component
                 if component_uid and field_value:
-                    for suffix, item in RelationResolver._component_items(field_value):
+                    for suffix, item in RelationResolver._component_items(
+                        field_value, field_path=field_name
+                    ):
                         nested = RelationResolver._extract_from_component(
                             item, component_uid, schema_cache, f"{field_name}{suffix}"
                         )
@@ -224,7 +226,9 @@ class RelationResolver:
             elif field_schema.type == FieldType.COMPONENT:
                 nested_uid = field_schema.component
                 if nested_uid and field_value:
-                    for suffix, item in RelationResolver._component_items(field_value):
+                    for suffix, item in RelationResolver._component_items(
+                        field_value, field_path=full_key
+                    ):
                         nested = RelationResolver._extract_from_component(
                             item, nested_uid, schema_cache, f"{full_key}{suffix}"
                         )
@@ -352,6 +356,7 @@ class RelationResolver:
                 and schema_cache is not None
                 and field_schema.component
             ):
+                field_value = RelationResolver._unwrap_component_payload(field_value)
                 if isinstance(field_value, list):
                     try:
                         component_schema = schema_cache.get_component_schema(field_schema.component)
@@ -377,6 +382,14 @@ class RelationResolver:
                         field_value, component_schema, schema_cache
                     )
                     continue
+                if field_value is not None:
+                    logger.warning(
+                        "Unexpected component payload for %s: %s",
+                        field_name,
+                        type(field_value).__name__,
+                    )
+                cleaned_data[field_name] = field_value
+                continue
             if field_schema.type == FieldType.DYNAMIC_ZONE and isinstance(field_value, list):
                 cleaned_items: list[Any] = []
                 for item in field_value:
@@ -405,20 +418,54 @@ class RelationResolver:
         return cleaned_data
 
     @staticmethod
-    def _component_items(field_value: Any) -> list[tuple[str, dict[str, Any]]]:
+    def _unwrap_component_payload(field_value: Any) -> Any:
+        """Unwrap a v4 ``{data: dict|list}`` component wrapper when present."""
+        if (
+            isinstance(field_value, dict)
+            and "data" in field_value
+            and "documentId" not in field_value
+            and "document_id" not in field_value
+            and "__component" not in field_value
+        ):
+            inner = field_value["data"]
+            if inner is None or isinstance(inner, (dict, list)):
+                return inner
+        return field_value
+
+    @staticmethod
+    def _component_items(
+        field_value: Any, *, field_path: str = ""
+    ) -> list[tuple[str, dict[str, Any]]]:
         """Walk a component field by payload shape, not ``repeatable``.
 
         A ``repeatable=False`` schema with a list still yields ``seo[0].``
         prefixes so nested paths such as ``seo[0].author`` are not dropped.
+        v4 ``{data: ...}`` wrappers are unwrapped first. Unexpected shapes
+        are logged and skipped.
         """
-        if isinstance(field_value, list):
-            return [
-                (f"[{idx}].", item)
-                for idx, item in enumerate(field_value)
-                if isinstance(item, dict)
-            ]
-        if isinstance(field_value, dict):
-            return [(".", field_value)]
+        value = RelationResolver._unwrap_component_payload(field_value)
+        if value is None:
+            return []
+        if isinstance(value, list):
+            items: list[tuple[str, dict[str, Any]]] = []
+            for idx, item in enumerate(value):
+                if isinstance(item, dict):
+                    items.append((f"[{idx}].", item))
+                    continue
+                logger.warning(
+                    "Unexpected component list item at %s[%s]: %s",
+                    field_path or "component",
+                    idx,
+                    type(item).__name__,
+                )
+            return items
+        if isinstance(value, dict):
+            return [(".", value)]
+        logger.warning(
+            "Unexpected component payload for %s: %s",
+            field_path or "component",
+            type(value).__name__,
+        )
         return []
 
     @staticmethod

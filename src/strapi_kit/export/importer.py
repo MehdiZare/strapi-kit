@@ -131,7 +131,9 @@ class StrapiImporter:
             if options.progress_callback:
                 options.progress_callback(0, 100, "Validating export data")
 
-            self._validate_export_data(export_data, result)
+            self._validate_export_metadata(
+                export_data.metadata, result, export_data.get_entity_count()
+            )
 
             if result.errors and not options.dry_run:
                 result.success = False
@@ -180,10 +182,14 @@ class StrapiImporter:
                 fail_conflict_keys,
             )
 
-            # Step 5: Import relations (if not skipped and not dry-run)
-            if not options.skip_relations and not options.dry_run:
+            # Step 5: Import relations (write), or report resolve-only on dry-run
+            if not options.skip_relations:
                 if options.progress_callback:
-                    options.progress_callback(60, 100, "Importing relations")
+                    options.progress_callback(
+                        60,
+                        100,
+                        "Reporting relations" if options.dry_run else "Importing relations",
+                    )
 
                 self._import_relations(
                     export_data,
@@ -213,22 +219,17 @@ class StrapiImporter:
             result.add_error(f"Import failed: {e}")
             raise ImportExportError(f"Import failed: {e}") from e
 
-    def _validate_export_data(self, export_data: ExportData, result: ImportResult) -> None:
-        """Validate export data format and compatibility.
-
-        Args:
-            export_data: Export data to validate
-            result: Result object to add errors/warnings to
-        """
-        # Check format version
-        if not export_data.metadata.version.startswith("1."):
+    def _validate_export_metadata(
+        self, metadata: ExportMetadata, result: ImportResult, entity_count: int
+    ) -> None:
+        """Validate export metadata shared by in-memory and JSONL import."""
+        if not metadata.version.startswith("1."):
             result.add_warning(
-                f"Export format version {export_data.metadata.version} may not be fully compatible"
+                f"Export format version {metadata.version} may not be fully compatible"
             )
 
-        # Check Strapi version compatibility
         target_version = self.client.api_version
-        source_version = export_data.metadata.strapi_version
+        source_version = metadata.strapi_version
 
         if target_version and source_version != target_version:
             result.add_warning(
@@ -236,9 +237,12 @@ class StrapiImporter:
                 "Some data may require transformation."
             )
 
-        # Check if we have any data
-        if export_data.get_entity_count() == 0:
+        if entity_count == 0:
             result.add_warning("No entities to import")
+
+    def _validate_export_data(self, export_data: ExportData, result: ImportResult) -> None:
+        """Validate export data format and compatibility."""
+        self._validate_export_metadata(export_data.metadata, result, export_data.get_entity_count())
 
     def _validate_relations(self, export_data: ExportData, result: ImportResult) -> None:
         """Validate that all relation targets exist in export data.
@@ -261,34 +265,68 @@ class StrapiImporter:
                     ids.add(e.document_id)
             available_ids[ct] = ids
 
-        # Check all relations
         for ct, entities in export_data.entities.items():
-            # Get schema for this content type
             schema = export_data.metadata.schemas.get(ct)
             if not schema:
                 continue
-
             for entity in entities:
-                for field_name, target_ids in entity.relations.items():
-                    target_ct = RelationResolver.target_for_field_path(
-                        schema, field_name, self._schema_cache, entity.data
-                    )
-                    if not target_ct:
-                        continue
+                self._warn_missing_relation_targets(entity, schema, available_ids, result)
 
-                    if target_ct not in available_ids:
-                        result.add_warning(
-                            f"{ct}#{entity.id}.{field_name} -> target type '{target_ct}' "
-                            "not in export"
-                        )
-                        continue
+    def _validate_relations_from_jsonl(
+        self, jsonl_path: Path, options: ImportOptions, result: ImportResult
+    ) -> None:
+        """Same export-ID relation checks as ``_validate_relations``, streamed."""
+        from strapi_kit.export.jsonl_reader import JSONLImportReader
 
-                    missing = set(target_ids) - available_ids.get(target_ct, set())
-                    if missing:
-                        result.add_warning(
-                            f"{ct}#{entity.id}.{field_name} -> missing IDs in {target_ct}: "
-                            f"{sorted(missing)}"
-                        )
+        available_ids: dict[str, set[int | str]] = {}
+        with JSONLImportReader(jsonl_path) as reader:
+            reader.read_metadata()
+            for entity in reader.iter_entities():
+                if options.content_types and entity.content_type not in options.content_types:
+                    continue
+                ids = available_ids.setdefault(entity.content_type, set())
+                ids.add(entity.id)
+                if entity.document_id:
+                    ids.add(entity.document_id)
+
+        with JSONLImportReader(jsonl_path) as reader:
+            metadata = reader.read_metadata()
+            for entity in reader.iter_entities():
+                if options.content_types and entity.content_type not in options.content_types:
+                    continue
+                schema = metadata.schemas.get(entity.content_type)
+                if not schema:
+                    continue
+                self._warn_missing_relation_targets(entity, schema, available_ids, result)
+
+    def _warn_missing_relation_targets(
+        self,
+        entity: ExportedEntity,
+        schema: ContentTypeSchema,
+        available_ids: dict[str, set[int | str]],
+        result: ImportResult,
+    ) -> None:
+        """Warn when a relation target type or ID is absent from the export."""
+        for field_name, target_ids in entity.relations.items():
+            target_ct = RelationResolver.target_for_field_path(
+                schema, field_name, self._schema_cache, entity.data
+            )
+            if not target_ct:
+                continue
+
+            if target_ct not in available_ids:
+                result.add_warning(
+                    f"{entity.content_type}#{entity.id}.{field_name} -> target type "
+                    f"'{target_ct}' not in export"
+                )
+                continue
+
+            missing = set(target_ids) - available_ids.get(target_ct, set())
+            if missing:
+                result.add_warning(
+                    f"{entity.content_type}#{entity.id}.{field_name} -> missing IDs "
+                    f"in {target_ct}: {sorted(missing)}"
+                )
 
     def _get_content_types_to_import(
         self, export_data: ExportData, options: ImportOptions
@@ -477,6 +515,9 @@ class StrapiImporter:
                     doc_id_to_new_id=doc_id_to_new_id,
                     doc_id_to_new_document_id=doc_id_to_new_document_id,
                 )
+                self._record_publish_intent(
+                    pending_publish, content_type, entity, this_locale.document_id, options, result
+                )
                 result.entities_updated += 1
                 return
 
@@ -497,7 +538,9 @@ class StrapiImporter:
                     doc_id_to_new_id=doc_id_to_new_id,
                     doc_id_to_new_document_id=doc_id_to_new_document_id,
                 )
-                self._queue_publish(pending_publish, content_type, entity, dest_document_id)
+                self._record_publish_intent(
+                    pending_publish, content_type, entity, dest_document_id, options, result
+                )
                 result.entities_updated += 1
             return
 
@@ -529,6 +572,9 @@ class StrapiImporter:
                     doc_id_to_new_id=doc_id_to_new_id,
                     doc_id_to_new_document_id=doc_id_to_new_document_id,
                 )
+            self._record_publish_intent(
+                pending_publish, content_type, entity, dest_document, options, result
+            )
             result.entities_imported += 1
             return
 
@@ -549,7 +595,9 @@ class StrapiImporter:
                     doc_id_to_new_id=doc_id_to_new_id,
                     doc_id_to_new_document_id=doc_id_to_new_document_id,
                 )
-                self._queue_publish(pending_publish, content_type, entity, dest_document_id)
+                self._record_publish_intent(
+                    pending_publish, content_type, entity, dest_document_id, options, result
+                )
                 result.entities_imported += 1
             return
 
@@ -566,11 +614,13 @@ class StrapiImporter:
                 doc_id_to_new_id=doc_id_to_new_id,
                 doc_id_to_new_document_id=doc_id_to_new_document_id,
             )
-            self._queue_publish(
+            self._record_publish_intent(
                 pending_publish,
                 content_type,
                 entity,
                 response.data.document_id,
+                options,
+                result,
             )
             result.entities_imported += 1
 
@@ -729,6 +779,7 @@ class StrapiImporter:
             "entities_failed": result.entities_failed,
             "entities_skipped": result.entities_skipped,
             "relations_imported": result.relations_imported,
+            "entities_to_publish": result.entities_to_publish,
         }
         extra = ""
         if result.errors:
@@ -742,16 +793,20 @@ class StrapiImporter:
         )
 
     @staticmethod
-    def _queue_publish(
+    def _record_publish_intent(
         pending_publish: list[tuple[str, Any, str]],
         content_type: str,
         entity: ExportedEntity,
         dest_document_id: str | None,
+        options: ImportOptions,
+        result: ImportResult,
     ) -> None:
-        """Queue a live source document to publish after relations are written."""
-        if entity.published_at is None or not dest_document_id:
+        """Count publish intent; queue a dest write only when not dry-run."""
+        if entity.published_at is None:
             return
-        pending_publish.append((content_type, entity, dest_document_id))
+        result.entities_to_publish += 1
+        if dest_document_id and not options.dry_run:
+            pending_publish.append((content_type, entity, dest_document_id))
 
     def _publish_pending(
         self,
@@ -795,67 +850,90 @@ class StrapiImporter:
         for content_type in content_types:
             entities = export_data.entities.get(content_type, [])
             endpoint = self._get_endpoint(content_type)
-
             for entity in entities:
-                # Skip if no relations
-                if not entity.relations:
-                    continue
-                if (content_type, entity.id) in fail_conflict_keys:
-                    continue
+                self._process_entity_relations(
+                    entity,
+                    endpoint,
+                    options,
+                    result,
+                    result.id_mapping,
+                    result.doc_id_mapping,
+                    result.doc_id_to_new_id,
+                    result.doc_id_to_new_document_id,
+                    media_maps,
+                    fail_conflict_keys,
+                )
 
-                # Get the new ID from mapping
-                if content_type not in result.id_mapping:
-                    continue
+    def _process_entity_relations(
+        self,
+        entity: ExportedEntity,
+        endpoint: str,
+        options: ImportOptions,
+        result: ImportResult,
+        id_mapping: dict[str, dict[int, int]],
+        doc_id_mapping: dict[str, dict[int, str]],
+        doc_id_to_new_id: dict[str, dict[str, int]],
+        doc_id_to_new_document_id: dict[str, dict[str, str]],
+        media_maps: _MediaMaps,
+        fail_conflict_keys: set[tuple[str, int]],
+    ) -> None:
+        """Write or dry-run-report dest relations for one entity."""
+        if not entity.relations:
+            return
+        if (entity.content_type, entity.id) in fail_conflict_keys:
+            return
 
-                old_id = entity.id
-                if old_id not in result.id_mapping[content_type]:
-                    logger.warning(
-                        f"Cannot import relations for {content_type} #{old_id}: "
-                        "entity not in ID mapping"
-                    )
-                    continue
+        new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
+        if not new_id:
+            result.add_warning(
+                f"Cannot import relations for {entity.content_type} #{entity.id}: "
+                "entity not in dest mapping"
+            )
+            return
 
-                new_id = result.id_mapping[content_type][old_id]
+        try:
+            schema = self._schema_cache.get_schema(entity.content_type)
+        except Exception as e:
+            result.add_error(
+                f"Failed to load schema for {entity.content_type} while importing relations: {e}"
+            )
+            return
 
-                # Get schema for this content type
-                try:
-                    schema = self._schema_cache.get_schema(content_type)
-                except Exception as e:
-                    result.add_error(
-                        f"Failed to load schema for {content_type} while importing relations: {e}"
-                    )
-                    continue
-
-                try:
-                    if options.dry_run:
-                        continue
-
-                    applied, skipped = self._apply_entity_relations(
-                        entity,
-                        schema,
-                        endpoint,
-                        result.id_mapping,
-                        result.doc_id_mapping,
-                        result.doc_id_to_new_id,
-                        result.doc_id_to_new_document_id,
-                        media_maps,
-                    )
-                    if skipped:
-                        result.add_error(
-                            "Skipped nested relations for "
-                            f"{content_type} #{entity.id}: {', '.join(skipped)}"
-                        )
-                    if applied:
-                        result.relations_imported += 1
-                    elif entity.relations:
-                        result.add_error(
-                            f"Could not write relations for {content_type} #{entity.id}"
-                        )
-
-                except Exception as e:
-                    result.add_error(
-                        f"Failed to import relations for {content_type} #{new_id}: {e}"
-                    )
+        try:
+            applied, skipped = self._apply_entity_relations(
+                entity,
+                schema,
+                endpoint,
+                id_mapping,
+                doc_id_mapping,
+                doc_id_to_new_id,
+                doc_id_to_new_document_id,
+                media_maps,
+                write=not options.dry_run,
+            )
+            if skipped:
+                message = (
+                    "Skipped nested relations for "
+                    f"{entity.content_type} #{entity.id}: {', '.join(skipped)}"
+                )
+                if options.dry_run:
+                    result.add_warning(message)
+                else:
+                    result.add_error(message)
+            if applied:
+                if not options.dry_run:
+                    result.relations_imported += 1
+            elif entity.relations:
+                message = (
+                    f"Could not {'resolve' if options.dry_run else 'write'} relations "
+                    f"for {entity.content_type} #{entity.id}"
+                )
+                if options.dry_run:
+                    result.add_warning(message)
+                else:
+                    result.add_error(message)
+        except Exception as e:
+            result.add_error(f"Failed to import relations for {entity.content_type} #{new_id}: {e}")
 
     def _import_media(
         self,
@@ -881,10 +959,7 @@ class StrapiImporter:
             return media_maps
 
         if media_dir is None:
-            logger.warning(
-                "Media directory not specified - skipping media import. "
-                "Media references in entities will not be updated."
-            )
+            self._warn_missing_media_dir(result)
             return media_maps
 
         media_path = Path(media_dir)
@@ -939,6 +1014,16 @@ class StrapiImporter:
 
         logger.info(f"Imported {result.media_imported}/{len(export_data.media)} media files")
         return media_maps
+
+    @staticmethod
+    def _warn_missing_media_dir(result: ImportResult) -> None:
+        """Log and record that media import was skipped for lack of a directory."""
+        message = (
+            "Media directory not specified - skipping media import. "
+            "Media references in entities will not be updated."
+        )
+        logger.warning(message)
+        result.add_warning(message)
 
     @staticmethod
     def _record_media_mapping(
@@ -1080,15 +1165,20 @@ class StrapiImporter:
         doc_id_to_new_id: dict[str, dict[str, int]],
         doc_id_to_new_document_id: dict[str, dict[str, str]],
         media_maps: _MediaMaps,
+        *,
+        write: bool = True,
     ) -> tuple[bool, list[str]]:
-        """Write resolved relations.
+        """Resolve relations and optionally write them.
 
         Nested component / dynamic-zone shells are copied from a remapped
         media write-shape, not from source populate blobs.
 
+        Args:
+            write: When false, resolve and report without ``client.update``.
+
         Returns:
-            Tuple of (whether an update was sent, nested paths that could not
-            be written).
+            Tuple of (whether an update was or would be sent, nested paths
+            that could not be written).
         """
         skipped: list[str] = []
         write_query = self._write_query(entity)
@@ -1111,7 +1201,10 @@ class StrapiImporter:
         )
         new_document_id = doc_id_mapping.get(entity.content_type, {}).get(entity.id)
         if payload and new_document_id:
-            self.client.update(endpoint, payload, document_id=new_document_id, query=write_query)
+            if write:
+                self.client.update(
+                    endpoint, payload, document_id=new_document_id, query=write_query
+                )
             self._mark_unwritten_nested_relations(entity.relations, resolved_docs, skipped)
             return True, skipped
 
@@ -1134,7 +1227,8 @@ class StrapiImporter:
                 skipped=skipped,
             )
             if numeric_payload:
-                self.client.update(f"{endpoint}/{new_id}", numeric_payload, query=write_query)
+                if write:
+                    self.client.update(f"{endpoint}/{new_id}", numeric_payload, query=write_query)
                 self._mark_unwritten_nested_relations(entity.relations, resolved_nums, skipped)
                 return True, skipped
 
@@ -1288,10 +1382,17 @@ class StrapiImporter:
                 metadata = reader.read_metadata()
 
                 self._cache_export_metadata_schemas(metadata)
+                self._validate_export_metadata(metadata, result, metadata.total_entities)
+                if options.validate_relations:
+                    if options.progress_callback:
+                        options.progress_callback(5, 100, "Validating relations")
+                    self._validate_relations_from_jsonl(jsonl_path, options, result)
 
                 # Step 2: Import media first (if requested)
                 # Use separate reader to avoid consuming entity stream (Issue #30)
                 media_maps = _MediaMaps(id_to_id={}, doc_to_doc={}, id_to_doc={})
+                if options.import_media and media_dir is None and metadata.total_media:
+                    self._warn_missing_media_dir(result)
                 if options.import_media and media_dir:
                     if options.progress_callback:
                         options.progress_callback(10, 100, "Importing media files")
@@ -1372,11 +1473,6 @@ class StrapiImporter:
                         continue
 
                     content_type = entity.content_type
-                    if content_type not in id_mappings:
-                        id_mappings[content_type] = {}
-                        doc_id_mappings[content_type] = {}
-                        doc_id_to_new_id_mappings[content_type] = {}
-                        doc_id_to_new_document_id_mappings[content_type] = {}
 
                     try:
                         entity_data = self._entity_data_for_write(
@@ -1409,72 +1505,39 @@ class StrapiImporter:
             # Pass 2: Re-read file to resolve relations using ID mappings
             # True O(1) memory - entities processed one at a time
             # ============================================================
-            if not options.skip_relations and not options.dry_run:
+            if not options.skip_relations:
                 if options.progress_callback:
-                    options.progress_callback(70, 100, "Resolving relations (pass 2)")
+                    options.progress_callback(
+                        70,
+                        100,
+                        "Reporting relations (pass 2)"
+                        if options.dry_run
+                        else "Resolving relations (pass 2)",
+                    )
 
                 with JSONLImportReader(jsonl_path) as reader2:
-                    # Skip metadata (already loaded)
                     reader2.read_metadata()
 
                     for entity in reader2.iter_entities():
-                        # Filter by content types if specified
                         if (
                             options.content_types
                             and entity.content_type not in options.content_types
                         ):
                             continue
-
-                        # Skip entities without relations
                         if not entity.relations:
                             continue
-                        if (entity.content_type, entity.id) in fail_conflict_keys:
-                            continue
-
-                        content_type = entity.content_type
-                        endpoint = self._get_endpoint(content_type)
-
-                        new_id = id_mappings.get(content_type, {}).get(entity.id)
-                        # 0 is a leftover dry-run placeholder, not a dest write target.
-                        if not new_id:
-                            continue
-
-                        # Get schema from cache
-                        try:
-                            schema = self._schema_cache.get_schema(content_type)
-                        except Exception as e:
-                            result.add_error(
-                                "Failed to load schema for "
-                                f"{content_type} while importing relations: {e}"
-                            )
-                            continue
-
-                        try:
-                            applied, skipped = self._apply_entity_relations(
-                                entity,
-                                schema,
-                                endpoint,
-                                id_mappings,
-                                doc_id_mappings,
-                                doc_id_to_new_id_mappings,
-                                doc_id_to_new_document_id_mappings,
-                                media_maps,
-                            )
-                            if skipped:
-                                result.add_error(
-                                    "Skipped nested relations for "
-                                    f"{content_type} {entity.id}: {', '.join(skipped)}"
-                                )
-                            if applied:
-                                result.relations_imported += 1
-                            elif entity.relations:
-                                result.add_error(
-                                    f"Could not write relations for {content_type} {entity.id}"
-                                )
-                        except StrapiError as e:
-                            result.add_error(
-                                f"Failed to import relations for {content_type} {entity.id}: {e}"
-                            )
+                        self._process_entity_relations(
+                            entity,
+                            self._get_endpoint(entity.content_type),
+                            options,
+                            result,
+                            id_mappings,
+                            doc_id_mappings,
+                            doc_id_to_new_id_mappings,
+                            doc_id_to_new_document_id_mappings,
+                            media_maps,
+                            fail_conflict_keys,
+                        )
 
             self._publish_pending(pending_publish, options, result)
 

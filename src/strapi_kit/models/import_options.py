@@ -96,6 +96,7 @@ class ImportResult(BaseModel):
         entities_updated: Number of entities updated
         entities_failed: Number of entities that failed
         relations_imported: Number of relation updates performed
+        entities_to_publish: Live source rows that would be (or were) published
         media_imported: Number of media files imported
         media_skipped: Number of media files skipped
         errors: List of error messages
@@ -118,6 +119,13 @@ class ImportResult(BaseModel):
     entities_updated: int = Field(default=0, description="Entities updated")
     entities_failed: int = Field(default=0, description="Entities failed")
     relations_imported: int = Field(default=0, description="Relation updates performed")
+    entities_to_publish: int = Field(
+        default=0,
+        description=(
+            "Live source rows that would be published after relations. "
+            "Dry-run counts intent without calling publish."
+        ),
+    )
     media_imported: int = Field(default=0, description="Media files imported")
     media_skipped: int = Field(default=0, description="Media files skipped")
     errors: list[str] = Field(default_factory=list, description="Error messages")

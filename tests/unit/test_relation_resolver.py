@@ -1,5 +1,7 @@
 """Tests for relation resolver."""
 
+import pytest
+
 from strapi_kit.cache.schema_cache import InMemorySchemaCache
 from strapi_kit.export.relation_resolver import RelationResolver
 from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
@@ -428,3 +430,140 @@ def test_extract_nested_component_dispatches_on_list_shape() -> None:
         data, article_schema, _component_cache(byline_schema, seo_schema)
     )
     assert relations == {"seo.byline[0].author": ["auth-src"]}
+
+
+def test_extract_component_unwraps_v4_data_wrapper() -> None:
+    """A v4 ``{data: {...}}`` component wrapper is unwrapped before walking."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=False,
+            ),
+        },
+    )
+    data = {"seo": {"data": {"author": {"id": 1, "documentId": "auth-src"}}}}
+    relations = RelationResolver.extract_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    assert relations == {"seo.author": ["auth-src"]}
+
+
+def test_extract_component_unwraps_v4_list_wrapper() -> None:
+    """A v4 ``{data: [...]}`` wrapper walks each list item."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=True,
+            ),
+        },
+    )
+    data = {"seo": {"data": [{"author": {"id": 1, "documentId": "auth-src"}}]}}
+    relations = RelationResolver.extract_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    assert relations == {"seo[0].author": ["auth-src"]}
+
+
+def test_extract_component_warns_on_scalar_payload(caplog: pytest.LogCaptureFixture) -> None:
+    """A scalar component value is skipped and logged."""
+    import logging
+
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=False,
+            ),
+        },
+    )
+    with caplog.at_level(logging.WARNING):
+        relations = RelationResolver.extract_relations_with_schema(
+            {"seo": "oops"}, article_schema, _component_cache(seo_schema)
+        )
+    assert relations == {}
+    assert any("Unexpected component payload" in rec.message for rec in caplog.records)
+
+
+def test_extract_component_warns_on_non_dict_list_item(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Non-dict list items are skipped; dict siblings are still walked."""
+    import logging
+
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=True,
+            ),
+        },
+    )
+    data = {"seo": ["x", {"author": {"id": 1, "documentId": "auth-src"}}]}
+    with caplog.at_level(logging.WARNING):
+        relations = RelationResolver.extract_relations_with_schema(
+            data, article_schema, _component_cache(seo_schema)
+        )
+    assert relations == {"seo[1].author": ["auth-src"]}
+    assert any("Unexpected component list item" in rec.message for rec in caplog.records)
