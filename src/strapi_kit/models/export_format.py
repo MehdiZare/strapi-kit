@@ -117,6 +117,7 @@ class ExportedMediaFile(BaseModel):
     """
 
     id: int = Field(..., description="Original media file ID")
+    document_id: str | None = Field(None, description="Source file documentId (v5)")
     url: str = Field(..., description="Original URL")
     name: str = Field(..., description="File name")
     mime: str = Field(..., description="MIME type")

@@ -7,6 +7,8 @@ and resolving them during import using ID mappings.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import StrapiError
@@ -26,76 +28,6 @@ class RelationResolver:
     During export: Extracts relation IDs from entity attributes
     During import: Resolves old IDs to new IDs using mapping
     """
-
-    @staticmethod
-    def extract_relations(data: dict[str, Any]) -> dict[str, list[int | str]]:
-        """Extract relation field IDs from entity data.
-
-        Args:
-            data: Entity attributes dictionary
-
-        Returns:
-            Dictionary mapping relation field names to lists of IDs
-
-        Example:
-            >>> data = {
-            ...     "title": "Article",
-            ...     "author": {"data": {"id": 5}},
-            ...     "categories": {"data": [{"id": 1}, {"id": 2}]}
-            ... }
-            >>> RelationResolver.extract_relations(data)
-            {'author': [5], 'categories': [1, 2]}
-        """
-        relations: dict[str, list[int | str]] = {}
-
-        for field_name, field_value in data.items():
-            if isinstance(field_value, dict) and "data" in field_value:
-                # This looks like a relation field
-                relation_data = field_value["data"]
-
-                if relation_data is None:
-                    # Null relation
-                    relations[field_name] = []
-                elif isinstance(relation_data, dict):
-                    # Single relation
-                    if "id" in relation_data:
-                        relations[field_name] = [relation_data["id"]]
-                elif isinstance(relation_data, list):
-                    # Multiple relations
-                    ids = [item["id"] for item in relation_data if "id" in item]
-                    if ids:
-                        relations[field_name] = ids
-
-        return relations
-
-    @staticmethod
-    def strip_relations(data: dict[str, Any]) -> dict[str, Any]:
-        """Remove relation fields from entity data.
-
-        Useful for importing entities without relations first,
-        then adding relations in a second pass.
-
-        Args:
-            data: Entity attributes dictionary
-
-        Returns:
-            Copy of data with relation fields removed
-
-        Example:
-            >>> data = {"title": "Article", "author": {"data": {"id": 5}}}
-            >>> RelationResolver.strip_relations(data)
-            {'title': 'Article'}
-        """
-        cleaned_data = {}
-
-        for field_name, field_value in data.items():
-            # Skip fields that look like relations
-            if isinstance(field_value, dict) and "data" in field_value:
-                continue
-
-            cleaned_data[field_name] = field_value
-
-        return cleaned_data
 
     @staticmethod
     def resolve_relations(
@@ -484,13 +416,32 @@ class RelationResolver:
         return cleaned_data
 
     @staticmethod
+    def split_field_path(field_path: str) -> list[tuple[str, int | None]]:
+        """Split ``seo[0].author`` / ``seo.author`` into ``(name, index)`` tokens."""
+        tokens: list[tuple[str, int | None]] = []
+        for raw in field_path.replace("]", "").split("."):
+            if not raw:
+                continue
+            if "[" in raw:
+                name, index_text = raw.split("[", 1)
+                if not name or not index_text.isdigit():
+                    return []
+                tokens.append((name, int(index_text)))
+            else:
+                tokens.append((raw, None))
+        return tokens
+
+    @staticmethod
     def relation_field_is_multiple(
         schema: ContentTypeSchema,
         field_path: str,
         schema_cache: InMemorySchemaCache | None = None,
+        entity_data: dict[str, Any] | None = None,
     ) -> bool:
         """Return True for many-side relations (oneToMany / manyToMany)."""
-        field_schema = RelationResolver._field_schema_for_path(schema, field_path, schema_cache)
+        field_schema = RelationResolver._field_schema_for_path(
+            schema, field_path, schema_cache, entity_data
+        )
         if field_schema is None or field_schema.relation is None:
             return False
         return field_schema.relation in {
@@ -503,9 +454,12 @@ class RelationResolver:
         schema: ContentTypeSchema,
         field_path: str,
         schema_cache: InMemorySchemaCache | None = None,
+        entity_data: dict[str, Any] | None = None,
     ) -> str | None:
         """Resolve a (possibly nested) field path to a relation target UID."""
-        field_schema = RelationResolver._field_schema_for_path(schema, field_path, schema_cache)
+        field_schema = RelationResolver._field_schema_for_path(
+            schema, field_path, schema_cache, entity_data
+        )
         if field_schema is None or field_schema.type != FieldType.RELATION:
             return None
         return field_schema.target
@@ -515,47 +469,177 @@ class RelationResolver:
         schema: ContentTypeSchema,
         field_path: str,
         schema_cache: InMemorySchemaCache | None,
+        entity_data: dict[str, Any] | None = None,
     ) -> FieldSchema | None:
-        """Walk ``seo[0].author`` / ``seo.author`` against schema (+ components)."""
-        parts = [part for part in field_path.replace("[", ".").replace("]", "").split(".") if part]
-        current = schema
-        field_schema = None
-        for index, part in enumerate(parts):
-            if part.isdigit():
-                continue
-            field_schema = current.fields.get(part)
+        """Walk ``seo[0].author`` / ``content[0].author`` against schema + data."""
+        tokens = RelationResolver.split_field_path(field_path)
+        if not tokens:
+            return None
+        current_schema = schema
+        current_data: Any = entity_data
+        field_schema: FieldSchema | None = None
+        for position, (name, index) in enumerate(tokens):
+            field_schema = current_schema.fields.get(name)
             if field_schema is None:
                 return None
-            if index == len(parts) - 1:
+            if position == len(tokens) - 1:
                 return field_schema
+            next_data: Any = None
+            if isinstance(current_data, dict):
+                next_data = current_data.get(name)
+                if index is not None:
+                    if not isinstance(next_data, list) or index >= len(next_data):
+                        next_data = None
+                    else:
+                        next_data = next_data[index]
+            elif isinstance(current_data, list) and index is not None and index < len(current_data):
+                next_data = current_data[index]
             if field_schema.type == FieldType.COMPONENT and field_schema.component:
                 if schema_cache is None:
                     return None
                 try:
-                    current = schema_cache.get_component_schema(field_schema.component)
+                    current_schema = schema_cache.get_component_schema(field_schema.component)
                 except StrapiError:
                     return None
+                current_data = next_data
             elif field_schema.type == FieldType.DYNAMIC_ZONE:
-                return None
+                if schema_cache is None or not isinstance(next_data, dict):
+                    return None
+                component_uid = next_data.get("__component")
+                if not isinstance(component_uid, str) or not component_uid:
+                    return None
+                try:
+                    current_schema = schema_cache.get_component_schema(component_uid)
+                except StrapiError:
+                    return None
+                current_data = next_data
             else:
                 return None
         return field_schema
+
+    @staticmethod
+    def _set_path_value(tree: dict[str, Any], field_path: str, value: Any) -> bool:
+        """Set ``value`` at ``field_path`` inside ``tree``. Returns False if missing."""
+        tokens = RelationResolver.split_field_path(field_path)
+        if not tokens:
+            return False
+        current: Any = tree
+        for name, index in tokens[:-1]:
+            if not isinstance(current, dict) or name not in current:
+                return False
+            current = current[name]
+            if index is not None:
+                if not isinstance(current, list) or index >= len(current):
+                    return False
+                current = current[index]
+        last_name, last_index = tokens[-1]
+        if last_index is not None:
+            if not isinstance(current, dict) or last_name not in current:
+                return False
+            target = current[last_name]
+            if not isinstance(target, list) or last_index >= len(target):
+                return False
+            target[last_index] = value
+            return True
+        if not isinstance(current, dict):
+            return False
+        current[last_name] = value
+        return True
+
+    @staticmethod
+    def _build_relation_payload(
+        relations: dict[str, list[Any]],
+        schema: ContentTypeSchema,
+        schema_cache: InMemorySchemaCache | None,
+        entity_data: dict[str, Any] | None,
+        skipped: list[str] | None,
+        value_for: Callable[[list[Any], bool], Any],
+    ) -> dict[str, Any]:
+        """Build top-level and nested relation writes from path keys."""
+        payload: dict[str, Any] = {}
+        nested_by_root: dict[str, list[tuple[str, list[Any]]]] = {}
+        for field_name, ids in relations.items():
+            if "." in field_name or "[" in field_name:
+                tokens = RelationResolver.split_field_path(field_name)
+                if not tokens:
+                    if skipped is not None:
+                        skipped.append(field_name)
+                    continue
+                nested_by_root.setdefault(tokens[0][0], []).append((field_name, ids))
+                continue
+            multiple = RelationResolver.relation_field_is_multiple(
+                schema, field_name, schema_cache, entity_data
+            )
+            payload[field_name] = value_for(ids, multiple)
+
+        for root, items in nested_by_root.items():
+            if entity_data is None or root not in entity_data:
+                if skipped is not None:
+                    skipped.extend(path for path, _ in items)
+                continue
+            tree = {root: deepcopy(entity_data[root])}
+            wrote_any = False
+            for path, ids in items:
+                multiple = RelationResolver.relation_field_is_multiple(
+                    schema, path, schema_cache, entity_data
+                )
+                if not RelationResolver._set_path_value(tree, path, value_for(ids, multiple)):
+                    if skipped is not None:
+                        skipped.append(path)
+                    continue
+                wrote_any = True
+            if wrote_any:
+                payload[root] = tree[root]
+        return payload
 
     @staticmethod
     def build_v5_relation_payload(
         relations: dict[str, list[str]],
         schema: ContentTypeSchema,
         schema_cache: InMemorySchemaCache | None = None,
+        *,
+        entity_data: dict[str, Any] | None = None,
+        skipped: list[str] | None = None,
     ) -> dict[str, Any]:
         """Build a Strapi 5 relation write payload from documentId lists.
 
-        Nested (prefixed) keys are omitted — only top-level relation fields
-        are written here.
+        Nested paths such as ``seo[0].author`` are merged into a copy of
+        ``entity_data`` so component / dynamic-zone scalars are preserved.
+        Paths that cannot be written are appended to ``skipped``.
         """
-        payload: dict[str, Any] = {}
-        for field_name, document_ids in relations.items():
-            if "." in field_name or "[" in field_name:
-                continue
-            multiple = RelationResolver.relation_field_is_multiple(schema, field_name, schema_cache)
-            payload[field_name] = relation_write(document_ids=document_ids, multiple=multiple)
-        return payload
+        return RelationResolver._build_relation_payload(
+            relations,
+            schema,
+            schema_cache,
+            entity_data,
+            skipped,
+            lambda ids, multiple: relation_write(document_ids=ids, multiple=multiple),
+        )
+
+    @staticmethod
+    def build_nested_numeric_payload(
+        relations: dict[str, list[int]],
+        schema: ContentTypeSchema,
+        schema_cache: InMemorySchemaCache | None = None,
+        *,
+        entity_data: dict[str, Any] | None = None,
+        skipped: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Build a v4 numeric relation payload, including nested component paths."""
+
+        def _numeric(ids: list[Any], multiple: bool) -> Any:
+            numbers = [item for item in ids if isinstance(item, int)]
+            if not numbers:
+                return []
+            if multiple or len(numbers) != 1:
+                return numbers
+            return numbers[0]
+
+        return RelationResolver._build_relation_payload(
+            relations,
+            schema,
+            schema_cache,
+            entity_data,
+            skipped,
+            _numeric,
+        )

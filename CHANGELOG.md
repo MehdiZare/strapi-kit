@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PUT {destDoc}?locale=` (#104)
 - SKIP is per-locale — a missing locale is not treated as a conflict
 - FAIL writes missing locales, then aborts if any locale already existed (#111)
+- Nested component / dynamic-zone relation writes on import (`seo[0].author`)
+  (#105)
+- `media_write()` and dest file `documentId` mapping so import posts write
+  ids, not remapped populate blobs (#106)
+- v4 destination relation import falls back to numeric
+  `build_nested_numeric_payload` + `PUT {endpoint}/{id}` (#108)
 
 ### Changed
 
@@ -21,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rows). Existing locale fields and outbound relations are not overwritten.
   `ImportExportError.details` includes imported/failed counts and later-pass
   errors (#111)
+
+### Removed
+
+- Unused export/import UID pluralization fallbacks and heuristic
+  `extract_relations` / `strip_relations` (schema-aware extract/strip
+  remain). `build_relation_payload` is kept for v4 dest writes (#109)
 
 ### Fixed
 

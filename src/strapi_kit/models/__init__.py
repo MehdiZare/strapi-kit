@@ -43,6 +43,7 @@ from .export_format import (
 from .import_options import ConflictResolution, ImportOptions, ImportResult
 from .request.fields import FieldSelection
 from .request.filters import FilterBuilder, FilterCondition, FilterGroup
+from .request.media_write import media_write
 from .request.pagination import OffsetPagination, PagePagination, Pagination
 from .request.populate import Populate, PopulateField
 from .request.query import StrapiQuery
@@ -112,8 +113,9 @@ __all__ = [
     "PopulateField",
     # Request models - Query (Main API)
     "StrapiQuery",
-    # Request models - Relation writes (Strapi 5)
+    # Request models - Relation / media writes (Strapi 5)
     "relation_write",
+    "media_write",
     # Response models - Base
     "BaseStrapiResponse",
     "StrapiSingleResponse",

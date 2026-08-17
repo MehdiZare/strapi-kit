@@ -85,7 +85,7 @@ from strapi_kit.models import (
 )
 
 # Strapi 5 relation writes (also exported from strapi_kit)
-from strapi_kit import RelationWriteOp, relation_write
+from strapi_kit import RelationWriteOp, relation_write, media_write
 # Strapi v5 Blocks (rich text JSON) ↔ Markdown
 from strapi_kit import FieldType, MarkdownConversion, BlockNode, blocks_to_markdown, markdown_to_blocks
 
@@ -315,6 +315,22 @@ data = {
 
 response = client.create("articles", data)
 ```
+
+### Media Writes
+
+Do not POST leftover populate objects (`mime`, `url`, source `documentId`).
+Use dest file `documentId` or numeric id:
+
+```python
+from strapi_kit import media_write
+
+data = {
+    "cover": media_write(file_ids=["file-dest"], multiple=False),
+    "gallery": media_write(file_ids=["a", "b"], multiple=True),
+}
+```
+
+Import remaps uploaded files and converts media fields to this write shape.
 
 ## Query Building
 
@@ -736,6 +752,7 @@ with SyncClient(config) as client:
 | `src/strapi_kit/client/base.py` | Shared client logic |
 | `src/strapi_kit/models/request/query.py` | StrapiQuery builder |
 | `src/strapi_kit/models/request/relation_write.py` | v5 relation write helper |
+| `src/strapi_kit/models/request/media_write.py` | dest media write helper |
 | `src/strapi_kit/models/request/filters.py` | FilterBuilder |
 | `src/strapi_kit/models/response/normalized.py` | Response models |
 | `src/strapi_kit/models/response/pagination.py` | Pagination echo / maxLimit guard |

@@ -61,9 +61,17 @@ system:
 2. Maps the source `documentId` to the destination `documentId`
 3. PUTs `{"data": {"author": "new-author-doc"}}` via `relation_write()`
 
-Only **top-level** relation fields are written. Nested component / dynamic-zone
-paths such as `seo[0].author` are extracted for inspection but omitted from
-the relation write payload.
+Relation writes cover top-level fields and nested component / dynamic-zone
+paths such as `seo[0].author`. Nested writes merge dest `documentId`s into
+a copy of the exported component object so scalar component fields are
+kept. Paths that cannot be applied are import errors (`success=False`).
+
+On a v4 destination (create returns no `documentId`), import falls back to
+numeric `build_relation_payload` / `PUT {endpoint}/{new_id}`.
+
+Media fields are converted to a dest write id (`documentId` when the
+upload recorded one, otherwise the remapped numeric id). Populate blobs
+(`mime`, `url`, source `documentId`) are not posted.
 
 `locale=all` export yields one row per locale with the same `documentId`.
 Import keys existence and writes by `(documentId, locale)`. The first locale

@@ -2664,3 +2664,281 @@ def test_import_from_jsonl_relation_put_includes_locale(
     assert result.success is True
     assert result.relations_imported == 1
     assert relation_route.calls.last.request.url.params["locale"] == "fr"
+
+
+@pytest.mark.respx
+def test_import_writes_nested_component_relation(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Nested seo[0].author is written on the component payload (#105)."""
+    import json
+
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        plural_name="authors",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=True,
+            ),
+        },
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::author.author", "api::article.article"],
+            total_entities=2,
+            schemas={
+                "api::author.author": author_schema,
+                "api::article.article": article_schema,
+            },
+        ),
+        entities={
+            "api::author.author": [
+                ExportedEntity(
+                    id=1,
+                    document_id="auth-src",
+                    content_type="api::author.author",
+                    data={"name": "Ada"},
+                )
+            ],
+            "api::article.article": [
+                ExportedEntity(
+                    id=2,
+                    document_id="art-src",
+                    content_type="api::article.article",
+                    data={"title": "Hello", "seo": [{"metaTitle": "T"}]},
+                    relations={"seo[0].author": ["auth-src"]},
+                )
+            ],
+        },
+    )
+    _mock_document_missing(respx_mock, "authors", "auth-src")
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    respx_mock.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
+        )
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    relation_route = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        importer = StrapiImporter(client)
+        importer._schema_cache.cache_component_schema("shared.seo", seo_schema)
+        result = importer.import_data(export_data)
+
+    assert result.success is True
+    assert result.relations_imported == 1
+    body = json.loads(relation_route.calls.last.request.content)
+    assert body["data"]["seo"][0]["metaTitle"] == "T"
+    assert body["data"]["seo"][0]["author"] == "auth-new"
+
+
+@pytest.mark.respx
+def test_import_v4_destination_uses_numeric_relation_payload(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """A dest without documentIds writes numeric relation ids (#108)."""
+    import json
+
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        plural_name="authors",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v4",
+            source_url="http://localhost:1337",
+            content_types=["api::author.author", "api::article.article"],
+            total_entities=2,
+            schemas={
+                "api::author.author": author_schema,
+                "api::article.article": article_schema,
+            },
+        ),
+        entities={
+            "api::author.author": [
+                ExportedEntity(
+                    id=1,
+                    content_type="api::author.author",
+                    data={"name": "Ada"},
+                )
+            ],
+            "api::article.article": [
+                ExportedEntity(
+                    id=2,
+                    content_type="api::article.article",
+                    data={"title": "Hello"},
+                    relations={"author": [1]},
+                )
+            ],
+        },
+    )
+    respx_mock.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(200, json={"data": {"id": 9, "attributes": {"name": "Ada"}}})
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "attributes": {"title": "Hello"}}}
+        )
+    )
+    relation_route = respx_mock.put("http://localhost:1337/api/articles/20").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "attributes": {"title": "Hello"}}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.relations_imported == 1
+    body = json.loads(relation_route.calls.last.request.content)
+    assert body["data"]["author"] == 9
+
+
+@pytest.mark.respx
+def test_import_media_write_uses_dest_document_id(
+    strapi_config: StrapiConfig, respx_mock: respx.Router, tmp_path: Path
+) -> None:
+    """Create payload uses dest file documentId, not remapped populate blobs (#106)."""
+    import json
+
+    media_dir = tmp_path / "media"
+    media_dir.mkdir()
+    (media_dir / "5_cover.jpg").write_bytes(b"fake-image")
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "cover": FieldSchema(type=FieldType.MEDIA),
+        },
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::article.article"],
+            total_entities=1,
+            schemas={"api::article.article": article_schema},
+        ),
+        entities={
+            "api::article.article": [
+                ExportedEntity(
+                    id=2,
+                    document_id="art-src",
+                    content_type="api::article.article",
+                    data={
+                        "title": "Hello",
+                        "cover": {
+                            "id": 5,
+                            "documentId": "file-src",
+                            "mime": "image/jpeg",
+                            "url": "/uploads/old.jpg",
+                        },
+                    },
+                )
+            ],
+        },
+        media=[
+            ExportedMediaFile(
+                id=5,
+                document_id="file-src",
+                url="/uploads/old.jpg",
+                name="cover.jpg",
+                mime="image/jpeg",
+                size=10,
+                hash="abc",
+                local_path="5_cover.jpg",
+            )
+        ],
+    )
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    respx_mock.post("http://localhost:1337/api/upload").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 50,
+                    "documentId": "file-dest",
+                    "name": "cover.jpg",
+                    "alternativeText": "cover.jpg",
+                    "hash": "abc",
+                    "ext": ".jpg",
+                    "mime": "image/jpeg",
+                    "size": 0.01,
+                    "url": "/uploads/new.jpg",
+                    "provider": "local",
+                    "createdAt": "2024-01-01T00:00:00.000Z",
+                    "updatedAt": "2024-01-01T00:00:00.000Z",
+                }
+            ],
+        )
+    )
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(
+            export_data,
+            ImportOptions(overwrite_media=True),
+            media_dir=media_dir,
+        )
+
+    assert result.warnings == []
+    assert result.media_imported == 1
+    assert result.success is True
+    body = json.loads(create_route.calls.last.request.content)
+    assert body["data"]["cover"] == "file-dest"
+    assert "mime" not in body["data"]

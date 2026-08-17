@@ -21,7 +21,7 @@ from strapi_kit.exceptions import (
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.export.relation_resolver import RelationResolver
 from strapi_kit.models.enums import DocumentStatus
-from strapi_kit.models.export_format import ExportData, ExportedEntity
+from strapi_kit.models.export_format import ExportData, ExportedEntity, ExportedMediaFile
 from strapi_kit.models.import_options import ConflictResolution, ImportOptions, ImportResult
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.query import StrapiQuery
@@ -32,6 +32,15 @@ if TYPE_CHECKING:
     from strapi_kit.client.sync_client import SyncClient
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _MediaMaps:
+    """Destination media id mappings for entity write-shape remapping."""
+
+    id_to_id: dict[int, int]
+    doc_to_doc: dict[str, str]
+    id_to_doc: dict[int, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,12 +150,12 @@ class StrapiImporter:
                 return result
 
             # Step 3: Import media first (if requested)
-            media_id_mapping: dict[int, int] = {}
+            media_maps = _MediaMaps(id_to_id={}, doc_to_doc={}, id_to_doc={})
             if options.import_media and export_data.media:
                 if options.progress_callback:
                     options.progress_callback(20, 100, "Importing media files")
 
-                media_id_mapping = self._import_media(export_data, media_dir, options, result)
+                media_maps = self._import_media(export_data, media_dir, options, result)
 
             # Step 4: Import entities (with updated media references)
             if options.progress_callback:
@@ -158,7 +167,7 @@ class StrapiImporter:
             self._import_entities(
                 export_data,
                 content_types_to_import,
-                media_id_mapping,
+                media_maps,
                 options,
                 result,
                 pending_publish,
@@ -297,7 +306,7 @@ class StrapiImporter:
         self,
         export_data: ExportData,
         content_types: list[str],
-        media_id_mapping: dict[int, int],
+        media_maps: _MediaMaps,
         options: ImportOptions,
         result: ImportResult,
         pending_publish: list[tuple[str, Any, str]],
@@ -315,7 +324,7 @@ class StrapiImporter:
         Args:
             export_data: Export data
             content_types: Content types to import
-            media_id_mapping: Mapping of old media IDs to new IDs
+            media_maps: Destination media id / documentId mappings
             options: Import options
             result: Result object to update
             pending_publish: Live source rows to publish after relations
@@ -339,9 +348,12 @@ class StrapiImporter:
                     try:
                         # Update media references if we have mappings
                         entity_data = entity.data
-                        if media_id_mapping:
+                        if media_maps.id_to_id or media_maps.doc_to_doc:
                             entity_data = MediaHandler.update_media_references(
-                                entity.data, media_id_mapping
+                                entity.data,
+                                media_maps.id_to_id,
+                                media_maps.doc_to_doc,
+                                media_maps.id_to_doc,
                             )
 
                         if options.dry_run:
@@ -775,7 +787,7 @@ class StrapiImporter:
                     if options.dry_run:
                         continue
 
-                    applied = self._apply_entity_relations(
+                    applied, skipped = self._apply_entity_relations(
                         entity,
                         schema,
                         endpoint,
@@ -784,8 +796,17 @@ class StrapiImporter:
                         result.doc_id_to_new_id,
                         result.doc_id_to_new_document_id,
                     )
+                    if skipped:
+                        result.add_error(
+                            "Skipped nested relations for "
+                            f"{content_type} #{entity.id}: {', '.join(skipped)}"
+                        )
                     if applied:
                         result.relations_imported += 1
+                    elif entity.relations:
+                        result.add_error(
+                            f"Could not write relations for {content_type} #{entity.id}"
+                        )
 
                 except Exception as e:
                     result.add_error(
@@ -798,7 +819,7 @@ class StrapiImporter:
         media_dir: Path | str | None,
         options: ImportOptions,
         result: ImportResult,
-    ) -> dict[int, int]:
+    ) -> _MediaMaps:
         """Import media files from export.
 
         Args:
@@ -808,24 +829,24 @@ class StrapiImporter:
             result: Result object to update
 
         Returns:
-            Mapping of old media IDs to new media IDs
+            Destination media id / documentId mappings
         """
-        media_id_mapping: dict[int, int] = {}
+        media_maps = _MediaMaps(id_to_id={}, doc_to_doc={}, id_to_doc={})
 
         if not export_data.media:
-            return media_id_mapping
+            return media_maps
 
         if media_dir is None:
             logger.warning(
                 "Media directory not specified - skipping media import. "
                 "Media references in entities will not be updated."
             )
-            return media_id_mapping
+            return media_maps
 
         media_path = Path(media_dir)
         if not media_path.exists():
             result.add_error(f"Media directory not found: {media_dir}")
-            return media_id_mapping
+            return media_maps
 
         for exported_media in export_data.media:
             try:
@@ -835,10 +856,10 @@ class StrapiImporter:
 
                 # Check for existing media with same hash (if not overwriting)
                 if not options.overwrite_media:
-                    existing_id = self._find_media_by_hash(exported_media.hash)
-                    if existing_id is not None:
-                        # Use existing media - no need to upload
-                        media_id_mapping[exported_media.id] = existing_id
+                    existing = self._find_media_by_hash(exported_media.hash)
+                    if existing is not None:
+                        dest_id, dest_doc = existing
+                        self._record_media_mapping(media_maps, exported_media, dest_id, dest_doc)
                         result.media_skipped += 1
                         logger.debug(f"Media {exported_media.name} already exists (hash match)")
                         continue
@@ -862,11 +883,10 @@ class StrapiImporter:
                     result.media_skipped += 1
                     continue
 
-                # Upload file
                 uploaded = MediaHandler.upload_media_file(self.client, file_path, exported_media)
-
-                # Track ID mapping
-                media_id_mapping[exported_media.id] = uploaded.id
+                self._record_media_mapping(
+                    media_maps, exported_media, uploaded.id, uploaded.document_id
+                )
                 result.media_imported += 1
 
             except Exception as e:
@@ -874,7 +894,21 @@ class StrapiImporter:
                 result.media_skipped += 1
 
         logger.info(f"Imported {result.media_imported}/{len(export_data.media)} media files")
-        return media_id_mapping
+        return media_maps
+
+    @staticmethod
+    def _record_media_mapping(
+        media_maps: _MediaMaps,
+        exported_media: ExportedMediaFile,
+        dest_id: int,
+        dest_document_id: str | None,
+    ) -> None:
+        """Record numeric and documentId mappings for a dest media file."""
+        media_maps.id_to_id[exported_media.id] = dest_id
+        if dest_document_id:
+            media_maps.id_to_doc[exported_media.id] = dest_document_id
+            if exported_media.document_id:
+                media_maps.doc_to_doc[exported_media.document_id] = dest_document_id
 
     def _load_schemas_from_export(self, export_data: ExportData) -> None:
         """Load schemas from export metadata into cache.
@@ -888,14 +922,14 @@ class StrapiImporter:
 
         logger.info(f"Loaded {self._schema_cache.cache_size} schemas from export")
 
-    def _find_media_by_hash(self, file_hash: str) -> int | None:
+    def _find_media_by_hash(self, file_hash: str) -> tuple[int, str | None] | None:
         """Find existing media file by hash.
 
         Args:
             file_hash: File hash to search for
 
         Returns:
-            Media ID if found, None otherwise
+            ``(id, documentId)`` if found, None otherwise
         """
         try:
             from strapi_kit.models import FilterBuilder, StrapiQuery
@@ -904,7 +938,10 @@ class StrapiImporter:
             response = self.client.list_media(query)
 
             if response.data:
-                return response.data[0].id
+                found = response.data[0]
+                if found.id is None:
+                    return None
+                return found.id, found.document_id
         except Exception:  # noqa: BLE001, S110 - Intentionally ignore lookup failures
             pass
         return None
@@ -915,6 +952,7 @@ class StrapiImporter:
         schema: ContentTypeSchema,
         id_mapping: dict[str, dict[int, int]],
         doc_id_to_new_id: dict[str, dict[str, int]] | None = None,
+        entity_data: dict[str, Any] | None = None,
     ) -> dict[str, list[int]]:
         """Resolve relation IDs using schema information.
 
@@ -935,8 +973,12 @@ class StrapiImporter:
         resolved: dict[str, list[int]] = {}
 
         for field_name, old_ids in relations.items():
-            # Get target content type from schema
-            target_content_type = schema.get_field_target(field_name)
+            # Get target content type from schema (including nested paths)
+            target_content_type = RelationResolver.target_for_field_path(
+                schema, field_name, self._schema_cache, entity_data
+            )
+            if not target_content_type:
+                target_content_type = schema.get_field_target(field_name)
 
             if not target_content_type:
                 logger.warning(f"Field {field_name} is not a relation. Skipping.")
@@ -985,8 +1027,15 @@ class StrapiImporter:
         doc_id_mapping: dict[str, dict[int, str]],
         doc_id_to_new_id: dict[str, dict[str, int]],
         doc_id_to_new_document_id: dict[str, dict[str, str]],
-    ) -> bool:
-        """Write resolved relations. Returns True if an update was sent."""
+    ) -> tuple[bool, list[str]]:
+        """Write resolved relations.
+
+        Returns:
+            Tuple of (whether an update was sent, nested paths that could not
+            be written).
+        """
+        skipped: list[str] = []
+        write_query = self._write_query(entity)
         resolved_docs = self._resolve_relation_document_ids(
             entity.relations,
             schema,
@@ -994,26 +1043,41 @@ class StrapiImporter:
             doc_id_mapping,
             doc_id_to_new_id,
             doc_id_to_new_document_id,
+            entity.data,
         )
-        if not resolved_docs:
-            return False
-
         payload = RelationResolver.build_v5_relation_payload(
-            resolved_docs, schema, self._schema_cache
+            resolved_docs,
+            schema,
+            self._schema_cache,
+            entity_data=entity.data,
+            skipped=skipped,
         )
-        if not payload:
-            return False
-
-        write_query = self._write_query(entity)
         new_document_id = doc_id_mapping.get(entity.content_type, {}).get(entity.id)
-        if new_document_id:
+        if payload and new_document_id:
             self.client.update(endpoint, payload, document_id=new_document_id, query=write_query)
-        else:
-            new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
-            if new_id is None:
-                return False
-            self.client.update(f"{endpoint}/{new_id}", payload, query=write_query)
-        return True
+            return True, skipped
+
+        resolved_nums = self._resolve_relations_with_schema(
+            entity.relations,
+            schema,
+            id_mapping,
+            doc_id_to_new_id,
+            entity.data,
+        )
+        new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
+        if resolved_nums and new_id is not None:
+            numeric_payload = RelationResolver.build_nested_numeric_payload(
+                resolved_nums,
+                schema,
+                self._schema_cache,
+                entity_data=entity.data,
+                skipped=skipped,
+            )
+            if numeric_payload:
+                self.client.update(f"{endpoint}/{new_id}", numeric_payload, query=write_query)
+                return True, skipped
+
+        return False, skipped
 
     def _resolve_relation_document_ids(
         self,
@@ -1023,11 +1087,14 @@ class StrapiImporter:
         doc_id_mapping: dict[str, dict[int, str]],
         doc_id_to_new_id: dict[str, dict[str, int]],
         doc_id_to_new_document_id: dict[str, dict[str, str]],
+        entity_data: dict[str, Any] | None = None,
     ) -> dict[str, list[str]]:
         """Resolve exported relation IDs to destination documentIds."""
         resolved: dict[str, list[str]] = {}
         for field_name, old_ids in relations.items():
-            target = RelationResolver.target_for_field_path(schema, field_name, self._schema_cache)
+            target = RelationResolver.target_for_field_path(
+                schema, field_name, self._schema_cache, entity_data
+            )
             if not target:
                 logger.warning(f"Field {field_name} is not a relation. Skipping.")
                 continue
@@ -1068,54 +1135,6 @@ class StrapiImporter:
                 f"Content type {uid} has no pluralName",
                 details={"uid": uid},
             ) from e
-
-    @staticmethod
-    def _uid_to_endpoint_fallback(uid: str) -> str:
-        """Unused UID pluralization kept for callers of ``_uid_to_endpoint``.
-
-        Export/import no longer invent a path from the UID; use
-        ``_get_endpoint`` / ``collection_endpoint`` instead.
-
-        Args:
-            uid: Content type UID (e.g., "api::article.article", "api::blog.post")
-
-        Returns:
-            API endpoint (e.g., "articles", "posts")
-        """
-        # Extract the model name (after the dot) and pluralize it
-        # For "api::blog.post", we want "post" -> "posts", not "blog" -> "blogs"
-        parts = uid.split("::")
-        if len(parts) == 2:
-            api_model = parts[1]
-            # Get model name (after the dot if present)
-            if "." in api_model:
-                name = api_model.split(".")[1]
-            else:
-                name = api_model
-            # Handle common irregular plurals
-            if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
-                return name[:-1] + "ies"  # category -> categories
-            if name.endswith(("s", "x", "z", "ch", "sh")):
-                return name + "es"  # class -> classes
-            if not name.endswith("s"):
-                return name + "s"
-            return name
-        return uid
-
-    # Keep for backward compatibility
-    @staticmethod
-    def _uid_to_endpoint(uid: str) -> str:
-        """Convert content type UID to API endpoint.
-
-        Deprecated: Use _get_endpoint() instead which uses schema metadata.
-
-        Args:
-            uid: Content type UID (e.g., "api::article.article")
-
-        Returns:
-            API endpoint (e.g., "articles")
-        """
-        return StrapiImporter._uid_to_endpoint_fallback(uid)
 
     def import_from_jsonl(
         self,
@@ -1179,7 +1198,7 @@ class StrapiImporter:
 
                 # Step 2: Import media first (if requested)
                 # Use separate reader to avoid consuming entity stream (Issue #30)
-                media_id_mapping: dict[int, int] = {}
+                media_maps = _MediaMaps(id_to_id={}, doc_to_doc={}, id_to_doc={})
                 if options.import_media and media_dir:
                     if options.progress_callback:
                         options.progress_callback(10, 100, "Importing media files")
@@ -1202,10 +1221,12 @@ class StrapiImporter:
                                     hasattr(options, "overwrite_media")
                                     and not options.overwrite_media
                                 ):
-                                    # Try to find by hash
                                     existing = self._find_media_by_hash(media.hash)
                                     if existing is not None:
-                                        media_id_mapping[media.id] = existing
+                                        dest_id, dest_doc = existing
+                                        self._record_media_mapping(
+                                            media_maps, media, dest_id, dest_doc
+                                        )
                                         result.media_skipped += 1
                                         continue
 
@@ -1225,7 +1246,12 @@ class StrapiImporter:
                                     uploaded = MediaHandler.upload_media_file(
                                         self.client, local_path, media
                                     )
-                                    media_id_mapping[media.id] = uploaded.id
+                                    self._record_media_mapping(
+                                        media_maps,
+                                        media,
+                                        uploaded.id,
+                                        uploaded.document_id,
+                                    )
                                     result.media_imported += 1
                                 else:
                                     result.add_warning(f"Media file not found: {local_path}")
@@ -1262,9 +1288,12 @@ class StrapiImporter:
                     try:
                         # Update media references
                         entity_data = entity.data
-                        if media_id_mapping:
+                        if media_maps.id_to_id or media_maps.doc_to_doc:
                             entity_data = MediaHandler.update_media_references(
-                                entity.data, media_id_mapping
+                                entity.data,
+                                media_maps.id_to_id,
+                                media_maps.doc_to_doc,
+                                media_maps.id_to_doc,
                             )
 
                         if options.dry_run:
@@ -1337,7 +1366,7 @@ class StrapiImporter:
                             continue
 
                         try:
-                            applied = self._apply_entity_relations(
+                            applied, skipped = self._apply_entity_relations(
                                 entity,
                                 schema,
                                 endpoint,
@@ -1346,8 +1375,17 @@ class StrapiImporter:
                                 doc_id_to_new_id_mappings,
                                 doc_id_to_new_document_id_mappings,
                             )
+                            if skipped:
+                                result.add_error(
+                                    "Skipped nested relations for "
+                                    f"{content_type} {entity.id}: {', '.join(skipped)}"
+                                )
                             if applied:
                                 result.relations_imported += 1
+                            elif entity.relations:
+                                result.add_error(
+                                    f"Could not write relations for {content_type} {entity.id}"
+                                )
                         except StrapiError as e:
                             result.add_error(
                                 f"Failed to import relations for {content_type} {entity.id}: {e}"

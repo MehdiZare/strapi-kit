@@ -113,8 +113,7 @@ def test_update_media_references_single() -> None:
     mapping = {5: 50}
     updated = MediaHandler.update_media_references(data, mapping)
 
-    assert updated["cover"]["data"]["id"] == 50
-    assert updated["cover"]["data"]["mime"] == "image/jpeg"
+    assert updated["cover"] == 50
 
 
 def test_update_media_references_multiple() -> None:
@@ -132,8 +131,7 @@ def test_update_media_references_multiple() -> None:
     mapping = {10: 100, 11: 110}
     updated = MediaHandler.update_media_references(data, mapping)
 
-    assert updated["gallery"]["data"][0]["id"] == 100
-    assert updated["gallery"]["data"][1]["id"] == 110
+    assert updated["gallery"] == [100, 110]
 
 
 def test_update_media_references_mixed() -> None:
@@ -152,9 +150,8 @@ def test_update_media_references_mixed() -> None:
     mapping = {5: 50, 10: 100, 11: 110}
     updated = MediaHandler.update_media_references(data, mapping)
 
-    assert updated["cover"]["data"]["id"] == 50
-    assert updated["gallery"]["data"][0]["id"] == 100
-    assert updated["gallery"]["data"][1]["id"] == 110
+    assert updated["cover"] == 50
+    assert updated["gallery"] == [100, 110]
 
 
 def test_update_media_references_partial_mapping() -> None:
@@ -171,9 +168,8 @@ def test_update_media_references_partial_mapping() -> None:
     mapping = {10: 100}  # Only one ID mapped
     updated = MediaHandler.update_media_references(data, mapping)
 
-    # First should be updated, second should remain unchanged
-    assert updated["gallery"]["data"][0]["id"] == 100
-    assert updated["gallery"]["data"][1]["id"] == 11
+    # Mapped id becomes dest write id; unmapped keeps the source numeric id
+    assert updated["gallery"] == [100, 11]
 
 
 def test_update_media_references_no_mapping() -> None:
@@ -185,8 +181,7 @@ def test_update_media_references_no_mapping() -> None:
     mapping = {}  # Empty mapping
     updated = MediaHandler.update_media_references(data, mapping)
 
-    # Should remain unchanged
-    assert updated["cover"]["data"]["id"] == 5
+    assert updated["cover"] == 5
 
 
 def test_update_media_references_preserves_non_media_fields() -> None:
@@ -204,7 +199,7 @@ def test_update_media_references_preserves_non_media_fields() -> None:
     assert updated["title"] == "Article"
     assert updated["content"] == "Some content"
     assert updated["published"] is True
-    assert updated["cover"]["data"]["id"] == 50
+    assert updated["cover"] == 50
 
 
 def test_update_media_references_null_media() -> None:
@@ -217,8 +212,7 @@ def test_update_media_references_null_media() -> None:
     mapping = {5: 50}
     updated = MediaHandler.update_media_references(data, mapping)
 
-    # Null media should remain null
-    assert updated["cover"]["data"] is None
+    assert updated["cover"] is None
 
 
 def test_update_media_references_ignores_relations() -> None:
@@ -232,8 +226,7 @@ def test_update_media_references_ignores_relations() -> None:
     mapping = {5: 50, 99: 999}
     updated = MediaHandler.update_media_references(data, mapping)
 
-    # Media should be updated
-    assert updated["cover"]["data"]["id"] == 50
+    assert updated["cover"] == 50
 
     # Relation should remain unchanged (no mime field means it's not media)
     assert updated["author"]["data"]["id"] == 99
@@ -273,9 +266,11 @@ def test_update_media_references_drops_source_document_id() -> None:
         },
     }
 
-    updated = MediaHandler.update_media_references(data, {5: 50, 7: 70})
+    updated = MediaHandler.update_media_references(
+        data,
+        {5: 50, 7: 70},
+        media_doc_mapping={"media-src": "media-dest", "og-src": "og-dest"},
+    )
 
-    assert updated["cover"]["id"] == 50
-    assert "documentId" not in updated["cover"]
-    assert updated["seo"]["ogImage"]["id"] == 70
-    assert "documentId" not in updated["seo"]["ogImage"]
+    assert updated["cover"] == "media-dest"
+    assert updated["seo"]["ogImage"] == "og-dest"
