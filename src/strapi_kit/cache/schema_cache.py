@@ -141,6 +141,32 @@ class InMemorySchemaCache:
         """
         return component_uid in self._component_cache
 
+    def cached_component_schemas(self) -> dict[str, ContentTypeSchema]:
+        """Return a copy of every cached component schema."""
+        return dict(self._component_cache)
+
+    def prefetch_components(self, schema: ContentTypeSchema) -> None:
+        """Fetch component schemas referenced by ``schema`` (including nested)."""
+        self._prefetch_components(schema, seen=set())
+
+    def _prefetch_components(self, schema: ContentTypeSchema, seen: set[str]) -> None:
+        for field in schema.fields.values():
+            uids: list[str] = []
+            if field.type == FieldType.COMPONENT and field.component:
+                uids.append(field.component)
+            elif field.type == FieldType.DYNAMIC_ZONE and field.components:
+                uids.extend(field.components)
+            for uid in uids:
+                if uid in seen:
+                    continue
+                seen.add(uid)
+                try:
+                    nested = self.get_component_schema(uid)
+                except StrapiError:
+                    logger.warning("Could not prefetch component schema %s", uid, exc_info=True)
+                    continue
+                self._prefetch_components(nested, seen)
+
     def _fetch_component_schema(self, component_uid: str) -> ContentTypeSchema:
         """Fetch component schema from Strapi API.
 

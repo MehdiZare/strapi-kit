@@ -53,7 +53,10 @@ Relations are automatically resolved using content type schemas:
 
 1. **During Export**: Schemas are fetched from the Content-Type Builder API
 2. **Schema Storage**: Schemas are included in the export metadata
-3. **During Import**: Relations are resolved by looking up target content types from schemas
+3. **During Import**: Relations are resolved by looking up target content types from schemas.
+Component schemas walked at export are stored in `metadata.component_schemas` so
+nested paths such as `seo[0].author` resolve without a destination Content-Type
+Builder fetch.
 
 **Example**: When importing an article with `{"author": ["auth-doc"]}`, the
 system:

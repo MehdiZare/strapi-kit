@@ -73,6 +73,10 @@ class ExportMetadata(BaseModel):
         default_factory=dict,
         description="Content type schemas (for relation resolution)",
     )
+    component_schemas: dict[str, ContentTypeSchema] = Field(
+        default_factory=dict,
+        description="Component schemas walked during export (nested relations/media)",
+    )
 
 
 class ExportedEntity(BaseModel):

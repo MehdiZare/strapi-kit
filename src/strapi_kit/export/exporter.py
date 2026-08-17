@@ -315,6 +315,7 @@ class StrapiExporter:
             try:
                 schema = self._schema_cache.get_schema(content_type)
                 export_data.metadata.schemas[content_type] = schema
+                self._schema_cache.prefetch_components(schema)
 
                 if progress_callback:
                     progress_callback(
@@ -326,6 +327,7 @@ class StrapiExporter:
                     details={"uid": content_type},
                 ) from e
 
+        export_data.metadata.component_schemas = self._schema_cache.cached_component_schemas()
         logger.info(f"Cached {self._schema_cache.cache_size} schemas")
 
     def _get_endpoint(self, uid: str) -> str:
@@ -456,11 +458,14 @@ class StrapiExporter:
                     ct_schema = self._schema_cache.get_schema(content_type)
                     schemas[content_type] = ct_schema
                     metadata.schemas[content_type] = ct_schema
+                    self._schema_cache.prefetch_components(ct_schema)
                 except Exception as e:
                     raise ImportExportError(
                         f"Schema with pluralName is required to export {content_type}",
                         details={"uid": content_type},
                     ) from e
+
+            metadata.component_schemas = self._schema_cache.cached_component_schemas()
 
             all_media_ids: set[int] = set()
 

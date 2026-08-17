@@ -275,3 +275,76 @@ def test_update_media_references_drops_source_document_id() -> None:
 
     assert updated["cover"] == "media-dest"
     assert updated["seo"]["ogImage"] == "og-dest"
+
+
+def test_update_media_references_schema_skips_relation_data_wrapper() -> None:
+    """With a schema, v4 {data: null} on a relation is not treated as media (#120)."""
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
+
+    schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+            "cover": FieldSchema(type=FieldType.MEDIA),
+        },
+    )
+    data = {
+        "title": "Hello",
+        "author": {"data": None},
+        "cover": {"id": 5, "documentId": "media-src", "mime": "image/jpeg"},
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {5: 50},
+        media_doc_mapping={"media-src": "media-dest"},
+        schema=schema,
+    )
+    assert updated["author"] == {"data": None}
+    assert updated["cover"] == "media-dest"
+
+
+def test_update_media_references_schema_walks_component_media() -> None:
+    """Schema walk remaps FieldType.MEDIA inside a component (#120)."""
+    from strapi_kit.cache.schema_cache import InMemorySchemaCache
+    from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType
+
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "ogImage": FieldSchema(type=FieldType.MEDIA),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(type=FieldType.COMPONENT, component="shared.seo"),
+        },
+    )
+    cache = InMemorySchemaCache(client=None)  # type: ignore[arg-type]
+    cache.cache_component_schema("shared.seo", seo_schema)
+    data = {
+        "seo": {
+            "metaTitle": "T",
+            "ogImage": {"id": 7, "documentId": "og-src", "mime": "image/png"},
+        }
+    }
+    updated = MediaHandler.update_media_references(
+        data,
+        {7: 70},
+        media_doc_mapping={"og-src": "og-dest"},
+        schema=article_schema,
+        schema_cache=cache,
+    )
+    assert updated["seo"]["metaTitle"] == "T"
+    assert updated["seo"]["ogImage"] == "og-dest"
