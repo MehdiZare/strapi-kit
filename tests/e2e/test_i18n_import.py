@@ -28,7 +28,7 @@ def _locales_for(client: SyncClient, document_id: str) -> set[str]:
     query = (
         StrapiQuery()
         .filter(FilterBuilder().eq("documentId", document_id))
-        .with_locale("all")
+        .with_locale("*")
         .with_document_status(DocumentStatus.DRAFT)
         .paginate(page=1, page_size=25)
     )
@@ -82,8 +82,10 @@ def _create_en_fr(client: SyncClient) -> str:
 
 
 def _delete_locale(client: SyncClient, document_id: str, locale: str) -> None:
+    # Strapi 5.34 500s DELETE ?status=draft ("Cannot delete a draft document").
+    # Per-locale DELETE without status returns 204 for draft-only rows.
     path = client.document_path(_COLLECTION, document_id)
-    client.delete(path, params={"locale": locale, "status": "draft"})
+    client.delete(path, params={"locale": locale})
 
 
 def _delete_document(client: SyncClient, document_id: str) -> None:
