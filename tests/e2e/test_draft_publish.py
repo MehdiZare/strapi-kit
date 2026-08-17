@@ -18,13 +18,15 @@ import uuid
 import pytest
 
 from strapi_kit import SyncClient
-from strapi_kit.exceptions import MethodNotAllowedError, NotFoundError, StrapiError
+from strapi_kit.exceptions import MethodNotAllowedError, NotFoundError
 from strapi_kit.models import (
     DocumentStatus,
     FilterBuilder,
     NormalizedCollectionResponse,
     StrapiQuery,
 )
+
+from .helpers import delete_document
 
 
 def _unique_article() -> tuple[str, dict[str, str]]:
@@ -58,14 +60,7 @@ def _has_document(response: NormalizedCollectionResponse, document_id: str) -> b
 
 def _delete_article(client: SyncClient, document_id: str) -> None:
     """Best-effort delete of published and draft versions."""
-    try:
-        client.remove(f"articles/{document_id}")
-    except StrapiError:
-        pass
-    try:
-        client.delete(f"articles/{document_id}", params={"status": "draft"})
-    except StrapiError:
-        pass
+    delete_document(client, "articles", document_id)
 
 
 @pytest.mark.e2e

@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field/component schema cannot be resolved (#120)
 - FAIL dry-run probes `(documentId, locale)` and raises after the pass
   without writing (#121)
+- Live e2e: FAIL writes the missing locale then raises (#117)
+- Shared e2e ``delete_document`` helper for draft and per-locale DELETE
+  (#119)
 - FAIL writes missing locales, then aborts if any locale already existed (#111)
 - Nested component / dynamic-zone relation writes on import (`seo[0].author`)
   (#105)
