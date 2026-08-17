@@ -12,10 +12,13 @@ from pydantic import BaseModel, Field
 class ConflictResolution(StrEnum):
     """Strategy for handling conflicts during import.
 
+    Conflicts are per ``(documentId, locale)``. A missing locale of an
+    existing document is not a conflict.
+
     Attributes:
-        SKIP: Skip entities that already exist
-        UPDATE: Update existing entities with imported data
-        FAIL: Fail import if conflicts are detected
+        SKIP: Skip locales that already exist; write missing locales
+        UPDATE: Overwrite existing locales; write missing locales
+        FAIL: Abort the import when this locale already exists
     """
 
     SKIP = "skip"
@@ -44,7 +47,7 @@ class ImportOptions(BaseModel):
     )
     conflict_resolution: ConflictResolution = Field(
         default=ConflictResolution.SKIP,
-        description="How to handle existing entities",
+        description="How to handle an existing (documentId, locale)",
     )
     import_media: bool = Field(
         default=True,

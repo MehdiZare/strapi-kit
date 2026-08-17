@@ -122,7 +122,10 @@ Rules (same raise/absent policy as today’s import probe):
 
 **Unknown `locale`:** if a GET (published or draft) is `Invalid key locale`, retry that GET once without `locale`. Same pattern as export dropping `locale=all` only on that message. A populate/filter 400 still raises.
 
-`probe_any_locale` is `_probe_document(endpoint, document_id, locale=None)`.
+`probe_any_locale` is a collection GET
+`filters[documentId][$eq]={source_doc}&locale=all` (published, then draft).
+A no-locale document GET is the default locale only. `Invalid key locale`
+falls back to that default-locale document GET.
 
 Rows with no `document_id` skip the probe and always `POST` (today’s behavior).
 

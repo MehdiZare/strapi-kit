@@ -164,9 +164,13 @@ result = importer.import_data(export_data, options)
 
 ### Conflict Resolution Strategies
 
-- `SKIP`: Skip entities that already exist
-- `UPDATE`: Update existing entities with imported data
-- `FAIL`: Abort the import when a conflict is detected
+Conflicts are per `(documentId, locale)`. A missing locale of an existing
+document is not a conflict.
+
+- `SKIP`: Skip locales that already exist; write missing locales
+- `UPDATE`: Overwrite existing locales; write missing locales
+- `FAIL`: Abort the import when this locale already exists (fail-fast;
+  later rows in the file are not processed)
 
 ## Working with Relations
 

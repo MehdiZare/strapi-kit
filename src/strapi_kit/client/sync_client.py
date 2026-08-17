@@ -561,7 +561,8 @@ class SyncClient(BaseClient):
         (populate, filters) raise.
         Auth, 5xx, and network errors on either read raise. Collection
         must be a single path segment; ``document_id`` is percent-encoded
-        via :meth:`document_path`.
+        via :meth:`document_path`. This check is not locale-scoped: a hit
+        is the default published or draft version of the document.
 
         Args:
             collection: Collection API id (e.g. ``"articles"``)
@@ -569,6 +570,10 @@ class SyncClient(BaseClient):
 
         Returns:
             True if a published or draft version is readable
+
+        Raises:
+            ValidationError: Draft probe 400 that is not an unknown
+                ``status`` / ``publicationState``
         """
         endpoint = self._single_segment_document_path(collection, document_id)
         try:

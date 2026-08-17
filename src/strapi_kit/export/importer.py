@@ -23,6 +23,7 @@ from strapi_kit.export.relation_resolver import RelationResolver
 from strapi_kit.models.enums import DocumentStatus
 from strapi_kit.models.export_format import ExportData, ExportedEntity
 from strapi_kit.models.import_options import ConflictResolution, ImportOptions, ImportResult
+from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.query import StrapiQuery
 from strapi_kit.models.schema import ContentTypeSchema
 from strapi_kit.utils.endpoints import collection_endpoint
@@ -295,9 +296,9 @@ class StrapiImporter:
         """Import entities for specified content types.
 
         Handles conflict resolution based on options:
-        - SKIP: Skip entities that already exist
-        - UPDATE: Update existing entities with imported data
-        - FAIL: Fail import if conflicts are detected
+        - SKIP: Skip locales that already exist; write missing locales
+        - UPDATE: Overwrite existing locales; write missing locales
+        - FAIL: Abort the import when this locale already exists
 
         Args:
             export_data: Export data
@@ -442,7 +443,7 @@ class StrapiImporter:
 
         write_query = self._write_query(entity)
         if dest_doc is None and source_doc and entity.locale:
-            any_locale = self._probe_document(endpoint, source_doc, locale=None)
+            any_locale = self._probe_any_document(endpoint, source_doc)
             if any_locale is not None:
                 dest_doc = any_locale.document_id or source_doc
 
@@ -520,6 +521,43 @@ class StrapiImporter:
                 return None
             raise
 
+    def _probe_any_document(self, endpoint: str, document_id: str) -> _ExistingDocument | None:
+        """Find a dest document across locales.
+
+        A no-locale GET is the default locale only. ``locale=all`` plus a
+        ``documentId`` filter sees a dest that exists only in a non-default
+        locale. ``Invalid key locale`` falls back to the default-locale
+        document GET (non-i18n types).
+        """
+        published = (
+            StrapiQuery()
+            .filter(FilterBuilder().eq("documentId", document_id))
+            .with_locale("all")
+            .paginate(page=1, page_size=1)
+        )
+        try:
+            found = self._existing_from_collection(self.client.get_many(endpoint, query=published))
+            if found is not None:
+                return found
+        except NotFoundError:
+            pass
+        except ValidationError as error:
+            if is_unknown_locale_param(error):
+                return self._probe_document(endpoint, document_id, locale=None)
+            raise
+
+        draft = published.copy().with_document_status(DocumentStatus.DRAFT)
+        try:
+            return self._existing_from_collection(self.client.get_many(endpoint, query=draft))
+        except NotFoundError:
+            return None
+        except ValidationError as error:
+            if is_unknown_locale_param(error):
+                return self._probe_document(endpoint, document_id, locale=None)
+            if is_unknown_status_param(error):
+                return None
+            raise
+
     def _get_one_with_locale_fallback(
         self, path: str, query: StrapiQuery | None, *, had_locale: bool
     ) -> Any:
@@ -536,8 +574,7 @@ class StrapiImporter:
         """Return a copy of ``query`` with ``locale`` cleared."""
         if query is None:
             return None
-        copied = query.copy()
-        copied._locale = None
+        copied = query.copy().without_locale()
         return copied if copied.to_query_params() else None
 
     @staticmethod
@@ -545,6 +582,17 @@ class StrapiImporter:
         """Build a probe hit when the body identifies a document."""
         data = response.data
         if data is None or data.id is None:
+            return None
+        return _ExistingDocument(id=data.id, document_id=data.document_id)
+
+    @staticmethod
+    def _existing_from_collection(response: Any) -> _ExistingDocument | None:
+        """Build a probe hit from the first row of a collection GET."""
+        rows = response.data
+        if not rows:
+            return None
+        data = rows[0]
+        if data.id is None:
             return None
         return _ExistingDocument(id=data.id, document_id=data.document_id)
 
@@ -572,8 +620,8 @@ class StrapiImporter:
                     dest_document_id
                 )
 
-    def _write_query(self, entity: Any) -> StrapiQuery | None:
-        """Locale query for create / update / publish, if the export recorded one."""
+    def _write_query(self, entity: ExportedEntity) -> StrapiQuery | None:
+        """Locale query for create, update, localize, publish, and relation PUT."""
         if entity.locale:
             return StrapiQuery().with_locale(entity.locale)
         return None
@@ -582,7 +630,7 @@ class StrapiImporter:
     def _queue_publish(
         pending_publish: list[tuple[str, Any, str]],
         content_type: str,
-        entity: Any,
+        entity: ExportedEntity,
         dest_document_id: str | None,
     ) -> None:
         """Queue a live source document to publish after relations are written."""
@@ -1011,7 +1059,7 @@ class StrapiImporter:
         """Import data from JSONL file with two-pass streaming.
 
         This method uses two-pass streaming for true O(1) memory usage:
-        - Pass 1: Create entities, store only ID mappings (old_id -> new_id)
+        - Pass 1: Create, localize, skip, or update each row; store ID mappings
         - Pass 2: Re-read file to resolve relations using ID mappings
 
         Memory profile: O(entity_count x 2 ints) for ID mappings only,

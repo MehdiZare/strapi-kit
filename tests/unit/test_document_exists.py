@@ -127,6 +127,23 @@ class TestSyncExists:
         assert route.call_count == 2
 
     @pytest.mark.respx
+    def test_draft_400_publication_state_false(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        """Unknown publicationState on the draft probe is still absent."""
+        route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(
+                _not_found(),
+                Response(400, json={"error": {"message": "Invalid key publicationState"}}),
+            )
+        )
+
+        with SyncClient(strapi_config) as client:
+            assert client.exists(COLLECTION, DOCUMENT_ID) is False
+
+        assert route.call_count == 2
+
+    @pytest.mark.respx
     def test_401_on_first_get_raises(
         self, strapi_config: StrapiConfig, respx_mock: respx.Router
     ) -> None:
