@@ -142,12 +142,26 @@ class InMemorySchemaCache:
         return component_uid in self._component_cache
 
     def cached_component_schemas(self) -> dict[str, ContentTypeSchema]:
-        """Return a copy of every cached component schema."""
+        """Return a copy of every cached component schema.
+
+        Returns:
+            Mapping of component UID to parsed schema.
+        """
         return dict(self._component_cache)
 
-    def prefetch_components(self, schema: ContentTypeSchema) -> None:
-        """Fetch component schemas referenced by ``schema`` (including nested)."""
-        self._prefetch_components(schema, seen=set())
+    def prefetch_components(self, schema: ContentTypeSchema) -> set[str]:
+        """Fetch component schemas referenced by ``schema`` (including nested).
+
+        Args:
+            schema: Content-type or component schema whose component and
+                dynamic-zone UIDs should be resolved.
+
+        Returns:
+            Component UIDs visited during this prefetch (cached or failed).
+        """
+        seen: set[str] = set()
+        self._prefetch_components(schema, seen=seen)
+        return seen
 
     def _prefetch_components(self, schema: ContentTypeSchema, seen: set[str]) -> None:
         for field in schema.fields.values():

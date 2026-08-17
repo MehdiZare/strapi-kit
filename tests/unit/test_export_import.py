@@ -1690,6 +1690,133 @@ def test_export_includes_walked_component_schemas(
 
 
 @pytest.mark.respx
+def test_export_component_schemas_scoped_to_current_export(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Reused exporter metadata only includes components walked this call."""
+    empty_collection = {
+        "data": [],
+        "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 0}},
+    }
+    respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(200, json=empty_collection)
+    )
+    respx_mock.get("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(200, json=empty_collection)
+    )
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "kind": "collectionType",
+                    "info": {
+                        "displayName": "Article",
+                        "singularName": "article",
+                        "pluralName": "articles",
+                    },
+                    "attributes": {
+                        "seo": {
+                            "type": "component",
+                            "component": "shared.seo",
+                            "repeatable": True,
+                        },
+                    },
+                }
+            },
+        )
+    )
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::author.author"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "kind": "collectionType",
+                    "info": {
+                        "displayName": "Author",
+                        "singularName": "author",
+                        "pluralName": "authors",
+                    },
+                    "attributes": {"name": {"type": "string"}},
+                }
+            },
+        )
+    )
+    respx_mock.get("http://localhost:1337/api/content-type-builder/components/shared.seo").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "uid": "shared.seo",
+                    "info": {"displayName": "SEO"},
+                    "attributes": {"metaTitle": {"type": "string"}},
+                }
+            },
+        )
+    )
+
+    with SyncClient(strapi_config) as client:
+        exporter = StrapiExporter(client)
+        first = exporter.export_content_types(["api::article.article"], include_media=False)
+        second = exporter.export_content_types(["api::author.author"], include_media=False)
+
+    assert "shared.seo" in first.metadata.component_schemas
+    assert "shared.seo" not in second.metadata.component_schemas
+
+
+@pytest.mark.respx
+def test_prefetch_component_error_not_relabeled_as_plural_name(
+    strapi_config: StrapiConfig, respx_mock: respx.Router, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Component prefetch failures keep their own error, not a pluralName wrap."""
+    respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 0}},
+            },
+        )
+    )
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "kind": "collectionType",
+                    "info": {
+                        "displayName": "Article",
+                        "singularName": "article",
+                        "pluralName": "articles",
+                    },
+                    "attributes": {"title": {"type": "string"}},
+                }
+            },
+        )
+    )
+
+    def boom(self: object, schema: object) -> set[str]:
+        raise ValueError("component parse failed")
+
+    monkeypatch.setattr(
+        "strapi_kit.cache.schema_cache.InMemorySchemaCache.prefetch_components", boom
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ImportExportError, match="component parse failed") as exc_info:
+            StrapiExporter(client).export_content_types(
+                ["api::article.article"], include_media=False
+            )
+    assert "pluralName" not in str(exc_info.value)
+
+
+@pytest.mark.respx
 def test_import_nested_relation_uses_exported_component_schemas(
     strapi_config: StrapiConfig, respx_mock: respx.Router
 ) -> None:
@@ -1782,6 +1909,107 @@ def test_import_nested_relation_uses_exported_component_schemas(
 
     with SyncClient(strapi_config) as client:
         result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.relations_imported == 1
+    assert component_route.call_count == 0
+    body = json.loads(relation_route.calls.last.request.content)
+    assert body["data"]["seo"][0]["author"] == "auth-new"
+
+
+@pytest.mark.respx
+def test_import_from_jsonl_uses_exported_component_schemas(
+    strapi_config: StrapiConfig, respx_mock: respx.Router, tmp_path: Path
+) -> None:
+    """JSONL import caches metadata.component_schemas; dest CTB is not called."""
+    import json
+
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        plural_name="authors",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=True,
+            ),
+        },
+    )
+    metadata = ExportMetadata(
+        strapi_version="v5",
+        source_url="http://localhost:1337",
+        content_types=["api::author.author", "api::article.article"],
+        total_entities=2,
+        schemas={
+            "api::author.author": author_schema,
+            "api::article.article": article_schema,
+        },
+        component_schemas={"shared.seo": seo_schema},
+    )
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(metadata)
+        writer.write_entity(
+            ExportedEntity(
+                id=1,
+                document_id="auth-src",
+                content_type="api::author.author",
+                data={"name": "Ada"},
+            )
+        )
+        writer.write_entity(
+            ExportedEntity(
+                id=2,
+                document_id="art-src",
+                content_type="api::article.article",
+                data={"title": "Hello", "seo": [{"metaTitle": "T"}]},
+                relations={"seo[0].author": ["auth-src"]},
+            )
+        )
+
+    _mock_document_missing(respx_mock, "authors", "auth-src")
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    respx_mock.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
+        )
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    relation_route = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    component_route = respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/components/shared.seo"
+    ).mock(return_value=httpx.Response(500, json={"error": {"message": "offline dest"}}))
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_from_jsonl(jsonl_path)
 
     assert result.success is True
     assert result.relations_imported == 1

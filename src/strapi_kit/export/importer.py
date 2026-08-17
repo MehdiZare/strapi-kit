@@ -925,7 +925,11 @@ class StrapiImporter:
             export_data: Export data containing schemas
         """
         self._cache_export_metadata_schemas(export_data.metadata)
-        logger.info(f"Loaded {self._schema_cache.cache_size} schemas from export")
+        logger.info(
+            f"Loaded {self._schema_cache.cache_size} content-type schemas and "
+            f"{len(self._schema_cache.cached_component_schemas())} component "
+            f"schemas from export"
+        )
 
     def _cache_export_metadata_schemas(self, metadata: ExportMetadata) -> None:
         """Cache content-type and component schemas from export metadata."""
