@@ -2134,7 +2134,8 @@ def test_import_fail_writes_missing_locale_relations_not_existing(
     assert publish_puts[0].request.url.params["locale"] == "fr"
     assert en_relation_puts == []
     assert caught.value.details["entities_failed"] == 1
-    assert caught.value.details["entities_imported"] == 1
+    # Author create + missing fr locale. Existing en is failed, not imported.
+    assert caught.value.details["entities_imported"] == 2
     assert caught.value.details["relations_imported"] == 1
 
 
