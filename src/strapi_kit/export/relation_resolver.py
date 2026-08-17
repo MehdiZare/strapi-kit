@@ -353,7 +353,11 @@ class RelationResolver:
                 and field_schema.component
             ):
                 if isinstance(field_value, list):
-                    component_schema = schema_cache.get_component_schema(field_schema.component)
+                    try:
+                        component_schema = schema_cache.get_component_schema(field_schema.component)
+                    except StrapiError:
+                        cleaned_data[field_name] = field_value
+                        continue
                     cleaned_data[field_name] = [
                         RelationResolver.strip_relations_with_schema(
                             item, component_schema, schema_cache
@@ -364,10 +368,13 @@ class RelationResolver:
                     ]
                     continue
                 if isinstance(field_value, dict):
+                    try:
+                        component_schema = schema_cache.get_component_schema(field_schema.component)
+                    except StrapiError:
+                        cleaned_data[field_name] = field_value
+                        continue
                     cleaned_data[field_name] = RelationResolver.strip_relations_with_schema(
-                        field_value,
-                        schema_cache.get_component_schema(field_schema.component),
-                        schema_cache,
+                        field_value, component_schema, schema_cache
                     )
                     continue
             if field_schema.type == FieldType.DYNAMIC_ZONE and isinstance(field_value, list):

@@ -100,10 +100,15 @@ class ImportResult(BaseModel):
         media_skipped: Number of media files skipped
         errors: List of error messages
         warnings: List of warning messages
-        id_mapping: Mapping of old numeric IDs to new numeric IDs
-        doc_id_mapping: Mapping of old numeric IDs to destination documentIds
-        doc_id_to_new_id: Mapping of source documentIds to new numeric IDs
-        doc_id_to_new_document_id: Mapping of source documentIds to dest documentIds
+        id_mapping: Old numeric IDs to dest numeric IDs. Dry-run only
+            includes dests that already exist; missing dests are counted,
+            not mapped.
+        doc_id_mapping: Old numeric IDs to dest documentIds. Dry-run does
+            not record a source documentId as dest.
+        doc_id_to_new_id: Source documentIds to dest numeric IDs. Same
+            dry-run rule as id_mapping.
+        doc_id_to_new_document_id: Source documentIds to dest documentIds.
+            Same dry-run rule as doc_id_mapping.
     """
 
     success: bool = Field(..., description="Whether import succeeded")
@@ -134,11 +139,18 @@ class ImportResult(BaseModel):
     )
     doc_id_to_new_id: dict[str, dict[str, int]] = Field(
         default_factory=dict,
-        description="Mapping of old document_ids to new IDs (for v5 string relation resolution)",
+        description=(
+            "Mapping of source documentIds to dest IDs. Dry-run only "
+            "includes dests that already exist; missing dests are not "
+            "mapped as write targets."
+        ),
     )
     doc_id_to_new_document_id: dict[str, dict[str, str]] = Field(
         default_factory=dict,
-        description="Mapping of old document_ids to new document_ids",
+        description=(
+            "Mapping of source documentIds to dest documentIds. "
+            "Dry-run does not record a source documentId as dest."
+        ),
     )
 
     def add_error(self, error: str) -> None:

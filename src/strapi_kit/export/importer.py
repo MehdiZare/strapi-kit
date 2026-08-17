@@ -180,7 +180,7 @@ class StrapiImporter:
                 fail_conflict_keys,
             )
 
-            # Step 5: Import relations (if not skipped)
+            # Step 5: Import relations (if not skipped and not dry-run)
             if not options.skip_relations and not options.dry_run:
                 if options.progress_callback:
                     options.progress_callback(60, 100, "Importing relations")
@@ -436,7 +436,7 @@ class StrapiImporter:
                     entity_id=entity.id,
                     source_document_id=source_doc,
                     new_id=this_locale.id,
-                    dest_document_id=dest_doc,
+                    dest_document_id=this_locale.document_id,
                     id_mapping=id_mapping,
                     doc_id_mapping=doc_id_mapping,
                     doc_id_to_new_id=doc_id_to_new_id,
@@ -457,7 +457,7 @@ class StrapiImporter:
                     entity_id=entity.id,
                     source_document_id=source_doc,
                     new_id=this_locale.id,
-                    dest_document_id=dest_doc,
+                    dest_document_id=this_locale.document_id,
                     id_mapping=id_mapping,
                     doc_id_mapping=doc_id_mapping,
                     doc_id_to_new_id=doc_id_to_new_id,
@@ -471,7 +471,7 @@ class StrapiImporter:
                     entity_id=entity.id,
                     source_document_id=source_doc,
                     new_id=this_locale.id,
-                    dest_document_id=dest_doc,
+                    dest_document_id=this_locale.document_id,
                     id_mapping=id_mapping,
                     doc_id_mapping=doc_id_mapping,
                     doc_id_to_new_id=doc_id_to_new_id,
@@ -502,6 +502,7 @@ class StrapiImporter:
             return
 
         write_query = self._write_query(entity)
+        any_locale: _ExistingDocument | None = None
         if dest_doc is None and source_doc and entity.locale:
             any_locale = self._probe_any_document(endpoint, source_doc)
             if any_locale is not None:
@@ -509,7 +510,25 @@ class StrapiImporter:
 
         if options.dry_run:
             # Missing dest: do not invent dest id 0 or reuse the source
-            # documentId. Later passes must not treat these as write targets.
+            # documentId. An existing dest (other locale, or a dest already
+            # mapped this run) still records the real dest id.
+            dest_id = any_locale.id if any_locale is not None else None
+            dest_document = any_locale.document_id if any_locale is not None else None
+            if dest_id is None and source_doc:
+                dest_id = doc_id_to_new_id.get(content_type, {}).get(source_doc)
+                dest_document = dest_document or dest_doc
+            if dest_id:
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=dest_id,
+                    dest_document_id=dest_document,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
             result.entities_imported += 1
             return
 
@@ -1105,6 +1124,7 @@ class StrapiImporter:
             remapped_data,
         )
         new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
+        # 0 is a leftover dry-run placeholder, not a dest write target.
         if resolved_nums and new_id:
             numeric_payload = RelationResolver.build_nested_numeric_payload(
                 resolved_nums,
@@ -1415,7 +1435,8 @@ class StrapiImporter:
                         endpoint = self._get_endpoint(content_type)
 
                         new_id = id_mappings.get(content_type, {}).get(entity.id)
-                        if new_id is None:
+                        # 0 is a leftover dry-run placeholder, not a dest write target.
+                        if not new_id:
                             continue
 
                         # Get schema from cache

@@ -327,6 +327,64 @@ def test_strip_component_dispatches_on_list_shape() -> None:
     assert stripped == {"title": "Hello", "seo": [{"metaTitle": "T"}]}
 
 
+def test_strip_component_dispatches_on_dict_shape() -> None:
+    """A dict payload is stripped even when the schema flag is repeatable."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=True,
+            ),
+        },
+    )
+    data = {
+        "title": "Hello",
+        "seo": {"metaTitle": "T", "author": {"documentId": "auth-src"}},
+    }
+    stripped = RelationResolver.strip_relations_with_schema(
+        data, article_schema, _component_cache(seo_schema)
+    )
+    assert stripped == {"title": "Hello", "seo": {"metaTitle": "T"}}
+
+
+def test_strip_component_keeps_payload_when_schema_missing() -> None:
+    """A list payload with an unfetchable component schema is left unchanged."""
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=False,
+            ),
+        },
+    )
+    data = {"seo": [{"metaTitle": "T", "author": {"documentId": "auth-src"}}]}
+    stripped = RelationResolver.strip_relations_with_schema(
+        data, article_schema, _component_cache()
+    )
+    assert stripped == data
+
+
 def test_extract_nested_component_dispatches_on_list_shape() -> None:
     """Nested components also walk list payloads when repeatable is false."""
     byline_schema = ContentTypeSchema(

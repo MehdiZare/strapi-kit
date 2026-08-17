@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#119)
 - GitHub Actions `E2E` workflow rebuilds the Docker fixture and runs
   `pytest tests/e2e --e2e` on a schedule, manually, or when e2e / library
-  paths change (#122 #130)
+  paths change. On failure it collects compose logs before teardown
+  (#122 #130)
 - FAIL writes missing locales, then aborts if any locale already existed (#111)
 - Nested component / dynamic-zone relation writes on import (`seo[0].author`)
   (#105)
@@ -45,7 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RelationResolver` walks component fields by payload shape (`list` vs
   `dict`), not `repeatable`, matching schema-aware media remapping (#133)
 - Dry-run import no longer records dest id `0` or the source `documentId`
-  as a write target. Later passes are skipped the same way as JSONL (#131)
+  as a write target. Existing dests, including a missing locale of an
+  existing document, still map real dest ids. Later passes are skipped
+  the same way as JSONL (#131)
 
 ### Removed
 
