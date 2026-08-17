@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Export/import i18n streams use ``locale=*`` (Strapi 5.34 ``locale=all``
   returns an empty list). ``all`` remains a fallback when ``*`` is rejected.
+- Export drops populate ``localizations`` so dest writes do not 400
+  (`Invalid key localizations`).
 - `exists()` draft `ValidationError` is absent only for unknown
   `status` / `publicationState` (a populate/filter 400 raises) (#107)
 
