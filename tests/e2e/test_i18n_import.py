@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from strapi_kit import StrapiExporter, StrapiImporter, SyncClient
-from strapi_kit.exceptions import NotFoundError, StrapiError
+from strapi_kit.exceptions import ImportExportError
 from strapi_kit.models import (
     ConflictResolution,
     DocumentStatus,
@@ -15,6 +15,8 @@ from strapi_kit.models import (
     ImportOptions,
     StrapiQuery,
 )
+
+from .helpers import delete_document
 
 _UID = "api::localized-article.localized-article"
 _COLLECTION = "localized-articles"
@@ -82,18 +84,11 @@ def _create_en_fr(client: SyncClient) -> str:
 
 
 def _delete_locale(client: SyncClient, document_id: str, locale: str) -> None:
-    # Strapi 5.34 500s DELETE ?status=draft ("Cannot delete a draft document").
-    # Per-locale DELETE without status returns 204 for draft-only rows.
-    path = client.document_path(_COLLECTION, document_id)
-    client.delete(path, params={"locale": locale})
+    delete_document(client, _COLLECTION, document_id, locales=(locale,))
 
 
 def _delete_document(client: SyncClient, document_id: str) -> None:
-    for locale in ("en", "fr"):
-        try:
-            _delete_locale(client, document_id, locale)
-        except (NotFoundError, StrapiError):
-            pass
+    delete_document(client, _COLLECTION, document_id, locales=("en", "fr"))
 
 
 @pytest.mark.e2e
@@ -198,3 +193,34 @@ class TestI18nImportLocalizations:
             assert _locales_for(sync_client, dest_doc) == {"en", "fr"}
         finally:
             _delete_document(sync_client, dest_doc)
+
+    def test_fail_writes_missing_locale_then_raises(self, sync_client: SyncClient) -> None:
+        """FAIL writes missing fr, does not overwrite en, then raises (#117)."""
+        source_doc = _create_en_fr(sync_client)
+        try:
+            export_data = StrapiExporter(sync_client).export_content_types(
+                [_UID], include_media=False
+            )
+            rows = _filter_export_to_document(export_data, source_doc)
+            assert {row.locale for row in rows} >= {"en", "fr"}
+            _delete_locale(sync_client, source_doc, "fr")
+            assert _locales_for(sync_client, source_doc) == {"en"}
+            mutated_title = "Hello mutated"
+            sync_client.update(
+                _COLLECTION,
+                {"title": mutated_title, "body": "EN"},
+                document_id=source_doc,
+                query=_draft_locale("en"),
+            )
+
+            with pytest.raises(ImportExportError, match="already exists"):
+                StrapiImporter(sync_client).import_data(
+                    export_data,
+                    ImportOptions(conflict_resolution=ConflictResolution.FAIL),
+                )
+
+            assert _locales_for(sync_client, source_doc) == {"en", "fr"}
+            assert _title_for(sync_client, source_doc, "en") == mutated_title
+            assert _title_for(sync_client, source_doc, "fr") == "Bonjour"
+        finally:
+            _delete_document(sync_client, source_doc)
