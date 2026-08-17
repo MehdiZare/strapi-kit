@@ -161,7 +161,9 @@ class RelationResolver:
             elif field_schema.type == FieldType.COMPONENT and schema_cache:
                 component_uid = field_schema.component
                 if component_uid and field_value:
-                    for suffix, item in RelationResolver._component_items(field_value):
+                    for suffix, item in RelationResolver._component_items(
+                        field_value, field_path=field_name
+                    ):
                         nested = RelationResolver._extract_from_component(
                             item, component_uid, schema_cache, f"{field_name}{suffix}"
                         )
@@ -224,7 +226,9 @@ class RelationResolver:
             elif field_schema.type == FieldType.COMPONENT:
                 nested_uid = field_schema.component
                 if nested_uid and field_value:
-                    for suffix, item in RelationResolver._component_items(field_value):
+                    for suffix, item in RelationResolver._component_items(
+                        field_value, field_path=full_key
+                    ):
                         nested = RelationResolver._extract_from_component(
                             item, nested_uid, schema_cache, f"{full_key}{suffix}"
                         )
@@ -352,20 +356,30 @@ class RelationResolver:
                 and schema_cache is not None
                 and field_schema.component
             ):
+                field_value = RelationResolver._unwrap_component_payload(field_value)
                 if isinstance(field_value, list):
                     try:
                         component_schema = schema_cache.get_component_schema(field_schema.component)
                     except StrapiError:
                         cleaned_data[field_name] = field_value
                         continue
-                    cleaned_data[field_name] = [
-                        RelationResolver.strip_relations_with_schema(
-                            item, component_schema, schema_cache
+                    cleaned_items: list[Any] = []
+                    for idx, item in enumerate(field_value):
+                        if isinstance(item, dict):
+                            cleaned_items.append(
+                                RelationResolver.strip_relations_with_schema(
+                                    item, component_schema, schema_cache
+                                )
+                            )
+                            continue
+                        logger.warning(
+                            "Unexpected component list item at %s[%s]: %s",
+                            field_name,
+                            idx,
+                            type(item).__name__,
                         )
-                        if isinstance(item, dict)
-                        else item
-                        for item in field_value
-                    ]
+                        cleaned_items.append(item)
+                    cleaned_data[field_name] = cleaned_items
                     continue
                 if isinstance(field_value, dict):
                     try:
@@ -377,8 +391,16 @@ class RelationResolver:
                         field_value, component_schema, schema_cache
                     )
                     continue
+                if field_value is not None:
+                    logger.warning(
+                        "Unexpected component payload for %s: %s",
+                        field_name,
+                        type(field_value).__name__,
+                    )
+                cleaned_data[field_name] = field_value
+                continue
             if field_schema.type == FieldType.DYNAMIC_ZONE and isinstance(field_value, list):
-                cleaned_items: list[Any] = []
+                cleaned_zone: list[Any] = []
                 for item in field_value:
                     if (
                         isinstance(item, dict)
@@ -389,36 +411,75 @@ class RelationResolver:
                         try:
                             dz_schema = schema_cache.get_component_schema(dz_uid)
                         except StrapiError:
-                            cleaned_items.append(item)
+                            cleaned_zone.append(item)
                             continue
-                        cleaned_items.append(
+                        cleaned_zone.append(
                             RelationResolver.strip_relations_with_schema(
                                 item, dz_schema, schema_cache
                             )
                         )
                     else:
-                        cleaned_items.append(item)
-                cleaned_data[field_name] = cleaned_items
+                        cleaned_zone.append(item)
+                cleaned_data[field_name] = cleaned_zone
                 continue
             cleaned_data[field_name] = field_value
 
         return cleaned_data
 
+    _V4_COMPONENT_WRAPPER_KEYS = frozenset({"data", "meta"})
+
     @staticmethod
-    def _component_items(field_value: Any) -> list[tuple[str, dict[str, Any]]]:
+    def _unwrap_component_payload(field_value: Any) -> Any:
+        """Unwrap a v4 ``{data: dict|list}`` component wrapper when present.
+
+        Only ``{"data": ...}`` / ``{"data": ..., "meta": ...}`` are wrappers.
+        A real component that also has a ``data`` field keeps its siblings.
+        """
+        if not isinstance(field_value, dict) or "data" not in field_value:
+            return field_value
+        if field_value.keys() - RelationResolver._V4_COMPONENT_WRAPPER_KEYS:
+            return field_value
+        if any(key in field_value for key in ("documentId", "document_id", "__component")):
+            return field_value
+        inner = field_value["data"]
+        if inner is None or isinstance(inner, (dict, list)):
+            return inner
+        return field_value
+
+    @staticmethod
+    def _component_items(
+        field_value: Any, *, field_path: str = ""
+    ) -> list[tuple[str, dict[str, Any]]]:
         """Walk a component field by payload shape, not ``repeatable``.
 
         A ``repeatable=False`` schema with a list still yields ``seo[0].``
         prefixes so nested paths such as ``seo[0].author`` are not dropped.
+        v4 ``{data: ...}`` wrappers are unwrapped first. Unexpected shapes
+        are logged and skipped.
         """
-        if isinstance(field_value, list):
-            return [
-                (f"[{idx}].", item)
-                for idx, item in enumerate(field_value)
-                if isinstance(item, dict)
-            ]
-        if isinstance(field_value, dict):
-            return [(".", field_value)]
+        value = RelationResolver._unwrap_component_payload(field_value)
+        if value is None:
+            return []
+        if isinstance(value, list):
+            items: list[tuple[str, dict[str, Any]]] = []
+            for idx, item in enumerate(value):
+                if isinstance(item, dict):
+                    items.append((f"[{idx}].", item))
+                    continue
+                logger.warning(
+                    "Unexpected component list item at %s[%s]: %s",
+                    field_path or "component",
+                    idx,
+                    type(item).__name__,
+                )
+            return items
+        if isinstance(value, dict):
+            return [(".", value)]
+        logger.warning(
+            "Unexpected component payload for %s: %s",
+            field_path or "component",
+            type(value).__name__,
+        )
         return []
 
     @staticmethod
