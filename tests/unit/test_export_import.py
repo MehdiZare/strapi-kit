@@ -451,6 +451,46 @@ def test_import_data_dry_run(
 
 
 @pytest.mark.respx
+def test_import_skip_and_update_dry_run_does_not_write(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+) -> None:
+    """SKIP/UPDATE dry-run probe existing locales but do not write."""
+    respx_mock.get("http://localhost:1337/api/articles/doc1").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 42, "documentId": "doc1", "title": "Old"}}
+        )
+    )
+    _mock_document_missing(respx_mock, "articles", "doc2")
+    update_route = respx_mock.put("http://localhost:1337/api/articles/doc1").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not update"}})
+    )
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not create"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        skip_result = StrapiImporter(client).import_data(
+            sample_export_data,
+            ImportOptions(dry_run=True, conflict_resolution=ConflictResolution.SKIP),
+        )
+        assert skip_result.entities_skipped == 1
+        assert skip_result.entities_imported == 1
+        assert update_route.call_count == 0
+        assert create_route.call_count == 0
+
+        update_result = StrapiImporter(client).import_data(
+            sample_export_data,
+            ImportOptions(dry_run=True, conflict_resolution=ConflictResolution.UPDATE),
+        )
+        assert update_result.entities_updated == 1
+        assert update_result.entities_imported == 1
+        assert update_route.call_count == 0
+        assert create_route.call_count == 0
+
+
+@pytest.mark.respx
 def test_import_data_creates_entities(
     strapi_config: StrapiConfig,
     sample_export_data: ExportData,
@@ -2405,6 +2445,41 @@ def test_import_fail_dry_run_probes_and_raises_without_writes(
 
 
 @pytest.mark.respx
+def test_import_from_jsonl_fail_dry_run_probes_and_raises_without_writes(
+    strapi_config: StrapiConfig,
+    respx_mock: respx.Router,
+    tmp_path: Path,
+) -> None:
+    """JSONL FAIL dry-run probes locales and aborts without writing (#121)."""
+    export_data = _locale_export(_locale_entities())
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(export_data.metadata)
+        for entity in export_data.entities["api::article.article"]:
+            writer.write_entity(entity)
+
+    _mock_locales(respx_mock, "articles", "shared-doc", {"en"})
+    update_route = respx_mock.put("http://localhost:1337/api/articles/shared-doc").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 2, "documentId": "shared-doc", "title": "Bonjour"}}
+        )
+    )
+    create_route = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not create"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ImportExportError, match="already exists"):
+            StrapiImporter(client).import_from_jsonl(
+                jsonl_path,
+                ImportOptions(dry_run=True, conflict_resolution=ConflictResolution.FAIL),
+            )
+
+    assert update_route.call_count == 0
+    assert create_route.call_count == 0
+
+
+@pytest.mark.respx
 def test_import_from_jsonl_fail_writes_missing_locale(
     strapi_config: StrapiConfig,
     respx_mock: respx.Router,
@@ -2657,6 +2732,96 @@ def test_import_relation_put_includes_locale(
     assert result.success is True
     assert result.relations_imported == 1
     assert relation_route.calls.last.request.url.params["locale"] == "fr"
+
+
+@pytest.mark.respx
+def test_import_data_dry_run_does_not_write_relations(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Dry-run records mappings but must not PUT relations (#121)."""
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        plural_name="authors",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=["api::author.author", "api::article.article"],
+            total_entities=2,
+            schemas={
+                "api::author.author": author_schema,
+                "api::article.article": article_schema,
+            },
+        ),
+        entities={
+            "api::author.author": [
+                ExportedEntity(
+                    id=1,
+                    document_id="auth-src",
+                    content_type="api::author.author",
+                    data={"name": "Ada"},
+                    published_at=datetime(2026, 8, 16, 12, 0, 0),
+                )
+            ],
+            "api::article.article": [
+                ExportedEntity(
+                    id=2,
+                    document_id="art-src",
+                    content_type="api::article.article",
+                    data={"title": "Bonjour"},
+                    relations={"author": ["auth-src"]},
+                    locale="fr",
+                    published_at=datetime(2026, 8, 16, 12, 0, 0),
+                )
+            ],
+        },
+    )
+    _mock_document_missing(respx_mock, "authors", "auth-src")
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    create_authors = respx_mock.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not create"}})
+    )
+    create_articles = respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not create"}})
+    )
+    # Dry-run maps dest documentId to the source id; a leaked write hits this path.
+    source_put = respx_mock.put("http://localhost:1337/api/articles/art-src").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not update"}})
+    )
+    dest_put = respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not update"}})
+    )
+    author_put = respx_mock.put("http://localhost:1337/api/authors/auth-src").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not update"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data, ImportOptions(dry_run=True))
+
+    assert result.dry_run
+    assert result.entities_imported == 2
+    assert result.relations_imported == 0
+    assert create_authors.call_count == 0
+    assert create_articles.call_count == 0
+    assert source_put.call_count == 0
+    assert dest_put.call_count == 0
+    assert author_put.call_count == 0
 
 
 @pytest.mark.respx
