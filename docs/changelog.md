@@ -23,6 +23,11 @@ The e2e Docker fixture includes an i18n `localized-articles` type.
 Export metadata includes walked component schemas. Media remapping
 follows `FieldType.MEDIA` when a schema is present.
 FAIL dry-run probes locale conflicts and raises without writing.
+Dry-run no longer maps missing dests to id `0` or the source
+`documentId`; existing dests still map real dest ids. Component
+relation extract/strip follows payload shape, not `repeatable`.
+The e2e workflow also runs on library path changes and keeps the
+compose stack until logs are collected.
 
 ## [0.3.0] - 2026-08-16
 

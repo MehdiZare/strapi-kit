@@ -8,6 +8,8 @@ on:
     paths:
       - "tests/e2e/**"
       - ".github/workflows/e2e.yml"
+      - "src/strapi_kit/**"
+      - "pyproject.toml"
 
 permissions:
   contents: read
@@ -42,4 +44,27 @@ jobs:
           CI: "true"
           RUN_E2E_TESTS: "true"
           STRAPI_E2E_WAIT: "600"
-        run: pytest tests/e2e --e2e -v
+        run: pytest tests/e2e --e2e -v --junitxml=e2e-junit.xml --keep-strapi
+
+      - name: Collect compose logs
+        if: failure()
+        working-directory: tests/e2e
+        run: |
+          docker compose -f docker-compose.yml logs --no-color \
+            > "${{ github.workspace }}/compose-e2e.log" \
+            || printf 'compose logs unavailable\n' > "${{ github.workspace }}/compose-e2e.log"
+
+      - name: Stop compose
+        if: always()
+        working-directory: tests/e2e
+        run: docker compose -f docker-compose.yml down -v || true
+
+      - name: Upload e2e logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: |
+            e2e-junit.xml
+            compose-e2e.log
+          if-no-files-found: warn
