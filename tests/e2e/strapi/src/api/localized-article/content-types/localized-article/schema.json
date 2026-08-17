@@ -1,0 +1,37 @@
+{
+  "kind": "collectionType",
+  "collectionName": "localized_articles",
+  "info": {
+    "singularName": "localized-article",
+    "pluralName": "localized-articles",
+    "displayName": "Localized Article",
+    "description": "i18n collection type for import localization e2e"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {
+    "i18n": {
+      "localized": true
+    }
+  },
+  "attributes": {
+    "title": {
+      "type": "string",
+      "required": true,
+      "pluginOptions": {
+        "i18n": {
+          "localized": true
+        }
+      }
+    },
+    "body": {
+      "type": "text",
+      "pluginOptions": {
+        "i18n": {
+          "localized": true
+        }
+      }
+    }
+  }
+}

@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ids, not remapped populate blobs (#106)
 - v4 destination relation import falls back to numeric
   `build_nested_numeric_payload` + `PUT {endpoint}/{id}` (#108)
+- Live e2e Docker fixture: `localized-articles` i18n type + French locale,
+  and import tests that restore `en`/`fr` on one `documentId` (#112)
 
 ### Changed
 

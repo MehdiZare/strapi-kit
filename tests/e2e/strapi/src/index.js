@@ -7,9 +7,26 @@ module.exports = {
   async bootstrap({ strapi }) {
     await createAdminUser(strapi);
     await createApiToken(strapi);
+    await ensureFrenchLocale(strapi);
     await logContentTypes(strapi);
   },
 };
+
+async function ensureFrenchLocale(strapi) {
+  try {
+    const locales = strapi.plugin('i18n').service('locales');
+    const existing = await locales.findByCode('fr');
+    if (existing) {
+      console.log('[E2E] French locale already exists');
+      return;
+    }
+    await locales.create({ name: 'French (fr)', code: 'fr' });
+    console.log('[E2E] Created French locale');
+  } catch (error) {
+    console.error('[E2E] Failed to ensure French locale:', error?.message || error);
+    throw error;
+  }
+}
 
 async function logContentTypes(strapi) {
   const apiContentTypes = Object.keys(strapi.contentTypes).filter(
