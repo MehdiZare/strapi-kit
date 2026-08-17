@@ -1,109 +1,15 @@
 """Tests for relation resolver."""
 
+from strapi_kit.cache.schema_cache import InMemorySchemaCache
 from strapi_kit.export.relation_resolver import RelationResolver
+from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
 
 
-def test_extract_relations_single() -> None:
-    """Test extracting a single relation."""
-    data = {
-        "title": "Article 1",
-        "author": {"data": {"id": 5, "name": "Author Name"}},
-    }
-
-    relations = RelationResolver.extract_relations(data)
-
-    assert "author" in relations
-    assert relations["author"] == [5]
-
-
-def test_extract_relations_multiple() -> None:
-    """Test extracting multiple relations."""
-    data = {
-        "title": "Article 1",
-        "categories": {
-            "data": [
-                {"id": 1, "name": "Category 1"},
-                {"id": 2, "name": "Category 2"},
-            ]
-        },
-    }
-
-    relations = RelationResolver.extract_relations(data)
-
-    assert "categories" in relations
-    assert relations["categories"] == [1, 2]
-
-
-def test_extract_relations_null() -> None:
-    """Test extracting null relation."""
-    data = {
-        "title": "Article 1",
-        "author": {"data": None},
-    }
-
-    relations = RelationResolver.extract_relations(data)
-
-    assert "author" in relations
-    assert relations["author"] == []
-
-
-def test_extract_relations_mixed() -> None:
-    """Test extracting mixed relations."""
-    data = {
-        "title": "Article 1",
-        "author": {"data": {"id": 5}},
-        "categories": {"data": [{"id": 1}, {"id": 2}]},
-        "featured_image": {"data": {"id": 10}},
-    }
-
-    relations = RelationResolver.extract_relations(data)
-
-    assert len(relations) == 3
-    assert relations["author"] == [5]
-    assert relations["categories"] == [1, 2]
-    assert relations["featured_image"] == [10]
-
-
-def test_extract_relations_no_relations() -> None:
-    """Test extracting from data with no relations."""
-    data = {
-        "title": "Article 1",
-        "content": "Some content",
-        "published": True,
-    }
-
-    relations = RelationResolver.extract_relations(data)
-
-    assert relations == {}
-
-
-def test_strip_relations() -> None:
-    """Test stripping relations from data."""
-    data = {
-        "title": "Article 1",
-        "content": "Content",
-        "author": {"data": {"id": 5}},
-        "categories": {"data": [{"id": 1}, {"id": 2}]},
-    }
-
-    clean_data = RelationResolver.strip_relations(data)
-
-    assert "title" in clean_data
-    assert "content" in clean_data
-    assert "author" not in clean_data
-    assert "categories" not in clean_data
-
-
-def test_strip_relations_no_relations() -> None:
-    """Test stripping when there are no relations."""
-    data = {
-        "title": "Article 1",
-        "content": "Content",
-    }
-
-    clean_data = RelationResolver.strip_relations(data)
-
-    assert clean_data == data
+def _component_cache(*schemas: ContentTypeSchema) -> InMemorySchemaCache:
+    cache = InMemorySchemaCache(client=None)  # type: ignore[arg-type]
+    for schema in schemas:
+        cache.cache_component_schema(schema.uid, schema)
+    return cache
 
 
 def test_resolve_relations() -> None:
@@ -220,3 +126,99 @@ def test_build_relation_payload_empty_list() -> None:
 
     # Empty list should be included to clear the relation
     assert payload == {"author": []}
+
+
+def test_build_v5_payload_writes_nested_component_relation() -> None:
+    """Nested seo[0].author is merged into the component object, not dropped."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "metaTitle": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "seo": FieldSchema(
+                type=FieldType.COMPONENT,
+                component="shared.seo",
+                repeatable=True,
+            ),
+        },
+    )
+    entity_data = {"title": "Hello", "seo": [{"metaTitle": "T"}]}
+    skipped: list[str] = []
+    payload = RelationResolver.build_v5_relation_payload(
+        {"seo[0].author": ["auth-dest"]},
+        article_schema,
+        _component_cache(seo_schema),
+        entity_data=entity_data,
+        skipped=skipped,
+    )
+    assert skipped == []
+    assert payload["seo"][0]["metaTitle"] == "T"
+    assert payload["seo"][0]["author"] == "auth-dest"
+
+
+def test_build_v5_payload_writes_dynamic_zone_relation() -> None:
+    """DZ items keep __component and receive the dest documentId."""
+    seo_schema = ContentTypeSchema(
+        uid="shared.seo",
+        display_name="SEO",
+        fields={
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+        },
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "blocks": FieldSchema(
+                type=FieldType.DYNAMIC_ZONE,
+                components=["shared.seo"],
+            ),
+        },
+    )
+    entity_data = {"blocks": [{"__component": "shared.seo"}]}
+    payload = RelationResolver.build_v5_relation_payload(
+        {"blocks[0].author": ["auth-dest"]},
+        article_schema,
+        _component_cache(seo_schema),
+        entity_data=entity_data,
+        skipped=[],
+    )
+    assert payload["blocks"][0]["__component"] == "shared.seo"
+    assert payload["blocks"][0]["author"] == "auth-dest"
+
+
+def test_build_v5_payload_records_skipped_nested_without_entity_data() -> None:
+    """Without the component shell, nested keys cannot be written."""
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={"title": FieldSchema(type=FieldType.STRING)},
+    )
+    skipped: list[str] = []
+    payload = RelationResolver.build_v5_relation_payload(
+        {"seo[0].author": ["auth-dest"]},
+        article_schema,
+        entity_data={"title": "Hello"},
+        skipped=skipped,
+    )
+    assert payload == {}
+    assert skipped == ["seo[0].author"]

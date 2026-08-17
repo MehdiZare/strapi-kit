@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from strapi_kit.models.export_format import ExportedMediaFile
+from strapi_kit.models.request.media_write import MediaWriteId, media_write
 from strapi_kit.models.response.media import MediaFile
 
 if TYPE_CHECKING:
@@ -48,6 +49,19 @@ class MediaHandler:
         # v4 format: mime nested in attributes
         if "attributes" in item and isinstance(item["attributes"], dict):
             return "mime" in item["attributes"]
+        return False
+
+    @staticmethod
+    def _is_media_data_wrapper(value: Any) -> bool:
+        """True for v4 ``{"data": media|null|[media, ...]}`` wrappers."""
+        if value is None:
+            return True
+        if isinstance(value, dict):
+            return MediaHandler._is_media(value)
+        if isinstance(value, list):
+            return not value or all(
+                isinstance(item, dict) and MediaHandler._is_media(item) for item in value
+            )
         return False
 
     @staticmethod
@@ -218,6 +232,7 @@ class MediaHandler:
         size_in_bytes = int(media.size * 1024) if media.size else 0
         return ExportedMediaFile(
             id=media.id,
+            document_id=media.document_id,
             url=media.url,
             name=media.name,
             mime=media.mime,
@@ -266,50 +281,106 @@ class MediaHandler:
     def update_media_references(
         data: dict[str, Any],
         media_id_mapping: dict[int, int],
+        media_doc_mapping: dict[str, str] | None = None,
+        id_to_dest_doc: dict[int, str] | None = None,
     ) -> dict[str, Any]:
-        """Update media IDs in entity data using mapping.
+        """Convert media populate objects to dest write ids.
+
+        Prefers destination ``documentId`` when the upload (or hash match)
+        recorded one. Falls back to the remapped numeric id. Unmapped
+        one-side files become ``None``; unmapped many-side entries are
+        omitted. Source ``mime`` / ``url`` / ``documentId`` blobs are
+        not written.
 
         Args:
             data: Entity attributes dictionary
             media_id_mapping: Mapping of old media IDs to new IDs
+            media_doc_mapping: Optional old file documentId → dest documentId
+            id_to_dest_doc: Optional old numeric id → dest documentId
 
         Returns:
-            Updated data with new media IDs
-
-        Example:
-            >>> data = {"cover": {"id": 5, "documentId": "old", "mime": "image/jpeg"}}
-            >>> mapping = {5: 50}
-            >>> updated = MediaHandler.update_media_references(data, mapping)
-            >>> updated["cover"]["id"]
-            50
+            Updated data with media fields as dest ids
         """
         updated_data = {}
+        docs = media_doc_mapping or {}
+        id_docs = id_to_dest_doc or {}
 
         for field_name, field_value in data.items():
             updated_data[field_name] = MediaHandler._remap_media_value(
-                field_value, media_id_mapping
+                field_value, media_id_mapping, docs, id_docs
             )
 
         return updated_data
 
     @staticmethod
-    def _remap_media_value(value: Any, media_id_mapping: dict[int, int]) -> Any:
-        """Remap media IDs in a field value (flat v5, v4 wrapper, or list)."""
+    def _dest_media_id(
+        item: dict[str, Any],
+        media_id_mapping: dict[int, int],
+        media_doc_mapping: dict[str, str],
+        id_to_dest_doc: dict[int, str],
+    ) -> MediaWriteId | None:
+        """Resolve a populate media object to a dest write id."""
+        raw_doc = item.get("documentId", item.get("document_id"))
+        if isinstance(raw_doc, str) and raw_doc.strip():
+            source_doc = raw_doc.strip()
+            if source_doc in media_doc_mapping:
+                return media_doc_mapping[source_doc]
+        old_id = MediaHandler._get_media_id(item)
+        if old_id is not None:
+            if old_id in id_to_dest_doc:
+                return id_to_dest_doc[old_id]
+            if old_id in media_id_mapping:
+                return media_id_mapping[old_id]
+        return None
+
+    @staticmethod
+    def _remap_media_value(
+        value: Any,
+        media_id_mapping: dict[int, int],
+        media_doc_mapping: dict[str, str],
+        id_to_dest_doc: dict[int, str],
+    ) -> Any:
+        """Replace media populate objects with dest write ids."""
         if isinstance(value, dict):
             if MediaHandler._is_media(value):
-                old_id = MediaHandler._get_media_id(value)
-                if old_id and old_id in media_id_mapping:
-                    updated = dict(value)
-                    updated["id"] = media_id_mapping[old_id]
-                    # Source documentId would reconnect the origin file on v5 writes.
-                    updated.pop("documentId", None)
-                    updated.pop("document_id", None)
-                    return updated
-                return value
+                dest = MediaHandler._dest_media_id(
+                    value, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                )
+                return media_write(file_ids=[] if dest is None else [dest], multiple=False)
+            inner = value.get("data")
+            if (
+                "data" in value
+                and "documentId" not in value
+                and "document_id" not in value
+                and MediaHandler._is_media_data_wrapper(inner)
+            ):
+                remapped = MediaHandler._remap_media_value(
+                    inner, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                )
+                # Unwrap v4 {"data": media} into a write value.
+                return remapped
             return {
-                key: MediaHandler._remap_media_value(nested, media_id_mapping)
+                key: MediaHandler._remap_media_value(
+                    nested, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                )
                 for key, nested in value.items()
             }
         if isinstance(value, list):
-            return [MediaHandler._remap_media_value(item, media_id_mapping) for item in value]
+            if value and all(
+                isinstance(item, dict) and MediaHandler._is_media(item) for item in value
+            ):
+                dests: list[MediaWriteId] = []
+                for item in value:
+                    dest = MediaHandler._dest_media_id(
+                        item, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                    )
+                    if dest is not None:
+                        dests.append(dest)
+                return media_write(file_ids=dests, multiple=True)
+            return [
+                MediaHandler._remap_media_value(
+                    item, media_id_mapping, media_doc_mapping, id_to_dest_doc
+                )
+                for item in value
+            ]
         return value

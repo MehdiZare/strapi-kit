@@ -54,6 +54,7 @@ from .models import (
     RetryConfig,
     StrapiConfig,
     TextNode,
+    media_write,
     relation_write,
 )
 from .operations.streaming import stream_entities, stream_entities_async
@@ -99,9 +100,10 @@ __all__ = [
     # Bulk Operations
     "BulkOperationResult",
     "BulkOperationFailure",
-    # Relation writes (Strapi 5)
+    # Relation / media writes (Strapi 5)
     "RelationWriteOp",
     "relation_write",
+    "media_write",
     # Streaming
     "stream_entities",
     "stream_entities_async",

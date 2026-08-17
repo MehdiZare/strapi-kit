@@ -16,6 +16,9 @@ creates; later locales `PUT {destDoc}?locale=`). SKIP is per-locale.
 FAIL writes missing locales, does not overwrite existing locales or their
 outbound relations, then raises after the full write pass.
 `exists()` no longer treats an unrelated draft 400 as “does not exist.”
+Import writes nested component/dynamic-zone relations, posts dest media
+ids (`media_write()`), and falls back to numeric relation PUTs on a v4
+destination.
 
 ## [0.3.0] - 2026-08-16
 

@@ -76,6 +76,16 @@ class InMemorySchemaCache:
         self._cache[content_type] = schema
         logger.debug(f"Manually cached schema: {content_type}")
 
+    def cache_component_schema(self, component_uid: str, schema: ContentTypeSchema) -> None:
+        """Manually cache a component schema.
+
+        Args:
+            component_uid: Component UID (e.g. ``shared.seo``)
+            schema: Parsed component schema
+        """
+        self._component_cache[component_uid] = schema
+        logger.debug(f"Manually cached component schema: {component_uid}")
+
     def has_schema(self, content_type: str) -> bool:
         """Check if schema is cached.
 
