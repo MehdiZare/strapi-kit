@@ -1801,6 +1801,13 @@ def test_import_result_helpers() -> None:
     assert len(result.errors) == 1
     assert len(result.warnings) == 1
     assert result.relations_unresolved == 1
+
+    result.finalize()
+    assert result.success is False
+
+    clean = ImportResult(success=False, dry_run=False)
+    clean.finalize()
+    assert clean.success is True
     assert result.relations_unresolved == len(result.unresolved_relations)
     assert result.unresolved_relations[0].old_id == "missing"
 
@@ -5143,3 +5150,152 @@ def test_fail_conflict_details_include_relations_unresolved() -> None:
             result,
         )
     assert caught.value.details["relations_unresolved"] == 1
+
+
+def test_exported_entity_keeps_numeric_looking_document_id() -> None:
+    """A documentId of \"5\" must not coerce to int 5 (#145)."""
+    entity = ExportedEntity.model_validate(
+        {
+            "id": 1,
+            "content_type": "api::article.article",
+            "data": {},
+            "relations": {"author": ["5"]},
+        }
+    )
+    assert entity.relations["author"] == ["5"]
+    assert isinstance(entity.relations["author"][0], str)
+
+    miss = UnresolvedRelation.model_validate(
+        {
+            "content_type": "api::article.article",
+            "entity_id": 1,
+            "field": "author",
+            "old_id": "5",
+            "target": "api::author.author",
+        }
+    )
+    assert miss.old_id == "5"
+    assert isinstance(miss.old_id, str)
+
+
+def test_jsonl_roundtrip_keeps_numeric_looking_document_id(tmp_path: Path) -> None:
+    """JSONL load keeps a numeric-looking documentId as str (#145)."""
+    jsonl_path = tmp_path / "export.jsonl"
+    metadata = ExportMetadata(strapi_version="v5", source_url="http://localhost:1337")
+    entity = ExportedEntity(
+        id=1,
+        document_id="5",
+        content_type="api::article.article",
+        data={"title": "Hello"},
+        relations={"author": ["5"]},
+    )
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(metadata)
+        writer.write_entity(entity)
+        writer.write_media_manifest([])
+
+    with JSONLImportReader(jsonl_path) as reader:
+        reader.read_metadata()
+        loaded = next(reader.iter_entities())
+
+    assert loaded.relations["author"] == ["5"]
+    assert isinstance(loaded.relations["author"][0], str)
+    assert loaded.document_id == "5"
+
+
+def test_export_metadata_defaults_totals_to_none() -> None:
+    """Unset JSONL totals are unknown, not empty (#148)."""
+    metadata = ExportMetadata(strapi_version="v5", source_url="http://localhost:1337")
+    assert metadata.total_entities is None
+    assert metadata.total_media is None
+
+
+@pytest.mark.respx
+def test_import_two_dest_misses_on_one_field_omits_field(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Two unresolved IDs on one field increment twice and omit the field (#147)."""
+    import json
+
+    export_data = _author_category_article_export()
+    export_data.entities["api::article.article"][0].relations["categories"] = [
+        "miss-a",
+        "miss-b",
+    ]
+    relation_route = _mock_author_category_article_creates(respx_mock)
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(
+            export_data, ImportOptions(validate_relations=False)
+        )
+
+    assert result.relations_unresolved == 2
+    assert {item.old_id for item in result.unresolved_relations} == {"miss-a", "miss-b"}
+    body = json.loads(relation_route.calls.last.request.content)
+    assert body["data"]["author"] == "auth-new"
+    assert "categories" not in body["data"]
+
+
+@pytest.mark.respx
+def test_import_writes_explicit_empty_relation_list(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """An explicit empty relation list is still written (#147)."""
+    import json
+
+    export_data = _author_category_article_export(extra_category=None)
+    export_data.entities["api::article.article"][0].relations = {"categories": []}
+    relation_route = _mock_author_category_article_creates(respx_mock)
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.relations_imported == 1
+    assert result.relations_unresolved == 0
+    body = json.loads(relation_route.calls.last.request.content)
+    assert body["data"]["categories"] == {"set": []}
+
+
+@pytest.mark.respx
+def test_import_relation_pass_schema_typeerror_propagates(
+    strapi_config: StrapiConfig, respx_mock: respx.Router, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Schema-load TypeError in the relation pass is not swallowed (#147)."""
+    export_data = _author_category_article_export(extra_category=None)
+    _mock_author_category_article_creates(respx_mock)
+    real = StrapiImporter._process_entity_relations
+
+    def wrapped(self: StrapiImporter, *args: object, **kwargs: object) -> None:
+        def boom(_uid: str) -> object:
+            raise TypeError("bad schema")
+
+        self._schema_cache.get_schema = boom  # type: ignore[method-assign]
+        real(self, *args, **kwargs)
+
+    monkeypatch.setattr(StrapiImporter, "_process_entity_relations", wrapped)
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ImportExportError, match="bad schema"):
+            StrapiImporter(client).import_data(export_data, ImportOptions(validate_relations=False))
+
+
+@pytest.mark.respx
+def test_import_nested_dest_miss_is_not_also_nested_skip(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """An unmapped nested dest is UnresolvedRelation, not a nested skip (#147)."""
+    export_data = _nested_component_export()
+    export_data.entities["api::article.article"][0].relations = {"seo[0].author": ["auth-missing"]}
+    _mock_nested_component_writes(respx_mock)
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(
+            export_data, ImportOptions(validate_relations=False)
+        )
+
+    assert result.relations_unresolved == 1
+    assert result.unresolved_relations[0].field == "seo[0].author"
+    assert result.unresolved_relations[0].old_id == "auth-missing"
+    assert not any("Skipped nested relations" in error for error in result.errors)
+    assert not any("Skipped nested relations" in warning for warning in result.warnings)

@@ -26,6 +26,7 @@ from strapi_kit.models.export_format import (
     ExportedEntity,
     ExportedMediaFile,
     ExportMetadata,
+    RelationId,
 )
 from strapi_kit.models.import_options import (
     ConflictResolution,
@@ -66,7 +67,7 @@ class _UnresolvedTarget:
     """A single dest-relation id that did not resolve."""
 
     field: str
-    old_id: int | str
+    old_id: RelationId
     target: str | None
 
 
@@ -152,7 +153,7 @@ class StrapiImporter:
             )
 
             if result.errors and not options.dry_run:
-                result.success = False
+                result.finalize()
                 return result
 
             # Step 1.5: Load schemas from export metadata
@@ -169,7 +170,7 @@ class StrapiImporter:
 
             if not content_types_to_import:
                 result.add_warning("No content types to import")
-                result.success = True
+                result.finalize()
                 return result
 
             # Step 3: Import media first (if requested)
@@ -225,8 +226,7 @@ class StrapiImporter:
 
             self._raise_fail_conflicts(fail_conflicts, result)
 
-            result.success = result.entities_failed == 0 and not result.errors
-
+            result.finalize()
             return result
 
         except ImportExportError:
@@ -1135,7 +1135,7 @@ class StrapiImporter:
 
     def _resolve_relations_with_schema(
         self,
-        relations: dict[str, list[int | str]],
+        relations: dict[str, list[RelationId]],
         schema: ContentTypeSchema,
         id_mapping: dict[str, dict[int, int]],
         doc_id_to_new_id: dict[str, dict[str, int]] | None = None,
@@ -1192,7 +1192,7 @@ class StrapiImporter:
 
             # Resolve old IDs to new IDs (supports both int and str IDs)
             new_ids: list[int] = []
-            missed: list[int | str] = []
+            missed: list[RelationId] = []
             for old_id in old_ids:
                 if isinstance(old_id, int) and old_id in target_mapping:
                     new_ids.append(target_mapping[old_id])
@@ -1325,7 +1325,7 @@ class StrapiImporter:
 
     @staticmethod
     def _mark_unwritten_nested_relations(
-        relations: dict[str, list[int | str]],
+        relations: dict[str, list[RelationId]],
         resolved: dict[str, list[Any]],
         skipped: list[str],
     ) -> None:
@@ -1339,7 +1339,7 @@ class StrapiImporter:
 
     def _resolve_relation_document_ids(
         self,
-        relations: dict[str, list[int | str]],
+        relations: dict[str, list[RelationId]],
         schema: ContentTypeSchema,
         id_mapping: dict[str, dict[int, int]],
         doc_id_mapping: dict[str, dict[int, str]],
@@ -1362,7 +1362,7 @@ class StrapiImporter:
                 unresolved.extend(_UnresolvedTarget(field_name, old_id, None) for old_id in old_ids)
                 continue
             new_docs: list[str] = []
-            missed: list[int | str] = []
+            missed: list[RelationId] = []
             for old_id in old_ids:
                 new_doc: str | None = None
                 if isinstance(old_id, str):
@@ -1502,11 +1502,15 @@ class StrapiImporter:
                 metadata = reader.read_metadata()
 
                 self._cache_export_metadata_schemas(metadata)
-                # Older JSONL files leave total_entities / total_media at 0.
-                # When total_entities is 0, recount so preflight matches
-                # import_data. Media 0 is probed later only to decide the
-                # missing-media_dir warning.
-                entity_count = metadata.total_entities or reader.get_entity_count()
+                # None = unknown. 0 = empty on official files, but older
+                # JSONL still writes 0 when totals are unknown, so recount
+                # on both None and 0. Media uses the same rule before the
+                # missing-media_dir probe.
+                entity_count = (
+                    metadata.total_entities
+                    if metadata.total_entities
+                    else reader.get_entity_count()
+                )
                 self._validate_export_metadata(metadata, result, entity_count)
                 if options.validate_relations:
                     if options.progress_callback:
@@ -1517,7 +1521,7 @@ class StrapiImporter:
                 # Use separate reader to avoid consuming entity stream (Issue #30)
                 media_maps = _MediaMaps(id_to_id={}, doc_to_doc={}, id_to_doc={})
                 if options.import_media and media_dir is None:
-                    has_media = metadata.total_media > 0
+                    has_media = bool(metadata.total_media)
                     if not has_media:
                         with JSONLImportReader(jsonl_path) as media_probe:
                             media_probe.read_metadata()
@@ -1683,7 +1687,7 @@ class StrapiImporter:
 
             self._raise_fail_conflicts(fail_conflicts, result)
 
-            result.success = result.entities_failed == 0 and not result.errors
+            result.finalize()
             return result
 
         except ImportExportError:

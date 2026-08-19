@@ -201,7 +201,9 @@ document is not a conflict.
 `export_to_jsonl` writes metadata first, then entities, then a media
 manifest. After the stream it rewrites line 1 with real
 `total_entities` / `total_media` (sibling temp copy, O(1) memory).
-Older files that still have `0` are recounted on import.
+`None` means unknown; `0` means empty. Import recounts when either
+field is `None` or `0` so older files that still write `0` keep
+working.
 
 ## Working with Relations
 
