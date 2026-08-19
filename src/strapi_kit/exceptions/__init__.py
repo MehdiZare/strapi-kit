@@ -22,6 +22,8 @@ from .errors import (
     ValidationError,
     format_validation_errors,
     is_uniqueness_violation,
+    is_unknown_locale_param,
+    is_unknown_status_param,
 )
 
 __all__ = [
@@ -45,5 +47,7 @@ __all__ = [
     "RelationError",
     "MediaError",
     "is_uniqueness_violation",
+    "is_unknown_status_param",
+    "is_unknown_locale_param",
     "format_validation_errors",
 ]

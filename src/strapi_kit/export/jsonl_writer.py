@@ -112,6 +112,67 @@ class JSONLExportWriter:
         self._write_line(record)
         logger.debug(f"Wrote media manifest with {len(media_files)} files")
 
+    def rewrite_metadata(self, metadata: ExportMetadata) -> None:
+        """Replace the first JSONL line with updated metadata.
+
+        Used after streaming so ``total_entities`` / ``total_media`` match
+        what was written. Copies remaining lines through a sibling temp
+        file (O(1) memory) and keeps metadata on line 1.
+
+        This is a terminal operation: the file handle is closed and not
+        reopened. Later ``write_entity`` / ``write_media_manifest`` calls
+        raise ``ImportExportError``.
+
+        Args:
+            metadata: Export metadata with final totals
+
+        Raises:
+            ImportExportError: If the writer is closed, the file is empty,
+                the first line is not JSON, or the first line is not
+                metadata
+        """
+        if not self._file:
+            raise ImportExportError("Writer not opened - use context manager")
+
+        self._file.flush()
+        self._file.close()
+        self._file = None
+
+        tmp_path = self.file_path.with_name(self.file_path.name + ".tmp")
+        try:
+            with (
+                open(self.file_path, encoding="utf-8") as src,
+                open(tmp_path, "w", encoding="utf-8") as dst,
+            ):
+                first = src.readline()
+                if not first.strip():
+                    raise ImportExportError("Cannot rewrite metadata of empty JSONL file")
+                try:
+                    existing = json.loads(first)
+                except json.JSONDecodeError as e:
+                    raise ImportExportError(
+                        "Cannot rewrite metadata: first line is not JSON"
+                    ) from e
+                if not isinstance(existing, dict) or existing.get("_type") != "metadata":
+                    raise ImportExportError("Cannot rewrite metadata: first line is not metadata")
+                record = {
+                    "_type": "metadata",
+                    **metadata.model_dump(mode="json"),
+                }
+                dst.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+                for line in src:
+                    dst.write(line)
+            tmp_path.replace(self.file_path)
+        except Exception:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
+        logger.debug(
+            "Rewrote JSONL metadata totals entities=%s media=%s",
+            metadata.total_entities,
+            metadata.total_media,
+        )
+
     def _write_line(self, record: dict[str, Any]) -> None:
         """Write a single JSON line.
 

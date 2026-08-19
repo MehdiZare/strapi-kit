@@ -2,6 +2,10 @@
 
 Defines the structure of exported Strapi data for portability
 and version compatibility.
+
+``RelationId`` (``StrictInt | StrictStr``) is a Pydantic input type for
+relation IDs. It is not an ``isinstance`` target. Runtime extract
+checks use ``int`` / ``str`` and reject ``bool``.
 """
 
 from datetime import UTC, datetime
@@ -9,11 +13,14 @@ from enum import StrEnum
 from pathlib import PureWindowsPath
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StrictInt, StrictStr, field_validator
 
 from strapi_kit.exceptions import FormatError
 
 from .schema import ContentTypeSchema
+
+# Pydantic input type. Not valid with isinstance().
+type RelationId = StrictInt | StrictStr
 
 
 class ExportFormat(StrEnum):
@@ -37,8 +44,10 @@ class ExportMetadata(BaseModel):
         exported_at: ISO timestamp of export
         source_url: Base URL of source Strapi instance
         content_types: List of exported content type UIDs
-        total_entities: Total number of entities exported
-        total_media: Total number of media files exported
+        total_entities: Entity count, or None when unknown (legacy JSONL)
+        total_media: Media count, or None when unknown (legacy JSONL)
+        schemas: Content-type schemas used for relation resolution
+        component_schemas: Component schemas walked during export
     """
 
     version: str = Field(
@@ -61,17 +70,27 @@ class ExportMetadata(BaseModel):
         default_factory=list,
         description="List of exported content type UIDs",
     )
-    total_entities: int = Field(
-        default=0,
-        description="Total number of entities exported",
+    total_entities: int | None = Field(
+        default=None,
+        description=(
+            "Entity count. None is unknown (recount on import). 0 is empty. "
+            "Legacy JSONL files that still write 0 are recounted."
+        ),
     )
-    total_media: int = Field(
-        default=0,
-        description="Total number of media files exported",
+    total_media: int | None = Field(
+        default=None,
+        description=(
+            "Media count. None is unknown (probe on import). 0 is empty. "
+            "Legacy JSONL files that still write 0 are probed."
+        ),
     )
     schemas: dict[str, ContentTypeSchema] = Field(
         default_factory=dict,
         description="Content type schemas (for relation resolution)",
+    )
+    component_schemas: dict[str, ContentTypeSchema] = Field(
+        default_factory=dict,
+        description="Component schemas walked during export (nested relations/media)",
     )
 
 
@@ -92,9 +111,10 @@ class ExportedEntity(BaseModel):
     document_id: str | None = Field(None, description="Document ID (v5 only)")
     content_type: str = Field(..., description="Content type UID")
     data: dict[str, Any] = Field(..., description="Entity data (attributes)")
-    relations: dict[str, list[int | str]] = Field(
+    relations: dict[str, list[RelationId]] = Field(
         default_factory=dict,
-        description="Relation field mapping (field -> [ids])",
+        description="Relation field mapping (field -> [ids]). Strict so a "
+        'numeric-looking documentId ("5") is not coerced to int.',
     )
     published_at: datetime | None = Field(
         None,
@@ -117,6 +137,7 @@ class ExportedMediaFile(BaseModel):
     """
 
     id: int = Field(..., description="Original media file ID")
+    document_id: str | None = Field(None, description="Source file documentId (v5)")
     url: str = Field(..., description="Original URL")
     name: str = Field(..., description="File name")
     mime: str = Field(..., description="MIME type")

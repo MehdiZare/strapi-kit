@@ -53,7 +53,10 @@ Relations are automatically resolved using content type schemas:
 
 1. **During Export**: Schemas are fetched from the Content-Type Builder API
 2. **Schema Storage**: Schemas are included in the export metadata
-3. **During Import**: Relations are resolved by looking up target content types from schemas
+3. **During Import**: Relations are resolved by looking up target content types from schemas.
+Component schemas walked at export are stored in `metadata.component_schemas` so
+nested paths such as `seo[0].author` resolve without a destination Content-Type
+Builder fetch.
 
 **Example**: When importing an article with `{"author": ["auth-doc"]}`, the
 system:
@@ -61,13 +64,38 @@ system:
 2. Maps the source `documentId` to the destination `documentId`
 3. PUTs `{"data": {"author": "new-author-doc"}}` via `relation_write()`
 
-Only **top-level** relation fields are written. Nested component / dynamic-zone
-paths such as `seo[0].author` are extracted for inspection but omitted from
-the relation write payload.
+Relation writes cover top-level fields and nested component / dynamic-zone
+paths such as `seo[0].author`. Nested writes merge dest `documentId`s into
+a copy of the exported component object so scalar component fields are
+kept. Paths that cannot be applied (missing component shell) are import
+errors (`success=False`). On dry-run those nested skips are warnings and
+do not flip `success`. Per-target dest-resolution misses are attached to
+`result.unresolved_relations` / `result.relations_unresolved`. A field
+that resolved only a subset of IDs is not written. On dry-run, `success`
+is write-safety; check `relations_unresolved`. On live import, each dest
+miss is an error and flips `success`.
 
-`locale=all` export yields one row per locale with the same `documentId`.
-Import keys existence on `documentId` only, so additional locales are not
-restored as localizations of one document.
+On a v4 destination (create returns no `documentId`), import falls back to
+numeric `build_nested_numeric_payload` / `PUT {endpoint}/{new_id}`.
+`build_relation_payload` remains a public helper.
+
+`RelationId` (`StrictInt | StrictStr`) is a Pydantic input type on
+`ExportedEntity.relations` and `UnresolvedRelation.old_id`. It is not an
+`isinstance` target. Extract helpers accept `int` / `str` and reject
+`bool`.
+
+Media fields are converted to a dest write id (`documentId` when the
+upload recorded one, otherwise the remapped numeric id). Populate blobs
+(`mime`, `url`, source `documentId`) are not posted.
+
+`locale=*` export yields one row per locale with the same `documentId`
+(``locale=all`` is a fallback when ``*`` is rejected).
+Import keys existence and writes by `(documentId, locale)`. The first locale
+of a source document creates (or updates/skips that locale). Later locales
+of the same source `documentId` write `PUT {destDoc}?locale=`. Relation
+updates and publish pass the row locale. `ConflictResolution.SKIP` is
+per-locale: a missing locale is written even when another locale of the
+same document already exists.
 
 ### Schema Structure
 
@@ -160,9 +188,28 @@ result = importer.import_data(export_data, options)
 
 ### Conflict Resolution Strategies
 
-- `SKIP`: Skip entities that already exist
-- `UPDATE`: Update existing entities with imported data
-- `FAIL`: Abort the import when a conflict is detected
+Conflicts are per `(documentId, locale)`. A missing locale of an existing
+document is not a conflict.
+
+- `SKIP`: Skip locales that already exist; write missing locales
+- `UPDATE`: Overwrite existing locales; write missing locales
+- `FAIL`: Finish the whole entity/relation/publish pass, including later
+  rows. Write missing locales. Do not overwrite existing locale fields or
+  their outbound relations. Then raise `ImportExportError` (import-level
+  failure, not fail-fast on the first hit). The exception `details` include
+  what already landed (`entities_imported`, `relations_imported`, `errors`,
+  `relations_unresolved`). Dry-run still probes `(documentId, locale)` and
+  raises; it does not write.
+
+## JSONL export
+
+`export_to_jsonl` writes metadata first, then entities, then a media
+manifest. After the stream it rewrites line 1 with real
+`total_entities` / `total_media` (sibling temp copy, O(1) memory).
+`None` means unknown; `0` means empty. Finished
+`export_content_types` / JSON export snapshots both counts (`0` when
+there is no media). Import recounts when either field is `None` or
+`0` so older files that still write `0` keep working.
 
 ## Working with Relations
 
@@ -188,6 +235,7 @@ result = importer.import_data(export_data)
 print(f"Success: {result.success}")
 print(f"Entities imported: {result.entities_imported}")
 print(f"Entities skipped: {result.entities_skipped}")
+print(f"Unresolved dest relations: {result.relations_unresolved}")
 
 # View ID mapping
 for content_type, mapping in result.id_mapping.items():
@@ -263,14 +311,21 @@ export_data = exporter.export_content_types([
 
 ### Unresolved IDs
 
-**Issue**: "Could not resolve X ID Y for field Z" warning
+**Issue**: `"Could not resolve X ID Y for field Z"`
 
-**Cause**: A specific entity referenced by a relation wasn't included
+On live import this is an **error** (`success=False`) and a row on
+`result.unresolved_relations`. On dry-run it is a **warning**; `success`
+stays write-safe — check `relations_unresolved`.
+
+**Cause**: A specific dest-relation target did not map (the entity was
+omitted from the export, or the dest never received a mapping)
 
 **Solutions**:
 1. Ensure all entities are exported (check filters)
 2. Import the missing entities first
-3. Create the missing entities manually in target instance
+3. Create the missing entities manually in the target instance
+4. Review `result.unresolved_relations` for the field, source id, and
+   target type
 
 ### Schema Fetch Failures
 
@@ -295,8 +350,17 @@ the UID).
 ## Best Practices
 
 1. **Export Complete Sets**: Always export related content types together
-2. **Test First**: Use `dry_run=True` to validate imports
-3. **Check Results**: Always review warnings and errors after import
+2. **Test First**: Use `dry_run=True` to validate imports. Dry-run
+   counts missing dests as imported but does not map them to dest
+   id `0` or the source `documentId`. It still reports unresolved
+   dest relations as warnings (`relations_unresolved`) and counts
+   `entities_to_publish` (live source rows this import would attempt to
+   publish; SKIP/FAIL existing locales are not counted). Dry-run
+   `success` is write-safety, not “relations would apply.” Existing dests
+   (SKIP/UPDATE, or a missing locale of an existing document) still map
+   real dest ids.
+3. **Check Results**: Always review warnings, errors, and
+   `relations_unresolved` after import
 4. **Media Handling**: Download media files if needed for offline migration
 5. **Version Compatibility**: Ensure source and target Strapi versions are compatible
 

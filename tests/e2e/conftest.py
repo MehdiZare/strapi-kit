@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -92,23 +93,49 @@ def _get_api_token() -> str:
     return os.environ.get("STRAPI_E2E_TOKEN", _TEST_PLACEHOLDER_TOKEN)
 
 
-def _docker_compose_cmd() -> list[str]:
-    """Get the docker compose command (supports both old and new syntax)."""
-    # Try new docker compose syntax first
-    try:
-        result = subprocess.run(
-            ["docker", "compose", "version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            return ["docker", "compose"]
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+def _docker_compose_cmd(
+    *,
+    run: Callable[..., Any] = subprocess.run,
+    which: Callable[[str], str | None] = shutil.which,
+    sleep: Callable[[float], None] = time.sleep,
+    retries: int = 5,
+    retry_wait: float = 0.5,
+) -> list[str]:
+    """Return argv for Docker Compose.
 
-    # Fall back to docker-compose
-    return ["docker-compose"]
+    Prefer the Compose v2 plugin (``docker compose``). Retry that probe
+    when ``docker`` is on PATH but the plugin is not ready yet. Fall back
+    to ``docker-compose`` only when that binary exists. Never invent a
+    missing v1 CLI.
+    """
+    last_error = ""
+    if which("docker"):
+        attempts = max(retries, 1)
+        for attempt in range(attempts):
+            try:
+                result = run(
+                    ["docker", "compose", "version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+            except FileNotFoundError as exc:
+                last_error = str(exc)
+                break
+            except subprocess.TimeoutExpired as exc:
+                last_error = f"docker compose version timed out after {exc.timeout}s"
+            else:
+                if result.returncode == 0:
+                    return ["docker", "compose"]
+                last_error = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
+            if attempt < attempts - 1:
+                sleep(retry_wait)
+
+    if which("docker-compose"):
+        return ["docker-compose"]
+
+    detail = f": {last_error}" if last_error else ""
+    raise RuntimeError("Neither `docker compose` nor `docker-compose` is available" + detail)
 
 
 def _start_strapi() -> None:
@@ -136,16 +163,18 @@ def _stop_strapi() -> None:
     )
 
 
-def _wait_for_strapi(url: str, timeout: int = 180) -> bool:
+def _wait_for_strapi(url: str, timeout: int | None = None) -> bool:
     """Wait for Strapi to become healthy.
 
     Args:
         url: Strapi base URL
-        timeout: Maximum seconds to wait
+        timeout: Seconds to wait. Defaults to ``STRAPI_E2E_WAIT`` or 180.
 
     Returns:
         True if Strapi is healthy, False if timeout reached
     """
+    if timeout is None:
+        timeout = int(os.environ.get("STRAPI_E2E_WAIT", "180"))
     health_url = f"{url}/_health"
     start_time = time.time()
 
@@ -271,8 +300,10 @@ def strapi_instance(request: pytest.FixtureRequest) -> Generator[str, None, None
         return
 
     # Start Strapi via Docker
+    started = False
     try:
         _start_strapi()
+        started = True
 
         if not _wait_for_strapi(url):
             # Get logs on failure
@@ -288,7 +319,7 @@ def strapi_instance(request: pytest.FixtureRequest) -> Generator[str, None, None
     finally:
         if keep_running:
             print("\n📌 Keeping Strapi running (--keep-strapi flag)")
-        else:
+        elif started:
             _stop_strapi()
 
 

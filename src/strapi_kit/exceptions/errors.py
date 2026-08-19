@@ -346,6 +346,31 @@ def _parse_field_errors_mapping(errors: dict[object, object]) -> list[tuple[str,
     return parsed
 
 
+def _validation_mentions(error: ValidationError, *needles: str) -> bool:
+    """True if ``error.message`` or a field error contains any needle.
+
+    ``str(error)`` is not used: it dumps ``details`` and would match
+    unrelated keys the same way :func:`is_uniqueness_violation` avoids.
+    """
+    texts = [error.message.lower(), *(message.lower() for _path, message in error.field_errors)]
+    return any(needle in text for text in texts for needle in needles)
+
+
+def is_unknown_status_param(error: ValidationError) -> bool:
+    """Return True when Strapi rejected ``status=`` / ``publicationState=``.
+
+    Draft-inclusive reads retry with ``status=draft``. A 400 for an unknown
+    status param means Draft & Publish is off and the published miss should
+    stand. A populate/filter 400 must not look like “does not exist”.
+    """
+    return _validation_mentions(error, "invalid key status", "invalid key publicationstate")
+
+
+def is_unknown_locale_param(error: ValidationError) -> bool:
+    """Return True when Strapi rejected ``locale=`` (type is not i18n)."""
+    return _validation_mentions(error, "invalid key locale")
+
+
 def is_uniqueness_violation(exc: ValidationError) -> bool:
     """Return True if ``exc`` is a Strapi unique-index collision.
 

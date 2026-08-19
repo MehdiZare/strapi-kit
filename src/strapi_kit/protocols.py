@@ -428,6 +428,10 @@ class StrapiClient(Protocol):
     def exists(self, collection: str, document_id: str) -> bool:
         """Return whether a published or draft document exists.
 
+        A draft ``ValidationError`` is absent only for unknown
+        ``status`` / ``publicationState``. Other 400s raise. Not
+        locale-scoped.
+
         Args:
             collection: Collection API id (single path segment)
             document_id: Document id (percent-encoded via document_path)

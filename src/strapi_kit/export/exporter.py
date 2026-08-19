@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# populate=* includes i18n sibling stubs that dest writes reject.
+_NON_WRITABLE_ATTRIBUTES = frozenset({"localizations"})
+
 
 class StrapiExporter:
     """Export Strapi content and media to portable format.
@@ -127,7 +130,7 @@ class StrapiExporter:
 
                 endpoint = self._get_endpoint(content_type)
 
-                export_query = StrapiQuery().populate_all().with_locale("all")
+                export_query = StrapiQuery().populate_all().with_locale("*")
                 schema = self._schema_cache.get_schema(content_type)
 
                 entities = []
@@ -142,6 +145,7 @@ class StrapiExporter:
                     clean_data = RelationResolver.strip_relations_with_schema(
                         entity.attributes, schema, self._schema_cache
                     )
+                    clean_data = self._writable_entity_data(clean_data)
 
                     exported_entity = ExportedEntity(
                         id=entity.id,
@@ -173,6 +177,8 @@ class StrapiExporter:
                 self._export_media(
                     export_data, media_dir, progress_callback, media_ids=all_media_ids
                 )
+
+            export_data.metadata.total_media = export_data.get_media_count()
 
             if progress_callback:
                 progress_callback(
@@ -307,22 +313,30 @@ class StrapiExporter:
         """
         logger.info(f"Fetching schemas for {len(content_types)} content types")
 
+        walked_components: set[str] = set()
         for idx, content_type in enumerate(content_types):
             try:
                 schema = self._schema_cache.get_schema(content_type)
                 export_data.metadata.schemas[content_type] = schema
-
-                if progress_callback:
-                    progress_callback(
-                        idx + 1, len(content_types), f"Fetched schema: {content_type}"
-                    )
             except Exception as e:
                 raise ImportExportError(
                     f"Schema with pluralName is required to export {content_type}",
                     details={"uid": content_type},
                 ) from e
 
+            walked_components.update(self._schema_cache.prefetch_components(schema))
+            if progress_callback:
+                progress_callback(idx + 1, len(content_types), f"Fetched schema: {content_type}")
+
+        export_data.metadata.component_schemas = self._component_schemas_for_export(
+            walked_components
+        )
         logger.info(f"Cached {self._schema_cache.cache_size} schemas")
+
+    def _component_schemas_for_export(self, walked_uids: set[str]) -> dict[str, ContentTypeSchema]:
+        """Return cached component schemas visited during this export only."""
+        cached = self._schema_cache.cached_component_schemas()
+        return {uid: cached[uid] for uid in walked_uids if uid in cached}
 
     def _get_endpoint(self, uid: str) -> str:
         """Return the REST collection id from the cached schema ``pluralName``.
@@ -343,13 +357,23 @@ class StrapiExporter:
                 details={"uid": uid},
             ) from e
 
+    @staticmethod
+    def _writable_entity_data(data: dict[str, Any]) -> dict[str, Any]:
+        """Drop populate fields dest writes reject (i18n ``localizations``)."""
+        return {key: value for key, value in data.items() if key not in _NON_WRITABLE_ATTRIBUTES}
+
     def _stream_export_entities(
         self,
         endpoint: str,
         query: StrapiQuery,
         document_status: DocumentStatus | None,
     ) -> Iterator[Any]:
-        """Stream entities; drop ``locale=all`` if the type is not i18n."""
+        """Stream entities; drop i18n locale wildcards if the type is not i18n.
+
+        Strapi 5.34 accepts ``locale=all`` with an empty list; ``locale=*``
+        returns every locale. Try ``*`` first, then legacy ``all``, then
+        drop the param.
+        """
         try:
             yield from stream_entities(
                 self.client,
@@ -360,6 +384,21 @@ class StrapiExporter:
         except ValidationError as error:
             if "invalid key locale" not in str(error).lower():
                 raise
+            current_locale = None
+            if query is not None:
+                current_locale = query.to_query_params().get("locale")
+            if current_locale == "*":
+                try:
+                    yield from stream_entities(
+                        self.client,
+                        endpoint,
+                        query=StrapiQuery().populate_all().with_locale("all"),
+                        document_status=document_status,
+                    )
+                    return
+                except ValidationError as all_error:
+                    if "invalid key locale" not in str(all_error).lower():
+                        raise
             fallback = StrapiQuery().populate_all()
             yield from stream_entities(
                 self.client,
@@ -367,53 +406,6 @@ class StrapiExporter:
                 query=fallback,
                 document_status=document_status,
             )
-
-    @staticmethod
-    def _uid_to_endpoint_fallback(uid: str) -> str:
-        """Unused UID pluralization kept for callers of ``_uid_to_endpoint``.
-
-        Export/import no longer invent a path from the UID; use
-        ``_get_endpoint`` / ``collection_endpoint`` instead.
-
-        Args:
-            uid: Content type UID (e.g., "api::article.article", "api::blog.post")
-
-        Returns:
-            API endpoint (e.g., "articles", "posts")
-        """
-        # Extract the model name (after the dot) and pluralize it
-        # For "api::blog.post", we want "post" -> "posts", not "blog" -> "blogs"
-        parts = uid.split("::")
-        if len(parts) == 2:
-            api_model = parts[1]
-            # Get model name (after the dot if present)
-            if "." in api_model:
-                name = api_model.split(".")[1]
-            else:
-                name = api_model
-            # Handle common irregular plurals
-            if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
-                return name[:-1] + "ies"  # category -> categories
-            if name.endswith(("s", "x", "z", "ch", "sh")):
-                return name + "es"  # class -> classes
-            if not name.endswith("s"):
-                return name + "s"
-            return name
-        return uid
-
-    @staticmethod
-    def _uid_to_endpoint(uid: str) -> str:
-        """Convert content type UID to API endpoint.
-
-        Deprecated: Use _get_endpoint() instead which uses schema metadata.
-
-        Args:
-            uid: Content type UID (e.g., "api::article.article")
-
-        Returns:
-            API endpoint (e.g., "articles")
-        """
-        return StrapiExporter._uid_to_endpoint_fallback(uid)
 
     def export_to_jsonl(
         self,
@@ -429,6 +421,11 @@ class StrapiExporter:
 
         This method writes entities directly to disk as they're fetched,
         providing O(1) memory usage regardless of export size.
+
+        After entities and the media manifest, the first metadata line is
+        rewritten with real ``total_entities`` / ``total_media`` (sibling
+        temp copy, O(1) memory, metadata-first preserved). Import still
+        recounts when those fields are 0 so older files work.
 
         Args:
             content_types: List of content type UIDs to export
@@ -469,6 +466,7 @@ class StrapiExporter:
 
             # Fetch schemas upfront
             schemas: dict[str, ContentTypeSchema] = {}
+            walked_components: set[str] = set()
             for content_type in content_types:
                 try:
                     ct_schema = self._schema_cache.get_schema(content_type)
@@ -479,6 +477,9 @@ class StrapiExporter:
                         f"Schema with pluralName is required to export {content_type}",
                         details={"uid": content_type},
                     ) from e
+                walked_components.update(self._schema_cache.prefetch_components(ct_schema))
+
+            metadata.component_schemas = self._component_schemas_for_export(walked_components)
 
             all_media_ids: set[int] = set()
 
@@ -495,7 +496,7 @@ class StrapiExporter:
 
                     endpoint = self._get_endpoint(content_type)
                     schema = schemas[content_type]
-                    export_query = StrapiQuery().populate_all().with_locale("all")
+                    export_query = StrapiQuery().populate_all().with_locale("*")
 
                     for entity in self._stream_export_entities(
                         endpoint, export_query, document_status
@@ -510,6 +511,7 @@ class StrapiExporter:
                         clean_data = RelationResolver.strip_relations_with_schema(
                             entity.attributes, schema, self._schema_cache
                         )
+                        clean_data = self._writable_entity_data(clean_data)
 
                         exported_entity = ExportedEntity(
                             id=entity.id,
@@ -552,6 +554,10 @@ class StrapiExporter:
 
                 # Write media manifest
                 writer.write_media_manifest(media_files)
+
+                metadata.total_entities = writer.entity_count
+                metadata.total_media = len(media_files)
+                writer.rewrite_metadata(metadata)
 
                 if progress_callback:
                     progress_callback(

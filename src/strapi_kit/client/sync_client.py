@@ -23,6 +23,7 @@ from ..exceptions import (
     ServerError,
     StrapiError,
     ValidationError,
+    is_unknown_status_param,
 )
 from ..exceptions import (
     ConnectionError as StrapiConnectionError,
@@ -555,11 +556,13 @@ class SyncClient(BaseClient):
 
         Strapi 5 omitted ``status=`` means published, so a draft-only
         document 404s on the default GET. A published miss is retried
-        once with ``status=draft``. A draft ``ValidationError`` (Draft &
-        Publish off / unknown param) keeps the published miss as False.
+        once with ``status=draft``. A draft ``ValidationError`` is absent
+        only for unknown ``status`` / ``publicationState``. Other 400s
+        (populate, filters) raise.
         Auth, 5xx, and network errors on either read raise. Collection
         must be a single path segment; ``document_id`` is percent-encoded
-        via :meth:`document_path`.
+        via :meth:`document_path`. This check is not locale-scoped: a hit
+        is the default published or draft version of the document.
 
         Args:
             collection: Collection API id (e.g. ``"articles"``)
@@ -567,6 +570,10 @@ class SyncClient(BaseClient):
 
         Returns:
             True if a published or draft version is readable
+
+        Raises:
+            ValidationError: Draft probe 400 that is not an unknown
+                ``status`` / ``publicationState``
         """
         endpoint = self._single_segment_document_path(collection, document_id)
         try:
@@ -579,8 +586,10 @@ class SyncClient(BaseClient):
             response = self.get_one(endpoint, query=self._draft_status_query())
         except NotFoundError:
             return False
-        except ValidationError:
-            return False
+        except ValidationError as error:
+            if is_unknown_status_param(error):
+                return False
+            raise
         return self._entity_identifies_document(response.data)
 
     def _classify_write_404(self, endpoint: str, original: NotFoundError) -> NoReturn:

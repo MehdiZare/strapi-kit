@@ -5,6 +5,7 @@ and media files into a Strapi instance.
 """
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,12 +15,26 @@ from strapi_kit.exceptions import (
     NotFoundError,
     StrapiError,
     ValidationError,
+    is_unknown_locale_param,
+    is_unknown_status_param,
 )
 from strapi_kit.export.media_handler import MediaHandler
 from strapi_kit.export.relation_resolver import RelationResolver
 from strapi_kit.models.enums import DocumentStatus
-from strapi_kit.models.export_format import ExportData
-from strapi_kit.models.import_options import ConflictResolution, ImportOptions, ImportResult
+from strapi_kit.models.export_format import (
+    ExportData,
+    ExportedEntity,
+    ExportedMediaFile,
+    ExportMetadata,
+    RelationId,
+)
+from strapi_kit.models.import_options import (
+    ConflictResolution,
+    ImportOptions,
+    ImportResult,
+    UnresolvedRelation,
+)
+from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.query import StrapiQuery
 from strapi_kit.models.schema import ContentTypeSchema
 from strapi_kit.utils.endpoints import collection_endpoint
@@ -28,6 +43,36 @@ if TYPE_CHECKING:
     from strapi_kit.client.sync_client import SyncClient
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _MediaMaps:
+    """Destination media id mappings for entity write-shape remapping."""
+
+    id_to_id: dict[int, int]
+    doc_to_doc: dict[str, str]
+    id_to_doc: dict[int, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _ExistingDocument:
+    """A dest document returned by the existence probe."""
+
+    id: int
+    document_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _UnresolvedTarget:
+    """A single dest-relation id that did not resolve.
+
+    ``old_id`` is annotated as ``RelationId`` for consistency with the
+    Pydantic models. This dataclass does not validate.
+    """
+
+    field: str
+    old_id: RelationId
+    target: str | None
 
 
 class StrapiImporter:
@@ -93,7 +138,9 @@ class StrapiImporter:
             ...     media_dir="export/media"
             ... )
             >>> if result.success:
-            ...     print("Import successful!")
+            ...     print("Import completed without errors")
+            >>> if result.relations_unresolved:
+            ...     print(f"{result.relations_unresolved} dest relations unresolved")
         """
         if options is None:
             options = ImportOptions()
@@ -105,10 +152,12 @@ class StrapiImporter:
             if options.progress_callback:
                 options.progress_callback(0, 100, "Validating export data")
 
-            self._validate_export_data(export_data, result)
+            self._validate_export_metadata(
+                export_data.metadata, result, export_data.get_entity_count()
+            )
 
             if result.errors and not options.dry_run:
-                result.success = False
+                result.finalize()
                 return result
 
             # Step 1.5: Load schemas from export metadata
@@ -125,41 +174,51 @@ class StrapiImporter:
 
             if not content_types_to_import:
                 result.add_warning("No content types to import")
-                result.success = True
+                result.finalize()
                 return result
 
             # Step 3: Import media first (if requested)
-            media_id_mapping: dict[int, int] = {}
+            media_maps = _MediaMaps(id_to_id={}, doc_to_doc={}, id_to_doc={})
             if options.import_media and export_data.media:
                 if options.progress_callback:
                     options.progress_callback(20, 100, "Importing media files")
 
-                media_id_mapping = self._import_media(export_data, media_dir, options, result)
+                media_maps = self._import_media(export_data, media_dir, options, result)
 
             # Step 4: Import entities (with updated media references)
             if options.progress_callback:
                 options.progress_callback(40, 100, "Importing entities")
 
             pending_publish: list[tuple[str, Any, str]] = []
+            fail_conflicts: list[str] = []
+            fail_conflict_keys: set[tuple[str, int]] = set()
             self._import_entities(
                 export_data,
                 content_types_to_import,
-                media_id_mapping,
+                media_maps,
                 options,
                 result,
                 pending_publish,
+                fail_conflicts,
+                fail_conflict_keys,
             )
 
-            # Step 5: Import relations (if not skipped)
+            # Step 5: Import relations (write), or report resolve-only on dry-run
             if not options.skip_relations:
                 if options.progress_callback:
-                    options.progress_callback(60, 100, "Importing relations")
+                    options.progress_callback(
+                        60,
+                        100,
+                        "Reporting relations" if options.dry_run else "Importing relations",
+                    )
 
                 self._import_relations(
                     export_data,
                     content_types_to_import,
                     options,
                     result,
+                    fail_conflict_keys,
+                    media_maps,
                 )
 
             # Publish after relations so stock v5 PUT ?status=published
@@ -169,30 +228,28 @@ class StrapiImporter:
             if options.progress_callback:
                 options.progress_callback(100, 100, "Import complete")
 
-            result.success = result.entities_failed == 0 and not result.errors
+            self._raise_fail_conflicts(fail_conflicts, result)
 
+            result.finalize()
             return result
 
+        except ImportExportError:
+            raise
         except Exception as e:
             result.add_error(f"Import failed: {e}")
             raise ImportExportError(f"Import failed: {e}") from e
 
-    def _validate_export_data(self, export_data: ExportData, result: ImportResult) -> None:
-        """Validate export data format and compatibility.
-
-        Args:
-            export_data: Export data to validate
-            result: Result object to add errors/warnings to
-        """
-        # Check format version
-        if not export_data.metadata.version.startswith("1."):
+    def _validate_export_metadata(
+        self, metadata: ExportMetadata, result: ImportResult, entity_count: int
+    ) -> None:
+        """Validate export metadata shared by in-memory and JSONL import."""
+        if not metadata.version.startswith("1."):
             result.add_warning(
-                f"Export format version {export_data.metadata.version} may not be fully compatible"
+                f"Export format version {metadata.version} may not be fully compatible"
             )
 
-        # Check Strapi version compatibility
         target_version = self.client.api_version
-        source_version = export_data.metadata.strapi_version
+        source_version = metadata.strapi_version
 
         if target_version and source_version != target_version:
             result.add_warning(
@@ -200,8 +257,7 @@ class StrapiImporter:
                 "Some data may require transformation."
             )
 
-        # Check if we have any data
-        if export_data.get_entity_count() == 0:
+        if entity_count == 0:
             result.add_warning("No entities to import")
 
     def _validate_relations(self, export_data: ExportData, result: ImportResult) -> None:
@@ -215,9 +271,9 @@ class StrapiImporter:
             result: Result object to add warnings to
         """
         # Build set of available IDs per content type (both int and str for v5)
-        available_ids: dict[str, set[int | str]] = {}
+        available_ids: dict[str, set[RelationId]] = {}
         for ct, entities in export_data.entities.items():
-            ids: set[int | str] = set()
+            ids: set[RelationId] = set()
             for e in entities:
                 ids.add(e.id)
                 # Include document_id for v5 string-based relations
@@ -225,32 +281,78 @@ class StrapiImporter:
                     ids.add(e.document_id)
             available_ids[ct] = ids
 
-        # Check all relations
         for ct, entities in export_data.entities.items():
-            # Get schema for this content type
             schema = export_data.metadata.schemas.get(ct)
-            if not schema:
+            for entity in entities:
+                if schema is None:
+                    self._warn_missing_export_schema(entity, result)
+                    continue
+                self._warn_missing_relation_targets(entity, schema, available_ids, result)
+
+    def _validate_relations_from_jsonl(self, jsonl_path: Path, result: ImportResult) -> None:
+        """Same export-ID relation checks as ``_validate_relations``, streamed."""
+        from strapi_kit.export.jsonl_reader import JSONLImportReader
+
+        available_ids: dict[str, set[RelationId]] = {}
+        with JSONLImportReader(jsonl_path) as reader:
+            reader.read_metadata()
+            for entity in reader.iter_entities():
+                ids = available_ids.setdefault(entity.content_type, set())
+                ids.add(entity.id)
+                if entity.document_id:
+                    ids.add(entity.document_id)
+
+        with JSONLImportReader(jsonl_path) as reader:
+            metadata = reader.read_metadata()
+            for entity in reader.iter_entities():
+                schema = metadata.schemas.get(entity.content_type)
+                if schema is None:
+                    self._warn_missing_export_schema(entity, result)
+                    continue
+                self._warn_missing_relation_targets(entity, schema, available_ids, result)
+
+    @staticmethod
+    def _warn_missing_export_schema(entity: ExportedEntity, result: ImportResult) -> None:
+        """Warn when a row has relations but export metadata has no schema."""
+        if not entity.relations:
+            return
+        result.add_warning(
+            f"Cannot validate relations for {entity.content_type}#{entity.id}: "
+            "no schema in export metadata"
+        )
+
+    def _warn_missing_relation_targets(
+        self,
+        entity: ExportedEntity,
+        schema: ContentTypeSchema,
+        available_ids: dict[str, set[RelationId]],
+        result: ImportResult,
+    ) -> None:
+        """Warn when a relation target type or ID is absent from the export."""
+        for field_name, target_ids in entity.relations.items():
+            target_ct = RelationResolver.target_for_field_path(
+                schema, field_name, self._schema_cache, entity.data
+            )
+            if not target_ct:
+                result.add_warning(
+                    f"{entity.content_type}#{entity.id}.{field_name} -> cannot resolve "
+                    "relation target (missing field or component schema)"
+                )
                 continue
 
-            for entity in entities:
-                for field_name, target_ids in entity.relations.items():
-                    target_ct = schema.get_field_target(field_name)
-                    if not target_ct:
-                        continue
+            if target_ct not in available_ids:
+                result.add_warning(
+                    f"{entity.content_type}#{entity.id}.{field_name} -> target type "
+                    f"'{target_ct}' not in export"
+                )
+                continue
 
-                    if target_ct not in available_ids:
-                        result.add_warning(
-                            f"{ct}#{entity.id}.{field_name} -> target type '{target_ct}' "
-                            "not in export"
-                        )
-                        continue
-
-                    missing = set(target_ids) - available_ids.get(target_ct, set())
-                    if missing:
-                        result.add_warning(
-                            f"{ct}#{entity.id}.{field_name} -> missing IDs in {target_ct}: "
-                            f"{sorted(missing)}"
-                        )
+            missing = set(target_ids) - available_ids.get(target_ct, set())
+            if missing:
+                result.add_warning(
+                    f"{entity.content_type}#{entity.id}.{field_name} -> missing IDs "
+                    f"in {target_ct}: {sorted(missing)}"
+                )
 
     def _get_content_types_to_import(
         self, export_data: ExportData, options: ImportOptions
@@ -276,24 +378,31 @@ class StrapiImporter:
         self,
         export_data: ExportData,
         content_types: list[str],
-        media_id_mapping: dict[int, int],
+        media_maps: _MediaMaps,
         options: ImportOptions,
         result: ImportResult,
         pending_publish: list[tuple[str, Any, str]],
+        fail_conflicts: list[str],
+        fail_conflict_keys: set[tuple[str, int]],
     ) -> None:
         """Import entities for specified content types.
 
         Handles conflict resolution based on options:
-        - SKIP: Skip entities that already exist
-        - UPDATE: Update existing entities with imported data
-        - FAIL: Fail import if conflicts are detected
+        - SKIP: Skip locales that already exist; write missing locales
+        - UPDATE: Overwrite existing locales; write missing locales
+        - FAIL: Record an existing locale, keep writing missing locales,
+          then abort after the entity/relation/publish pass
 
         Args:
             export_data: Export data
             content_types: Content types to import
-            media_id_mapping: Mapping of old media IDs to new IDs
+            media_maps: Destination media id / documentId mappings
             options: Import options
             result: Result object to update
+            pending_publish: Live source rows to publish after relations
+            fail_conflicts: FAIL hits collected for a late abort
+            fail_conflict_keys: ``(content_type, entity.id)`` of FAIL hits so
+                the relation pass can skip overwriting those locales
         """
         total_entities = sum(len(export_data.entities.get(ct, [])) for ct in content_types)
         processed = 0
@@ -309,97 +418,27 @@ class StrapiImporter:
 
                 for entity in batch:
                     try:
-                        # Update media references if we have mappings
-                        entity_data = entity.data
-                        if media_id_mapping:
-                            entity_data = MediaHandler.update_media_references(
-                                entity.data, media_id_mapping
-                            )
+                        # Always convert populate blobs so create never POSTs
+                        # leftover mime/url/source documentId.
+                        entity_data = self._entity_data_for_write(
+                            entity.data, media_maps, content_type
+                        )
 
-                        if options.dry_run:
-                            # Just validate, don't actually create
-                            result.entities_imported += 1
-                            continue
-
-                        # Check for existing entity if document_id is available (for conflict handling)
-                        existing_id: int | None = None
-                        if entity.document_id:
-                            existing_id = self._check_entity_exists(endpoint, entity.document_id)
-
-                        if existing_id is not None:
-                            # Entity already exists - handle according to conflict resolution
-                            if options.conflict_resolution == ConflictResolution.SKIP:
-                                result.entities_skipped += 1
-                                self._record_entity_mappings(
-                                    content_type=content_type,
-                                    entity_id=entity.id,
-                                    source_document_id=entity.document_id,
-                                    new_id=existing_id,
-                                    dest_document_id=entity.document_id,
-                                    id_mapping=result.id_mapping,
-                                    doc_id_mapping=result.doc_id_mapping,
-                                    doc_id_to_new_id=result.doc_id_to_new_id,
-                                    doc_id_to_new_document_id=result.doc_id_to_new_document_id,
-                                )
-                                continue
-
-                            elif options.conflict_resolution == ConflictResolution.FAIL:
-                                raise ImportExportError(
-                                    f"Entity already exists: {content_type} with documentId "
-                                    f"{entity.document_id}. Use conflict_resolution=SKIP or UPDATE."
-                                )
-
-                            elif options.conflict_resolution == ConflictResolution.UPDATE:
-                                write_query = self._write_query(entity)
-                                response = self.client.update(
-                                    endpoint,
-                                    entity_data,
-                                    query=write_query,
-                                    document_id=entity.document_id,
-                                )
-                                if response.data:
-                                    dest_document_id = (
-                                        response.data.document_id or entity.document_id
-                                    )
-                                    self._record_entity_mappings(
-                                        content_type=content_type,
-                                        entity_id=entity.id,
-                                        source_document_id=entity.document_id,
-                                        new_id=response.data.id,
-                                        dest_document_id=dest_document_id,
-                                        id_mapping=result.id_mapping,
-                                        doc_id_mapping=result.doc_id_mapping,
-                                        doc_id_to_new_id=result.doc_id_to_new_id,
-                                        doc_id_to_new_document_id=result.doc_id_to_new_document_id,
-                                    )
-                                    self._queue_publish(
-                                        pending_publish, content_type, entity, dest_document_id
-                                    )
-                                    result.entities_updated += 1
-                                continue
-
-                        write_query = self._write_query(entity)
-                        response = self.client.create(endpoint, entity_data, query=write_query)
-
-                        if response.data:
-                            self._record_entity_mappings(
-                                content_type=content_type,
-                                entity_id=entity.id,
-                                source_document_id=entity.document_id,
-                                new_id=response.data.id,
-                                dest_document_id=response.data.document_id,
-                                id_mapping=result.id_mapping,
-                                doc_id_mapping=result.doc_id_mapping,
-                                doc_id_to_new_id=result.doc_id_to_new_id,
-                                doc_id_to_new_document_id=result.doc_id_to_new_document_id,
-                            )
-                            self._queue_publish(
-                                pending_publish,
-                                content_type,
-                                entity,
-                                response.data.document_id,
-                            )
-                            result.entities_imported += 1
+                        self._import_one_entity(
+                            entity,
+                            endpoint=endpoint,
+                            content_type=content_type,
+                            entity_data=entity_data,
+                            options=options,
+                            pending_publish=pending_publish,
+                            id_mapping=result.id_mapping,
+                            doc_id_mapping=result.doc_id_mapping,
+                            doc_id_to_new_id=result.doc_id_to_new_id,
+                            doc_id_to_new_document_id=result.doc_id_to_new_document_id,
+                            result=result,
+                            fail_conflicts=fail_conflicts,
+                            fail_conflict_keys=fail_conflict_keys,
+                        )
 
                     except ValidationError as e:
                         result.add_error(
@@ -408,7 +447,6 @@ class StrapiImporter:
                         result.entities_failed += 1
 
                     except ImportExportError:
-                        # Re-raise ImportExportError (e.g., from FAIL conflict resolution)
                         raise
 
                     except StrapiError as e:
@@ -426,44 +464,299 @@ class StrapiImporter:
                         progress, 100, f"Importing entities ({processed}/{total_entities})"
                     )
 
-    def _check_entity_exists(self, endpoint: str, document_id: str) -> int | None:
-        """Return the numeric id if a published or draft document exists.
+    def _import_one_entity(
+        self,
+        entity: ExportedEntity,
+        *,
+        endpoint: str,
+        content_type: str,
+        entity_data: dict[str, Any],
+        options: ImportOptions,
+        pending_publish: list[tuple[str, Any, str]],
+        id_mapping: dict[str, dict[int, int]],
+        doc_id_mapping: dict[str, dict[int, str]],
+        doc_id_to_new_id: dict[str, dict[str, int]],
+        doc_id_to_new_document_id: dict[str, dict[str, str]],
+        result: ImportResult,
+        fail_conflicts: list[str],
+        fail_conflict_keys: set[tuple[str, int]],
+    ) -> None:
+        """Create, localize, skip, or update one exported entity."""
+        source_doc = entity.document_id
+        dest_doc = (
+            doc_id_to_new_document_id.get(content_type, {}).get(source_doc) if source_doc else None
+        )
 
-        Matches the stream/export default of ``status=draft``: a published
-        miss is retried once with the draft version. Auth, 5xx, and
-        network errors raise. A draft ``ValidationError`` (Draft &
-        Publish off) keeps the published miss as absent.
+        this_locale: _ExistingDocument | None = None
+        if source_doc:
+            this_locale = self._probe_document(endpoint, source_doc, entity.locale)
 
-        Args:
-            endpoint: API collection id (e.g. ``articles``)
-            document_id: Document ID to check
+        if this_locale is not None:
+            dest_doc = dest_doc or this_locale.document_id or source_doc
+            if options.conflict_resolution == ConflictResolution.SKIP:
+                result.entities_skipped += 1
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=this_locale.id,
+                    dest_document_id=this_locale.document_id,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                return
 
-        Returns:
-            Entity's numeric ID if exists, None otherwise
+            if options.conflict_resolution == ConflictResolution.FAIL:
+                locale_note = f" locale={entity.locale}" if entity.locale else ""
+                fail_conflicts.append(
+                    f"Entity already exists: {content_type} with documentId "
+                    f"{source_doc}{locale_note}. Use conflict_resolution=SKIP or UPDATE."
+                )
+                fail_conflict_keys.add((content_type, entity.id))
+                result.entities_failed += 1
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=this_locale.id,
+                    dest_document_id=this_locale.document_id,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                return
+
+            if options.dry_run:
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=this_locale.id,
+                    dest_document_id=this_locale.document_id,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                self._record_publish_intent(
+                    pending_publish, content_type, entity, this_locale.document_id, options, result
+                )
+                result.entities_updated += 1
+                return
+
+            write_query = self._write_query(entity)
+            response = self.client.update(
+                endpoint, entity_data, query=write_query, document_id=dest_doc
+            )
+            if response.data:
+                dest_document_id = response.data.document_id or dest_doc
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=response.data.id,
+                    dest_document_id=dest_document_id,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                self._record_publish_intent(
+                    pending_publish, content_type, entity, dest_document_id, options, result
+                )
+                result.entities_updated += 1
+            return
+
+        write_query = self._write_query(entity)
+        any_locale: _ExistingDocument | None = None
+        if dest_doc is None and source_doc and entity.locale:
+            any_locale = self._probe_any_document(endpoint, source_doc)
+            if any_locale is not None:
+                dest_doc = any_locale.document_id or source_doc
+
+        if options.dry_run:
+            # Missing dest: do not invent dest id 0 or reuse the source
+            # documentId. An existing dest (other locale, or a dest already
+            # mapped this run) still records the real dest id.
+            dest_id = any_locale.id if any_locale is not None else None
+            dest_document = any_locale.document_id if any_locale is not None else None
+            if dest_id is None and source_doc:
+                dest_id = doc_id_to_new_id.get(content_type, {}).get(source_doc)
+                dest_document = dest_document or dest_doc
+            if dest_id:
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=dest_id,
+                    dest_document_id=dest_document,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+            self._record_publish_intent(
+                pending_publish, content_type, entity, dest_document, options, result
+            )
+            result.entities_imported += 1
+            return
+
+        if dest_doc is not None:
+            response = self.client.update(
+                endpoint, entity_data, query=write_query, document_id=dest_doc
+            )
+            if response.data:
+                dest_document_id = response.data.document_id or dest_doc
+                self._record_entity_mappings(
+                    content_type=content_type,
+                    entity_id=entity.id,
+                    source_document_id=source_doc,
+                    new_id=response.data.id,
+                    dest_document_id=dest_document_id,
+                    id_mapping=id_mapping,
+                    doc_id_mapping=doc_id_mapping,
+                    doc_id_to_new_id=doc_id_to_new_id,
+                    doc_id_to_new_document_id=doc_id_to_new_document_id,
+                )
+                self._record_publish_intent(
+                    pending_publish, content_type, entity, dest_document_id, options, result
+                )
+                result.entities_imported += 1
+            return
+
+        response = self.client.create(endpoint, entity_data, query=write_query)
+        if response.data:
+            self._record_entity_mappings(
+                content_type=content_type,
+                entity_id=entity.id,
+                source_document_id=source_doc,
+                new_id=response.data.id,
+                dest_document_id=response.data.document_id,
+                id_mapping=id_mapping,
+                doc_id_mapping=doc_id_mapping,
+                doc_id_to_new_id=doc_id_to_new_id,
+                doc_id_to_new_document_id=doc_id_to_new_document_id,
+            )
+            self._record_publish_intent(
+                pending_publish,
+                content_type,
+                entity,
+                response.data.document_id,
+                options,
+                result,
+            )
+            result.entities_imported += 1
+
+    def _probe_document(
+        self, endpoint: str, document_id: str, locale: str | None
+    ) -> _ExistingDocument | None:
+        """Published-then-draft existence probe, optionally locale-scoped.
+
+        ``Invalid key locale`` retries that GET once without ``locale``.
+        A draft ``ValidationError`` is absent only for unknown
+        ``status`` / ``publicationState``.
         """
         path = self.client.document_path(endpoint, document_id)
+        published = StrapiQuery().with_locale(locale) if locale else None
         try:
-            response = self.client.get_one(path)
-            if response.data is not None:
-                return response.data.id
+            response = self._get_one_with_locale_fallback(path, published, had_locale=bool(locale))
+            found = self._existing_from_response(response)
+            if found is not None:
+                return found
         except NotFoundError:
             pass
 
+        draft = StrapiQuery().with_document_status(DocumentStatus.DRAFT)
+        if locale:
+            draft = draft.with_locale(locale)
         try:
-            response = self.client.get_one(
-                path,
-                query=StrapiQuery().with_document_status(DocumentStatus.DRAFT),
-            )
-            if response.data is not None:
-                return response.data.id
+            response = self._get_one_with_locale_fallback(path, draft, had_locale=bool(locale))
+            return self._existing_from_response(response)
         except NotFoundError:
             return None
         except ValidationError as error:
-            text = str(error).lower()
-            if "invalid key status" not in text and "invalid key publicationstate" not in text:
-                raise
+            if is_unknown_status_param(error):
+                return None
+            raise
+
+    def _probe_any_document(self, endpoint: str, document_id: str) -> _ExistingDocument | None:
+        """Find a dest document across locales.
+
+        A no-locale GET is the default locale only. ``locale=*`` plus a
+        ``documentId`` filter sees a dest that exists only in a non-default
+        locale. Strapi 5.34 accepts ``locale=all`` with an empty list.
+        ``Invalid key locale`` falls back to the default-locale document GET
+        (non-i18n types).
+        """
+        published = (
+            StrapiQuery()
+            .filter(FilterBuilder().eq("documentId", document_id))
+            .with_locale("*")
+            .paginate(page=1, page_size=1)
+        )
+        try:
+            found = self._existing_from_collection(self.client.get_many(endpoint, query=published))
+            if found is not None:
+                return found
+        except NotFoundError:
+            pass
+        except ValidationError as error:
+            if is_unknown_locale_param(error):
+                return self._probe_document(endpoint, document_id, locale=None)
+            raise
+
+        draft = published.copy().with_document_status(DocumentStatus.DRAFT)
+        try:
+            return self._existing_from_collection(self.client.get_many(endpoint, query=draft))
+        except NotFoundError:
             return None
-        return None
+        except ValidationError as error:
+            if is_unknown_locale_param(error):
+                return self._probe_document(endpoint, document_id, locale=None)
+            if is_unknown_status_param(error):
+                return None
+            raise
+
+    def _get_one_with_locale_fallback(
+        self, path: str, query: StrapiQuery | None, *, had_locale: bool
+    ) -> Any:
+        """GET once; if ``locale=`` is unknown, retry without it."""
+        try:
+            return self.client.get_one(path, query=query)
+        except ValidationError as error:
+            if had_locale and is_unknown_locale_param(error):
+                return self.client.get_one(path, query=self._without_locale(query))
+            raise
+
+    @staticmethod
+    def _without_locale(query: StrapiQuery | None) -> StrapiQuery | None:
+        """Return a copy of ``query`` with ``locale`` cleared."""
+        if query is None:
+            return None
+        copied = query.copy().without_locale()
+        return copied if copied.to_query_params() else None
+
+    @staticmethod
+    def _existing_from_response(response: Any) -> _ExistingDocument | None:
+        """Build a probe hit when the body identifies a document."""
+        data = response.data
+        if data is None or data.id is None:
+            return None
+        return _ExistingDocument(id=data.id, document_id=data.document_id)
+
+    @staticmethod
+    def _existing_from_collection(response: Any) -> _ExistingDocument | None:
+        """Build a probe hit from the first row of a collection GET."""
+        rows = response.data
+        if not rows:
+            return None
+        data = rows[0]
+        if data.id is None:
+            return None
+        return _ExistingDocument(id=data.id, document_id=data.document_id)
 
     @staticmethod
     def _record_entity_mappings(
@@ -489,23 +782,65 @@ class StrapiImporter:
                     dest_document_id
                 )
 
-    def _write_query(self, entity: Any) -> StrapiQuery | None:
-        """Locale query for create / update / publish, if the export recorded one."""
+    def _write_query(self, entity: ExportedEntity) -> StrapiQuery | None:
+        """Locale query for create, update, localize, publish, and relation PUT."""
         if entity.locale:
             return StrapiQuery().with_locale(entity.locale)
         return None
 
     @staticmethod
-    def _queue_publish(
+    def _raise_fail_conflicts(fail_conflicts: list[str], result: ImportResult) -> None:
+        """Abort after the write pass when FAIL collected existing locales.
+
+        ``ImportResult`` counts and later-pass ``errors`` travel on
+        ``ImportExportError.details`` so a late abort does not hide what
+        already landed (or failed) on dest.
+        """
+        if not fail_conflicts:
+            return
+        details: dict[str, Any] = {
+            "conflicts": list(fail_conflicts),
+            "errors": list(result.errors),
+            "entities_imported": result.entities_imported,
+            "entities_failed": result.entities_failed,
+            "entities_skipped": result.entities_skipped,
+            "relations_imported": result.relations_imported,
+            "entities_to_publish": result.entities_to_publish,
+            "relations_unresolved": result.relations_unresolved,
+        }
+        extra = ""
+        if result.errors:
+            extra = " Additional import errors: " + "; ".join(result.errors)
+        if len(fail_conflicts) == 1:
+            raise ImportExportError(fail_conflicts[0] + extra, details=details)
+        raise ImportExportError(
+            f"{len(fail_conflicts)} locales already exist. "
+            "Use conflict_resolution=SKIP or UPDATE. " + "; ".join(fail_conflicts) + extra,
+            details=details,
+        )
+
+    @staticmethod
+    def _record_publish_intent(
         pending_publish: list[tuple[str, Any, str]],
         content_type: str,
-        entity: Any,
+        entity: ExportedEntity,
         dest_document_id: str | None,
+        options: ImportOptions,
+        result: ImportResult,
     ) -> None:
-        """Queue a live source document to publish after relations are written."""
-        if entity.published_at is None or not dest_document_id:
+        """Count publish intent; queue a dest write only when not dry-run.
+
+        Dry-run counts source intent whenever ``published_at`` is set.
+        Live increments only when a dest documentId is actually queued.
+        """
+        if entity.published_at is None:
             return
-        pending_publish.append((content_type, entity, dest_document_id))
+        if options.dry_run:
+            result.entities_to_publish += 1
+            return
+        if dest_document_id:
+            result.entities_to_publish += 1
+            pending_publish.append((content_type, entity, dest_document_id))
 
     def _publish_pending(
         self,
@@ -529,6 +864,8 @@ class StrapiImporter:
         content_types: list[str],
         options: ImportOptions,
         result: ImportResult,
+        fail_conflict_keys: set[tuple[str, int]],
+        media_maps: _MediaMaps,
     ) -> None:
         """Import relations for entities.
 
@@ -540,59 +877,117 @@ class StrapiImporter:
             content_types: Content types to import relations for
             options: Import options
             result: Result object to update
+            fail_conflict_keys: FAIL-conflicted locales; keep inbound mappings
+                but do not overwrite those dest rows
+            media_maps: Destination media id / documentId mappings
         """
         for content_type in content_types:
             entities = export_data.entities.get(content_type, [])
             endpoint = self._get_endpoint(content_type)
-
             for entity in entities:
-                # Skip if no relations
-                if not entity.relations:
-                    continue
+                self._process_entity_relations(
+                    entity,
+                    endpoint,
+                    options,
+                    result,
+                    result.id_mapping,
+                    result.doc_id_mapping,
+                    result.doc_id_to_new_id,
+                    result.doc_id_to_new_document_id,
+                    media_maps,
+                    fail_conflict_keys,
+                )
 
-                # Get the new ID from mapping
-                if content_type not in result.id_mapping:
-                    continue
+    def _process_entity_relations(
+        self,
+        entity: ExportedEntity,
+        endpoint: str,
+        options: ImportOptions,
+        result: ImportResult,
+        id_mapping: dict[str, dict[int, int]],
+        doc_id_mapping: dict[str, dict[int, str]],
+        doc_id_to_new_id: dict[str, dict[str, int]],
+        doc_id_to_new_document_id: dict[str, dict[str, str]],
+        media_maps: _MediaMaps,
+        fail_conflict_keys: set[tuple[str, int]],
+    ) -> None:
+        """Write or dry-run-report dest relations for one entity."""
+        if not entity.relations:
+            return
+        if (entity.content_type, entity.id) in fail_conflict_keys:
+            return
 
-                old_id = entity.id
-                if old_id not in result.id_mapping[content_type]:
-                    logger.warning(
-                        f"Cannot import relations for {content_type} #{old_id}: "
-                        "entity not in ID mapping"
-                    )
-                    continue
+        new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
+        if not new_id:
+            message = (
+                f"Cannot import relations for {entity.content_type} #{entity.id}: "
+                "entity not in dest mapping"
+            )
+            if options.dry_run:
+                result.add_warning(message)
+            else:
+                result.add_error(message)
+            return
 
-                new_id = result.id_mapping[content_type][old_id]
+        try:
+            schema = self._schema_cache.get_schema(entity.content_type)
+        except StrapiError as e:
+            logger.error(
+                "Failed to load schema for %s while importing relations: %s",
+                entity.content_type,
+                e,
+                exc_info=True,
+            )
+            result.add_error(
+                f"Failed to load schema for {entity.content_type} while importing relations: {e}"
+            )
+            return
 
-                # Get schema for this content type
-                try:
-                    schema = self._schema_cache.get_schema(content_type)
-                except Exception as e:
-                    result.add_error(
-                        f"Failed to load schema for {content_type} while importing relations: {e}"
-                    )
-                    continue
-
-                try:
-                    if options.dry_run:
-                        continue
-
-                    applied = self._apply_entity_relations(
-                        entity,
-                        schema,
-                        endpoint,
-                        result.id_mapping,
-                        result.doc_id_mapping,
-                        result.doc_id_to_new_id,
-                        result.doc_id_to_new_document_id,
-                    )
-                    if applied:
-                        result.relations_imported += 1
-
-                except Exception as e:
-                    result.add_error(
-                        f"Failed to import relations for {content_type} #{new_id}: {e}"
-                    )
+        try:
+            applied, skipped, unresolved = self._apply_entity_relations(
+                entity,
+                schema,
+                endpoint,
+                id_mapping,
+                doc_id_mapping,
+                doc_id_to_new_id,
+                doc_id_to_new_document_id,
+                media_maps,
+                write=not options.dry_run,
+            )
+            self._record_unresolved_targets(entity, unresolved, options, result)
+            if skipped:
+                message = (
+                    "Skipped nested relations for "
+                    f"{entity.content_type} #{entity.id}: {', '.join(skipped)}"
+                )
+                if options.dry_run:
+                    result.add_warning(message)
+                else:
+                    result.add_error(message)
+            if applied:
+                if not options.dry_run:
+                    result.relations_imported += 1
+            elif entity.relations and not unresolved:
+                message = (
+                    f"Could not {'resolve' if options.dry_run else 'write'} relations "
+                    f"for {entity.content_type} #{entity.id}"
+                )
+                if options.dry_run:
+                    result.add_warning(message)
+                else:
+                    result.add_error(message)
+        except StrapiError as e:
+            logger.error(
+                "Failed to import relations for %s #%s: %s",
+                entity.content_type,
+                entity.id,
+                e,
+                exc_info=True,
+            )
+            result.add_error(
+                f"Failed to import relations for {entity.content_type} #{entity.id}: {e}"
+            )
 
     def _import_media(
         self,
@@ -600,7 +995,7 @@ class StrapiImporter:
         media_dir: Path | str | None,
         options: ImportOptions,
         result: ImportResult,
-    ) -> dict[int, int]:
+    ) -> _MediaMaps:
         """Import media files from export.
 
         Args:
@@ -610,24 +1005,21 @@ class StrapiImporter:
             result: Result object to update
 
         Returns:
-            Mapping of old media IDs to new media IDs
+            Destination media id / documentId mappings
         """
-        media_id_mapping: dict[int, int] = {}
+        media_maps = _MediaMaps(id_to_id={}, doc_to_doc={}, id_to_doc={})
 
         if not export_data.media:
-            return media_id_mapping
+            return media_maps
 
         if media_dir is None:
-            logger.warning(
-                "Media directory not specified - skipping media import. "
-                "Media references in entities will not be updated."
-            )
-            return media_id_mapping
+            self._warn_missing_media_dir(result)
+            return media_maps
 
         media_path = Path(media_dir)
         if not media_path.exists():
             result.add_error(f"Media directory not found: {media_dir}")
-            return media_id_mapping
+            return media_maps
 
         for exported_media in export_data.media:
             try:
@@ -637,10 +1029,10 @@ class StrapiImporter:
 
                 # Check for existing media with same hash (if not overwriting)
                 if not options.overwrite_media:
-                    existing_id = self._find_media_by_hash(exported_media.hash)
-                    if existing_id is not None:
-                        # Use existing media - no need to upload
-                        media_id_mapping[exported_media.id] = existing_id
+                    existing = self._find_media_by_hash(exported_media.hash)
+                    if existing is not None:
+                        dest_id, dest_doc = existing
+                        self._record_media_mapping(media_maps, exported_media, dest_id, dest_doc)
                         result.media_skipped += 1
                         logger.debug(f"Media {exported_media.name} already exists (hash match)")
                         continue
@@ -664,11 +1056,10 @@ class StrapiImporter:
                     result.media_skipped += 1
                     continue
 
-                # Upload file
                 uploaded = MediaHandler.upload_media_file(self.client, file_path, exported_media)
-
-                # Track ID mapping
-                media_id_mapping[exported_media.id] = uploaded.id
+                self._record_media_mapping(
+                    media_maps, exported_media, uploaded.id, uploaded.document_id
+                )
                 result.media_imported += 1
 
             except Exception as e:
@@ -676,7 +1067,31 @@ class StrapiImporter:
                 result.media_skipped += 1
 
         logger.info(f"Imported {result.media_imported}/{len(export_data.media)} media files")
-        return media_id_mapping
+        return media_maps
+
+    @staticmethod
+    def _warn_missing_media_dir(result: ImportResult) -> None:
+        """Log and record that media import was skipped for lack of a directory."""
+        message = (
+            "Media directory not specified - skipping media import. "
+            "Media references in entities will not be updated."
+        )
+        logger.warning(message)
+        result.add_warning(message)
+
+    @staticmethod
+    def _record_media_mapping(
+        media_maps: _MediaMaps,
+        exported_media: ExportedMediaFile,
+        dest_id: int,
+        dest_document_id: str | None,
+    ) -> None:
+        """Record numeric and documentId mappings for a dest media file."""
+        media_maps.id_to_id[exported_media.id] = dest_id
+        if dest_document_id:
+            media_maps.id_to_doc[exported_media.id] = dest_document_id
+            if exported_media.document_id:
+                media_maps.doc_to_doc[exported_media.document_id] = dest_document_id
 
     def _load_schemas_from_export(self, export_data: ExportData) -> None:
         """Load schemas from export metadata into cache.
@@ -684,20 +1099,28 @@ class StrapiImporter:
         Args:
             export_data: Export data containing schemas
         """
-        # Load all schemas into cache
-        for content_type, schema in export_data.metadata.schemas.items():
+        self._cache_export_metadata_schemas(export_data.metadata)
+        logger.info(
+            f"Loaded {self._schema_cache.cache_size} content-type schemas and "
+            f"{len(self._schema_cache.cached_component_schemas())} component "
+            f"schemas from export"
+        )
+
+    def _cache_export_metadata_schemas(self, metadata: ExportMetadata) -> None:
+        """Cache content-type and component schemas from export metadata."""
+        for content_type, schema in metadata.schemas.items():
             self._schema_cache.cache_schema(content_type, schema)
+        for component_uid, schema in metadata.component_schemas.items():
+            self._schema_cache.cache_component_schema(component_uid, schema)
 
-        logger.info(f"Loaded {self._schema_cache.cache_size} schemas from export")
-
-    def _find_media_by_hash(self, file_hash: str) -> int | None:
+    def _find_media_by_hash(self, file_hash: str) -> tuple[int, str | None] | None:
         """Find existing media file by hash.
 
         Args:
             file_hash: File hash to search for
 
         Returns:
-            Media ID if found, None otherwise
+            ``(id, documentId)`` if found, None otherwise
         """
         try:
             from strapi_kit.models import FilterBuilder, StrapiQuery
@@ -706,23 +1129,28 @@ class StrapiImporter:
             response = self.client.list_media(query)
 
             if response.data:
-                return response.data[0].id
+                found = response.data[0]
+                if found.id is None:
+                    return None
+                return found.id, found.document_id
         except Exception:  # noqa: BLE001, S110 - Intentionally ignore lookup failures
             pass
         return None
 
     def _resolve_relations_with_schema(
         self,
-        relations: dict[str, list[int | str]],
+        relations: dict[str, list[RelationId]],
         schema: ContentTypeSchema,
         id_mapping: dict[str, dict[int, int]],
         doc_id_to_new_id: dict[str, dict[str, int]] | None = None,
-    ) -> dict[str, list[int]]:
+        entity_data: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, list[int]], list[_UnresolvedTarget]]:
         """Resolve relation IDs using schema information.
 
         Uses content type schemas to determine relation targets, enabling
         proper ID mapping during import. Handles both numeric IDs and
-        string documentIds (v5 format).
+        string documentIds (v5 format). Incomplete fields (any unresolved
+        id) are omitted from the resolved payload.
 
         Args:
             relations: Raw relations from export (field -> [old_ids])
@@ -732,16 +1160,22 @@ class StrapiImporter:
                 (content_type -> {old_document_id: new_id})
 
         Returns:
-            Resolved relations with new IDs
+            Resolved complete fields and per-target misses
         """
         resolved: dict[str, list[int]] = {}
+        unresolved: list[_UnresolvedTarget] = []
 
         for field_name, old_ids in relations.items():
-            # Get target content type from schema
-            target_content_type = schema.get_field_target(field_name)
+            # Get target content type from schema (including nested paths)
+            target_content_type = RelationResolver.target_for_field_path(
+                schema, field_name, self._schema_cache, entity_data
+            )
+            if not target_content_type:
+                target_content_type = schema.get_field_target(field_name)
 
             if not target_content_type:
                 logger.warning(f"Field {field_name} is not a relation. Skipping.")
+                unresolved.extend(_UnresolvedTarget(field_name, old_id, None) for old_id in old_ids)
                 continue
 
             # Get ID mapping for target content type
@@ -749,6 +1183,9 @@ class StrapiImporter:
                 logger.warning(
                     f"No ID mapping for {target_content_type}. "
                     f"Relations in {field_name} cannot be resolved."
+                )
+                unresolved.extend(
+                    _UnresolvedTarget(field_name, old_id, target_content_type) for old_id in old_ids
                 )
                 continue
 
@@ -758,7 +1195,8 @@ class StrapiImporter:
             )
 
             # Resolve old IDs to new IDs (supports both int and str IDs)
-            new_ids = []
+            new_ids: list[int] = []
+            missed: list[RelationId] = []
             for old_id in old_ids:
                 if isinstance(old_id, int) and old_id in target_mapping:
                     new_ids.append(target_mapping[old_id])
@@ -770,13 +1208,16 @@ class StrapiImporter:
                         f"Could not resolve {target_content_type} ID {old_id} "
                         f"for field {field_name}"
                     )
+                    missed.append(old_id)
 
-            # Preserve empty lists only when source relation was explicitly empty.
-            # If old_ids had values but none resolved, skip to avoid clearing relations.
-            if new_ids or len(old_ids) == 0:
+            unresolved.extend(
+                _UnresolvedTarget(field_name, old_id, target_content_type) for old_id in missed
+            )
+            # Write only complete fields. Preserve explicit empty lists.
+            if not missed and (new_ids or len(old_ids) == 0):
                 resolved[field_name] = new_ids
 
-        return resolved
+        return resolved, unresolved
 
     def _apply_entity_relations(
         self,
@@ -787,52 +1228,145 @@ class StrapiImporter:
         doc_id_mapping: dict[str, dict[int, str]],
         doc_id_to_new_id: dict[str, dict[str, int]],
         doc_id_to_new_document_id: dict[str, dict[str, str]],
-    ) -> bool:
-        """Write resolved relations. Returns True if an update was sent."""
-        resolved_docs = self._resolve_relation_document_ids(
+        media_maps: _MediaMaps,
+        *,
+        write: bool = True,
+    ) -> tuple[bool, list[str], list[_UnresolvedTarget]]:
+        """Resolve relations and optionally write them.
+
+        Nested component / dynamic-zone shells are copied from a remapped
+        media write-shape, not from source populate blobs.
+
+        Args:
+            write: When false, resolve and report without ``client.update``.
+
+        Returns:
+            Tuple of (whether an update was or would be sent, nested paths
+            that could not be written, dest-resolution misses from the
+            write path that ran: documentId misses if that path wrote,
+            otherwise numeric misses after the numeric path ran).
+        """
+        skipped: list[str] = []
+        write_query = self._write_query(entity)
+        remapped_data = self._entity_data_for_write(entity.data, media_maps, entity.content_type)
+        resolved_docs, unresolved_docs = self._resolve_relation_document_ids(
             entity.relations,
             schema,
             id_mapping,
             doc_id_mapping,
             doc_id_to_new_id,
             doc_id_to_new_document_id,
+            remapped_data,
         )
-        if not resolved_docs:
-            return False
-
         payload = RelationResolver.build_v5_relation_payload(
-            resolved_docs, schema, self._schema_cache
+            resolved_docs,
+            schema,
+            self._schema_cache,
+            entity_data=remapped_data,
+            skipped=skipped,
         )
-        if not payload:
-            return False
-
         new_document_id = doc_id_mapping.get(entity.content_type, {}).get(entity.id)
-        if new_document_id:
-            self.client.update(endpoint, payload, document_id=new_document_id)
-        else:
-            new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
-            if new_id is None:
-                return False
-            self.client.update(f"{endpoint}/{new_id}", payload)
-        return True
+        if payload and new_document_id:
+            if write:
+                self.client.update(
+                    endpoint, payload, document_id=new_document_id, query=write_query
+                )
+            self._mark_unwritten_nested_relations(entity.relations, resolved_docs, skipped)
+            skipped = self._skipped_without_unresolved(skipped, unresolved_docs)
+            return True, skipped, unresolved_docs
+
+        skipped.clear()
+        resolved_nums, unresolved_nums = self._resolve_relations_with_schema(
+            entity.relations,
+            schema,
+            id_mapping,
+            doc_id_to_new_id,
+            remapped_data,
+        )
+        new_id = id_mapping.get(entity.content_type, {}).get(entity.id)
+        # 0 is a leftover dry-run placeholder, not a dest write target.
+        if resolved_nums and new_id:
+            numeric_payload = RelationResolver.build_nested_numeric_payload(
+                resolved_nums,
+                schema,
+                self._schema_cache,
+                entity_data=remapped_data,
+                skipped=skipped,
+            )
+            if numeric_payload:
+                if write:
+                    self.client.update(f"{endpoint}/{new_id}", numeric_payload, query=write_query)
+                self._mark_unwritten_nested_relations(entity.relations, resolved_nums, skipped)
+                skipped = self._skipped_without_unresolved(skipped, unresolved_nums)
+                return True, skipped, unresolved_nums
+
+        # Numeric path ran; its misses are the dest-resolution result.
+        # DocumentId-path misses are not dest gaps once IDs resolved here
+        # (v4 dest, or a missing component shell).
+        unresolved = unresolved_nums
+        self._mark_unwritten_nested_relations(entity.relations, {}, skipped)
+        skipped = self._skipped_without_unresolved(skipped, unresolved)
+        return False, skipped, unresolved
+
+    def _entity_data_for_write(
+        self,
+        entity_data: dict[str, Any],
+        media_maps: _MediaMaps,
+        content_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a new dict with media populate blobs as dest write ids."""
+        schema = None
+        if content_type and self._schema_cache.has_schema(content_type):
+            schema = self._schema_cache.get_schema(content_type)
+        return MediaHandler.update_media_references(
+            entity_data,
+            media_maps.id_to_id,
+            media_maps.doc_to_doc,
+            media_maps.id_to_doc,
+            schema=schema,
+            schema_cache=self._schema_cache,
+        )
+
+    @staticmethod
+    def _mark_unwritten_nested_relations(
+        relations: dict[str, list[RelationId]],
+        resolved: dict[str, list[Any]],
+        skipped: list[str],
+    ) -> None:
+        """Record prefixed relation keys that were not written as skipped."""
+        written = set(resolved) - set(skipped)
+        for field_name in relations:
+            if "." not in field_name and "[" not in field_name:
+                continue
+            if field_name not in written and field_name not in skipped:
+                skipped.append(field_name)
 
     def _resolve_relation_document_ids(
         self,
-        relations: dict[str, list[int | str]],
+        relations: dict[str, list[RelationId]],
         schema: ContentTypeSchema,
         id_mapping: dict[str, dict[int, int]],
         doc_id_mapping: dict[str, dict[int, str]],
         doc_id_to_new_id: dict[str, dict[str, int]],
         doc_id_to_new_document_id: dict[str, dict[str, str]],
-    ) -> dict[str, list[str]]:
-        """Resolve exported relation IDs to destination documentIds."""
+        entity_data: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, list[str]], list[_UnresolvedTarget]]:
+        """Resolve exported relation IDs to destination documentIds.
+
+        Incomplete fields (any unresolved id) are omitted from the payload.
+        """
         resolved: dict[str, list[str]] = {}
+        unresolved: list[_UnresolvedTarget] = []
         for field_name, old_ids in relations.items():
-            target = RelationResolver.target_for_field_path(schema, field_name, self._schema_cache)
+            target = RelationResolver.target_for_field_path(
+                schema, field_name, self._schema_cache, entity_data
+            )
             if not target:
                 logger.warning(f"Field {field_name} is not a relation. Skipping.")
+                unresolved.extend(_UnresolvedTarget(field_name, old_id, None) for old_id in old_ids)
                 continue
             new_docs: list[str] = []
+            missed: list[RelationId] = []
             for old_id in old_ids:
                 new_doc: str | None = None
                 if isinstance(old_id, str):
@@ -850,9 +1384,52 @@ class StrapiImporter:
                     new_docs.append(new_doc)
                 else:
                     logger.warning(f"Could not resolve {target} ID {old_id} for field {field_name}")
-            if new_docs or len(old_ids) == 0:
+                    missed.append(old_id)
+            unresolved.extend(_UnresolvedTarget(field_name, old_id, target) for old_id in missed)
+            if not missed and (new_docs or len(old_ids) == 0):
                 resolved[field_name] = new_docs
-        return resolved
+        return resolved, unresolved
+
+    @staticmethod
+    def _skipped_without_unresolved(
+        skipped: list[str], unresolved: list[_UnresolvedTarget]
+    ) -> list[str]:
+        """Drop nested-skip paths already recorded as dest-resolution misses."""
+        unresolved_fields = {item.field for item in unresolved}
+        return [path for path in skipped if path not in unresolved_fields]
+
+    @staticmethod
+    def _record_unresolved_targets(
+        entity: ExportedEntity,
+        unresolved: list[_UnresolvedTarget],
+        options: ImportOptions,
+        result: ImportResult,
+    ) -> None:
+        """Attach per-target dest misses to ImportResult.
+
+        Dry-run records a warning (does not flip ``success``). Live records
+        an error (flips ``success``). Each miss increments
+        ``relations_unresolved``.
+        """
+        for item in unresolved:
+            target_label = item.target or "unknown"
+            message = (
+                f"Could not resolve {target_label} ID {item.old_id} "
+                f"for field {item.field} on {entity.content_type} #{entity.id}"
+            )
+            result.add_unresolved(
+                UnresolvedRelation(
+                    content_type=entity.content_type,
+                    entity_id=entity.id,
+                    field=item.field,
+                    old_id=item.old_id,
+                    target=item.target,
+                )
+            )
+            if options.dry_run:
+                result.add_warning(message)
+            else:
+                result.add_error(message)
 
     def _get_endpoint(self, uid: str) -> str:
         """Return the REST collection id from the cached schema ``pluralName``."""
@@ -870,54 +1447,6 @@ class StrapiImporter:
                 details={"uid": uid},
             ) from e
 
-    @staticmethod
-    def _uid_to_endpoint_fallback(uid: str) -> str:
-        """Unused UID pluralization kept for callers of ``_uid_to_endpoint``.
-
-        Export/import no longer invent a path from the UID; use
-        ``_get_endpoint`` / ``collection_endpoint`` instead.
-
-        Args:
-            uid: Content type UID (e.g., "api::article.article", "api::blog.post")
-
-        Returns:
-            API endpoint (e.g., "articles", "posts")
-        """
-        # Extract the model name (after the dot) and pluralize it
-        # For "api::blog.post", we want "post" -> "posts", not "blog" -> "blogs"
-        parts = uid.split("::")
-        if len(parts) == 2:
-            api_model = parts[1]
-            # Get model name (after the dot if present)
-            if "." in api_model:
-                name = api_model.split(".")[1]
-            else:
-                name = api_model
-            # Handle common irregular plurals
-            if name.endswith("y") and not name.endswith(("ay", "ey", "oy", "uy")):
-                return name[:-1] + "ies"  # category -> categories
-            if name.endswith(("s", "x", "z", "ch", "sh")):
-                return name + "es"  # class -> classes
-            if not name.endswith("s"):
-                return name + "s"
-            return name
-        return uid
-
-    # Keep for backward compatibility
-    @staticmethod
-    def _uid_to_endpoint(uid: str) -> str:
-        """Convert content type UID to API endpoint.
-
-        Deprecated: Use _get_endpoint() instead which uses schema metadata.
-
-        Args:
-            uid: Content type UID (e.g., "api::article.article")
-
-        Returns:
-            API endpoint (e.g., "articles")
-        """
-        return StrapiImporter._uid_to_endpoint_fallback(uid)
-
     def import_from_jsonl(
         self,
         jsonl_path: str | Path,
@@ -927,7 +1456,7 @@ class StrapiImporter:
         """Import data from JSONL file with two-pass streaming.
 
         This method uses two-pass streaming for true O(1) memory usage:
-        - Pass 1: Create entities, store only ID mappings (old_id -> new_id)
+        - Pass 1: Create, localize, skip, or update each row; store ID mappings
         - Pass 2: Re-read file to resolve relations using ID mappings
 
         Memory profile: O(entity_count x 2 ints) for ID mappings only,
@@ -951,6 +1480,8 @@ class StrapiImporter:
             ... )
             >>> if result.success:
             ...     print(f"Imported {result.entities_imported} entities")
+            >>> if result.relations_unresolved:
+            ...     print(f"{result.relations_unresolved} dest relations unresolved")
         """
         from strapi_kit.export.jsonl_reader import JSONLImportReader
 
@@ -959,6 +1490,8 @@ class StrapiImporter:
 
         result = ImportResult(success=False, dry_run=options.dry_run)
         jsonl_path = Path(jsonl_path)
+        fail_conflicts: list[str] = []
+        fail_conflict_keys: set[tuple[str, int]] = set()
 
         try:
             # ============================================================
@@ -972,13 +1505,33 @@ class StrapiImporter:
 
                 metadata = reader.read_metadata()
 
-                # Load schemas from metadata
-                for ct, schema in metadata.schemas.items():
-                    self._schema_cache.cache_schema(ct, schema)
+                self._cache_export_metadata_schemas(metadata)
+                # None = unknown. 0 = empty on official files, but older
+                # JSONL still writes 0 when totals are unknown, so recount
+                # on both None and 0. Media uses the same rule before the
+                # missing-media_dir probe.
+                entity_count = (
+                    metadata.total_entities
+                    if metadata.total_entities
+                    else reader.get_entity_count()
+                )
+                self._validate_export_metadata(metadata, result, entity_count)
+                if options.validate_relations:
+                    if options.progress_callback:
+                        options.progress_callback(5, 100, "Validating relations")
+                    self._validate_relations_from_jsonl(jsonl_path, result)
 
                 # Step 2: Import media first (if requested)
                 # Use separate reader to avoid consuming entity stream (Issue #30)
-                media_id_mapping: dict[int, int] = {}
+                media_maps = _MediaMaps(id_to_id={}, doc_to_doc={}, id_to_doc={})
+                if options.import_media and media_dir is None:
+                    has_media = bool(metadata.total_media)
+                    if not has_media:
+                        with JSONLImportReader(jsonl_path) as media_probe:
+                            media_probe.read_metadata()
+                            has_media = bool(media_probe.read_media_manifest())
+                    if has_media:
+                        self._warn_missing_media_dir(result)
                 if options.import_media and media_dir:
                     if options.progress_callback:
                         options.progress_callback(10, 100, "Importing media files")
@@ -1001,10 +1554,12 @@ class StrapiImporter:
                                     hasattr(options, "overwrite_media")
                                     and not options.overwrite_media
                                 ):
-                                    # Try to find by hash
                                     existing = self._find_media_by_hash(media.hash)
                                     if existing is not None:
-                                        media_id_mapping[media.id] = existing
+                                        dest_id, dest_doc = existing
+                                        self._record_media_mapping(
+                                            media_maps, media, dest_id, dest_doc
+                                        )
                                         result.media_skipped += 1
                                         continue
 
@@ -1024,7 +1579,12 @@ class StrapiImporter:
                                     uploaded = MediaHandler.upload_media_file(
                                         self.client, local_path, media
                                     )
-                                    media_id_mapping[media.id] = uploaded.id
+                                    self._record_media_mapping(
+                                        media_maps,
+                                        media,
+                                        uploaded.id,
+                                        uploaded.document_id,
+                                    )
                                     result.media_imported += 1
                                 else:
                                     result.add_warning(f"Media file not found: {local_path}")
@@ -1052,101 +1612,27 @@ class StrapiImporter:
                         continue
 
                     content_type = entity.content_type
-                    if content_type not in id_mappings:
-                        id_mappings[content_type] = {}
-                        doc_id_mappings[content_type] = {}
-                        doc_id_to_new_id_mappings[content_type] = {}
-                        doc_id_to_new_document_id_mappings[content_type] = {}
 
                     try:
-                        # Update media references
-                        entity_data = entity.data
-                        if media_id_mapping:
-                            entity_data = MediaHandler.update_media_references(
-                                entity.data, media_id_mapping
-                            )
+                        entity_data = self._entity_data_for_write(
+                            entity.data, media_maps, content_type
+                        )
 
-                        if options.dry_run:
-                            result.entities_imported += 1
-                            continue
-
-                        # Get endpoint
-                        endpoint = self._get_endpoint(content_type)
-
-                        # Check for existing entity
-                        existing_id = None
-                        if entity.document_id:
-                            existing_id = self._check_entity_exists(endpoint, entity.document_id)
-
-                        if existing_id is not None:
-                            if options.conflict_resolution == ConflictResolution.SKIP:
-                                self._record_entity_mappings(
-                                    content_type=content_type,
-                                    entity_id=entity.id,
-                                    source_document_id=entity.document_id,
-                                    new_id=existing_id,
-                                    dest_document_id=entity.document_id,
-                                    id_mapping=id_mappings,
-                                    doc_id_mapping=doc_id_mappings,
-                                    doc_id_to_new_id=doc_id_to_new_id_mappings,
-                                    doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
-                                )
-                                result.entities_skipped += 1
-                                continue
-                            elif options.conflict_resolution == ConflictResolution.FAIL:
-                                raise ImportExportError(
-                                    f"Entity already exists: {content_type} {entity.document_id}. "
-                                    "Use conflict_resolution=SKIP or UPDATE."
-                                )
-                            elif options.conflict_resolution == ConflictResolution.UPDATE:
-                                write_query = self._write_query(entity)
-                                response = self.client.update(
-                                    endpoint,
-                                    entity_data,
-                                    query=write_query,
-                                    document_id=entity.document_id,
-                                )
-                                dest_document_id = entity.document_id
-                                if response.data and response.data.document_id:
-                                    dest_document_id = response.data.document_id
-                                self._record_entity_mappings(
-                                    content_type=content_type,
-                                    entity_id=entity.id,
-                                    source_document_id=entity.document_id,
-                                    new_id=existing_id,
-                                    dest_document_id=dest_document_id,
-                                    id_mapping=id_mappings,
-                                    doc_id_mapping=doc_id_mappings,
-                                    doc_id_to_new_id=doc_id_to_new_id_mappings,
-                                    doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
-                                )
-                                self._queue_publish(
-                                    pending_publish, content_type, entity, dest_document_id
-                                )
-                                result.entities_updated += 1
-                                continue
-
-                        write_query = self._write_query(entity)
-                        response = self.client.create(endpoint, data=entity_data, query=write_query)
-                        if response.data:
-                            self._record_entity_mappings(
-                                content_type=content_type,
-                                entity_id=entity.id,
-                                source_document_id=entity.document_id,
-                                new_id=response.data.id,
-                                dest_document_id=response.data.document_id,
-                                id_mapping=id_mappings,
-                                doc_id_mapping=doc_id_mappings,
-                                doc_id_to_new_id=doc_id_to_new_id_mappings,
-                                doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
-                            )
-                            self._queue_publish(
-                                pending_publish,
-                                content_type,
-                                entity,
-                                response.data.document_id,
-                            )
-                        result.entities_imported += 1
+                        self._import_one_entity(
+                            entity,
+                            endpoint=self._get_endpoint(content_type),
+                            content_type=content_type,
+                            entity_data=entity_data,
+                            options=options,
+                            pending_publish=pending_publish,
+                            id_mapping=id_mappings,
+                            doc_id_mapping=doc_id_mappings,
+                            doc_id_to_new_id=doc_id_to_new_id_mappings,
+                            doc_id_to_new_document_id=doc_id_to_new_document_id_mappings,
+                            result=result,
+                            fail_conflicts=fail_conflicts,
+                            fail_conflict_keys=fail_conflict_keys,
+                        )
 
                     except ImportExportError:
                         raise
@@ -1158,59 +1644,39 @@ class StrapiImporter:
             # Pass 2: Re-read file to resolve relations using ID mappings
             # True O(1) memory - entities processed one at a time
             # ============================================================
-            if not options.skip_relations and not options.dry_run:
+            if not options.skip_relations:
                 if options.progress_callback:
-                    options.progress_callback(70, 100, "Resolving relations (pass 2)")
+                    options.progress_callback(
+                        70,
+                        100,
+                        "Reporting relations (pass 2)"
+                        if options.dry_run
+                        else "Resolving relations (pass 2)",
+                    )
 
                 with JSONLImportReader(jsonl_path) as reader2:
-                    # Skip metadata (already loaded)
                     reader2.read_metadata()
 
                     for entity in reader2.iter_entities():
-                        # Filter by content types if specified
                         if (
                             options.content_types
                             and entity.content_type not in options.content_types
                         ):
                             continue
-
-                        # Skip entities without relations
                         if not entity.relations:
                             continue
-
-                        content_type = entity.content_type
-                        endpoint = self._get_endpoint(content_type)
-
-                        new_id = id_mappings.get(content_type, {}).get(entity.id)
-                        if new_id is None:
-                            continue
-
-                        # Get schema from cache
-                        try:
-                            schema = self._schema_cache.get_schema(content_type)
-                        except Exception as e:
-                            result.add_error(
-                                "Failed to load schema for "
-                                f"{content_type} while importing relations: {e}"
-                            )
-                            continue
-
-                        try:
-                            applied = self._apply_entity_relations(
-                                entity,
-                                schema,
-                                endpoint,
-                                id_mappings,
-                                doc_id_mappings,
-                                doc_id_to_new_id_mappings,
-                                doc_id_to_new_document_id_mappings,
-                            )
-                            if applied:
-                                result.relations_imported += 1
-                        except StrapiError as e:
-                            result.add_error(
-                                f"Failed to import relations for {content_type} {entity.id}: {e}"
-                            )
+                        self._process_entity_relations(
+                            entity,
+                            self._get_endpoint(entity.content_type),
+                            options,
+                            result,
+                            id_mappings,
+                            doc_id_mappings,
+                            doc_id_to_new_id_mappings,
+                            doc_id_to_new_document_id_mappings,
+                            media_maps,
+                            fail_conflict_keys,
+                        )
 
             self._publish_pending(pending_publish, options, result)
 
@@ -1223,9 +1689,13 @@ class StrapiImporter:
             result.doc_id_to_new_id = doc_id_to_new_id_mappings
             result.doc_id_to_new_document_id = doc_id_to_new_document_id_mappings
 
-            result.success = result.entities_failed == 0 and not result.errors
+            self._raise_fail_conflicts(fail_conflicts, result)
+
+            result.finalize()
             return result
 
+        except ImportExportError:
+            raise
         except Exception as e:
             result.add_error(f"JSONL import failed: {e}")
             raise ImportExportError(f"JSONL import failed: {e}") from e

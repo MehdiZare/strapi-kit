@@ -1,0 +1,70 @@
+name: E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+  pull_request:
+    paths:
+      - "tests/e2e/**"
+      - ".github/workflows/e2e.yml"
+      - "src/strapi_kit/**"
+      - "pyproject.toml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.0
+        with:
+          enable-cache: true
+
+      - name: Install package
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Run Docker e2e
+        env:
+          CI: "true"
+          RUN_E2E_TESTS: "true"
+          STRAPI_E2E_WAIT: "600"
+        run: pytest tests/e2e --e2e -v --junitxml=e2e-junit.xml --keep-strapi
+
+      - name: Collect compose logs
+        if: failure()
+        working-directory: tests/e2e
+        run: |
+          docker compose -f docker-compose.yml logs --no-color \
+            > "${{ github.workspace }}/compose-e2e.log" \
+            || printf 'compose logs unavailable\n' > "${{ github.workspace }}/compose-e2e.log"
+
+      - name: Stop compose
+        if: always()
+        working-directory: tests/e2e
+        run: docker compose -f docker-compose.yml down -v || true
+
+      - name: Upload e2e logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: |
+            e2e-junit.xml
+            compose-e2e.log
+          if-no-files-found: warn

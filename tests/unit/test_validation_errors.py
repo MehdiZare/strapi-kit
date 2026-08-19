@@ -6,6 +6,8 @@ from strapi_kit.exceptions import (
     ValidationError,
     format_validation_errors,
     is_uniqueness_violation,
+    is_unknown_locale_param,
+    is_unknown_status_param,
 )
 
 
@@ -298,3 +300,45 @@ class TestValidationErrorCompatibility:
         assert "format_validation_errors" in strapi_kit.__all__
         assert "is_uniqueness_violation" in exceptions.__all__
         assert "format_validation_errors" in exceptions.__all__
+        assert "is_unknown_status_param" in exceptions.__all__
+        assert "is_unknown_locale_param" in exceptions.__all__
+
+
+class TestUnknownQueryParamPredicates:
+    """Unknown status/locale predicates must not use str(exc) details dumps."""
+
+    def test_status_in_message(self) -> None:
+        assert is_unknown_status_param(ValidationError("Invalid key status")) is True
+
+    def test_publication_state_in_message(self) -> None:
+        assert is_unknown_status_param(ValidationError("Invalid key publicationState")) is True
+
+    def test_locale_in_message(self) -> None:
+        assert is_unknown_locale_param(ValidationError("Invalid key locale")) is True
+
+    def test_status_in_field_errors(self) -> None:
+        exc = ValidationError(
+            "Validation error",
+            details={"errors": [{"path": ["status"], "message": "Invalid key status"}]},
+        )
+        assert is_unknown_status_param(exc) is True
+
+    def test_details_dump_does_not_false_positive(self) -> None:
+        """Unrelated details mentioning the phrase must not classify."""
+        status_exc = ValidationError(
+            "body is required",
+            details={"docs": "Invalid key status"},
+        )
+        locale_exc = ValidationError(
+            "body is required",
+            details={"docs": "Invalid key locale"},
+        )
+        assert "invalid key status" in str(status_exc).lower()
+        assert "invalid key locale" in str(locale_exc).lower()
+        assert is_unknown_status_param(status_exc) is False
+        assert is_unknown_locale_param(locale_exc) is False
+
+    def test_populate_is_false(self) -> None:
+        populate = ValidationError("Invalid key populate")
+        assert is_unknown_status_param(populate) is False
+        assert is_unknown_locale_param(populate) is False

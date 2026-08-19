@@ -425,6 +425,8 @@ with SyncClient(target_config) as client:
 
     if result.success:
         print(f"Imported {result.entities_imported} entities")
+    if result.relations_unresolved:
+        print(f"{result.relations_unresolved} dest relations unresolved")
 
     # Or stream from JSONL (two-pass for relation resolution)
     result = importer.import_from_jsonl(
@@ -435,11 +437,24 @@ with SyncClient(target_config) as client:
 
 ### Key Features
 
-1. **JSONL Streaming**: O(1) memory for large datasets via `JSONLExportWriter`/`JSONLImportReader`
-2. **Schema-based Relation Resolution**: `RelationResolver` uses Strapi schema to detect and resolve relations
-3. **Conflict Resolution**: SKIP (ignore duplicates), UPDATE (overwrite), FAIL (abort on conflict)
+1. **JSONL Streaming**: O(1) memory for large datasets via `JSONLExportWriter`/`JSONLImportReader`.
+   `export_to_jsonl` rewrites the metadata line with real
+   `total_entities` / `total_media` after the stream (`None` is
+   unknown, `0` is empty). Import still recounts when those fields
+   are `None` or `0` so older files work.
+2. **Schema-based Relation Resolution**: `RelationResolver` uses Strapi schema to detect and resolve relations.
+   Incomplete dest-relation fields (a subset of IDs unresolved) are not
+   written. Live records each miss as an error; dry-run records a warning.
+3. **Conflict Resolution**: per `(documentId, locale)`. SKIP/UPDATE write
+   missing locales. FAIL finishes the entity/relation/publish pass (including
+   later rows), writes missing locales, does not overwrite existing locale
+   fields or their outbound relations, then raises `ImportExportError`.
 4. **Media Handling**: `MediaHandler` downloads/uploads media with deduplication
-5. **Dry-run Mode**: Validate imports without writing to Strapi
+5. **Dry-run Mode**: Validate imports without writing to Strapi.
+   `success` is write-safety; dest-relation misses are
+   `relations_unresolved` / warnings, not a failed dry-run.
+   Live `entities_to_publish` increments only when a dest documentId is
+   queued; dry-run still counts source intent.
 6. **Progress Callbacks**: Track long-running operations with `progress_callback`
 
 ### Exception Handling
@@ -764,8 +779,9 @@ make pre-commit
 - ✅ Dry-run mode for validation
 - ✅ Progress callbacks for long operations
 
-**0.2.0**: Strapi 5 connector surface is on `dev`. Cut from `dev` → `main`
-with `release:minor`. Tracker: GitHub issue #55. Changelog is the
+**0.4.0**: i18n / nested-relation / dry-run / JSONL / e2e work is on
+`dev`. Cut from `dev` → `main`
+with `release:minor`. Tracker: GitHub issue #144. Changelog is the
 roadmap; there is no `IMPLEMENTATION_STATUS.md`.
 
 ---

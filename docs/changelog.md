@@ -11,6 +11,54 @@ user-facing summary.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-19
+
+i18n localizations, nested component/dynamic-zone relations, dest media
+writes, FAIL-write missing locales, dry-run / JSONL preflight, and
+Docker e2e CI. Tracker: #144.
+
+Import restores i18n localizations of a shared `documentId` (first locale
+creates; later locales `PUT {destDoc}?locale=`). SKIP is per-locale.
+FAIL writes missing locales, does not overwrite existing locales or their
+outbound relations, then raises after the full write pass.
+`exists()` no longer treats an unrelated draft 400 as “does not exist.”
+Import writes nested component/dynamic-zone relations, posts dest media
+ids (`media_write()`), and falls back to numeric relation PUTs on a v4
+destination.
+The e2e Docker fixture includes an i18n `localized-articles` type.
+Export metadata includes walked component schemas. Media remapping
+follows `FieldType.MEDIA` when a schema is present.
+FAIL dry-run probes locale conflicts and raises without writing.
+Dry-run no longer maps missing dests to id `0` or the source
+`documentId`; existing dests still map real dest ids. Dry-run reports
+unresolved dest relations as warnings (`relations_unresolved`) and
+counts `entities_to_publish`. `success` on dry-run is write-safety,
+not “relations would apply.” Incomplete dest-relation fields are not
+written. Live `entities_to_publish` increments only when a dest
+`documentId` is queued. JSONL export persists `total_entities` /
+`total_media` on the metadata line (`None` is unknown, `0` is empty;
+import still recounts when those fields are `None` or `0`). Finished
+JSON / in-memory export also snapshots both counts (`total_media == 0`
+when there is no media). Relation
+IDs keep numeric-looking documentIds as strings. `RelationId` is a
+Pydantic input type, not an `isinstance` target; extract rejects `bool`.
+JSONL import shares preflight validation with
+`import_data` and does not pre-create empty mapping dicts. Component
+extract/strip unwraps v4 `{data}` / `{data, meta}` wrappers and logs
+unexpected payload shapes.
+The e2e workflow also runs on library path changes and keeps the
+compose stack until logs are collected. The compose probe retries
+`docker compose` and does not fall back to a missing `docker-compose`
+v1 binary.
+
+### Upgrade notes
+
+- Extra locales of a shared `documentId` are restored (`PUT {destDoc}?locale=`).
+- `SKIP` is per-locale. `FAIL` writes missing locales then raises.
+- Dry-run `success` is write-safety; check `relations_unresolved`.
+- JSONL totals: `None` is unknown, `0` is empty.
+- Relation IDs are `StrictInt | StrictStr`; `"5"` stays a string.
+
 ## [0.3.0] - 2026-08-16
 
 v5 export/import populate contract. Trackers: #96 #97 #98 #99 #100 #101.
