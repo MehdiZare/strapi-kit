@@ -69,6 +69,10 @@ paths such as `seo[0].author`. Nested writes merge dest `documentId`s into
 a copy of the exported component object so scalar component fields are
 kept. Paths that cannot be applied are import errors (`success=False`).
 On dry-run those dest gaps are warnings and do not flip `success`.
+Per-target dest-resolution misses are attached to
+`result.unresolved_relations` / `result.relations_unresolved`. A field
+that resolved only a subset of IDs is not written. `success` means the
+import completed without errors, not that dest relations would apply.
 
 On a v4 destination (create returns no `documentId`), import falls back to
 numeric `build_nested_numeric_payload` / `PUT {endpoint}/{new_id}`.
@@ -214,6 +218,7 @@ result = importer.import_data(export_data)
 print(f"Success: {result.success}")
 print(f"Entities imported: {result.entities_imported}")
 print(f"Entities skipped: {result.entities_skipped}")
+print(f"Unresolved dest relations: {result.relations_unresolved}")
 
 # View ID mapping
 for content_type, mapping in result.id_mapping.items():
@@ -324,11 +329,14 @@ the UID).
 2. **Test First**: Use `dry_run=True` to validate imports. Dry-run
    counts missing dests as imported but does not map them to dest
    id `0` or the source `documentId`. It still reports unresolved
-   dest relations as warnings and counts `entities_to_publish` (live source
-   rows this import would attempt to publish; SKIP/FAIL existing locales are
-   not counted). Existing dests (SKIP/UPDATE, or
-   a missing locale of an existing document) still map real dest ids.
-3. **Check Results**: Always review warnings and errors after import
+   dest relations as warnings (`relations_unresolved`) and counts
+   `entities_to_publish` (live source rows this import would attempt to
+   publish; SKIP/FAIL existing locales are not counted). Dry-run
+   `success` is write-safety, not “relations would apply.” Existing dests
+   (SKIP/UPDATE, or a missing locale of an existing document) still map
+   real dest ids.
+3. **Check Results**: Always review warnings, errors, and
+   `relations_unresolved` after import
 4. **Media Handling**: Download media files if needed for offline migration
 5. **Version Compatibility**: Ensure source and target Strapi versions are compatible
 

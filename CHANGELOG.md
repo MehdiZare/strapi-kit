@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the file instead of trusting those fields (#136)
 - Relation preflight warns when a row has relations but no export schema,
   or a path cannot resolve to a target type (#136)
+- Import records per-target dest-resolution misses on
+  `ImportResult.unresolved_relations` / `relations_unresolved` (#139 #141)
 
 ### Changed
 
@@ -66,6 +68,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-dict list payloads (#137)
 - Live import records an unmapped relation row as an error; dry-run
   still records it as a warning (#136)
+- Incomplete dest-relation fields (a subset of IDs unresolved) are not
+  written. Live records each miss as an error; dry-run records a
+  warning and does not flip `success` (#139 #141)
+- Relation-pass catches `StrapiError` only (with traceback) and lets
+  unexpected exceptions propagate. Live `entities_to_publish` increments
+  only when a dest documentId is queued; dry-run still counts source
+  intent (#140)
+- `export_to_jsonl` rewrites the metadata line with real
+  `total_entities` / `total_media` after the stream. Import still
+  recounts when those fields are 0 so older files work (#142)
 
 ### Removed
 

@@ -425,6 +425,8 @@ with SyncClient(target_config) as client:
 
     if result.success:
         print(f"Imported {result.entities_imported} entities")
+    if result.relations_unresolved:
+        print(f"{result.relations_unresolved} dest relations unresolved")
 
     # Or stream from JSONL (two-pass for relation resolution)
     result = importer.import_from_jsonl(
@@ -442,7 +444,9 @@ with SyncClient(target_config) as client:
    later rows), writes missing locales, does not overwrite existing locale
    fields or their outbound relations, then raises `ImportExportError`.
 4. **Media Handling**: `MediaHandler` downloads/uploads media with deduplication
-5. **Dry-run Mode**: Validate imports without writing to Strapi
+5. **Dry-run Mode**: Validate imports without writing to Strapi.
+   `success` is write-safety; dest-relation misses are
+   `relations_unresolved` / warnings, not a failed dry-run.
 6. **Progress Callbacks**: Track long-running operations with `progress_callback`
 
 ### Exception Handling

@@ -85,20 +85,49 @@ class ImportOptions(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+class UnresolvedRelation(BaseModel):
+    """A dest-relation target that could not be mapped.
+
+    Attributes:
+        content_type: Source entity content-type UID
+        entity_id: Source numeric entity id
+        field: Relation field path (top-level or nested)
+        old_id: Source numeric id or documentId that did not resolve
+        target: Target content-type UID when the field is a relation
+    """
+
+    content_type: str = Field(..., description="Source entity content-type UID")
+    entity_id: int = Field(..., description="Source numeric entity id")
+    field: str = Field(..., description="Relation field path")
+    old_id: int | str = Field(..., description="Unresolved source id or documentId")
+    target: str | None = Field(
+        default=None,
+        description="Target content-type UID when the field is a relation",
+    )
+
+
 class ImportResult(BaseModel):
     """Result of an import operation.
 
     Attributes:
-        success: Whether import succeeded
+        success: Whether the import completed without entity failures or
+            errors. Dry-run dest-relation misses are warnings and do not
+            flip this flag; check ``relations_unresolved`` /
+            ``unresolved_relations`` to see whether dest relations would
+            apply.
         dry_run: Whether this was a dry run
         entities_imported: Number of entities imported
         entities_skipped: Number of entities skipped
         entities_updated: Number of entities updated
         entities_failed: Number of entities that failed
         relations_imported: Number of relation updates performed
+        relations_unresolved: Dest-relation targets that did not resolve.
+            Same value as ``len(unresolved_relations)``.
+        unresolved_relations: Per-target dest-resolution misses
         entities_to_publish: Live source rows this import would attempt to
-            publish after relations. Dry-run records intent without calling
-            publish. SKIP/FAIL existing locales are not counted.
+            publish after relations. Dry-run records source intent without
+            calling publish. Live increments only when a dest documentId is
+            queued. SKIP/FAIL existing locales are not counted.
         media_imported: Number of media files imported
         media_skipped: Number of media files skipped
         errors: List of error messages
@@ -114,18 +143,33 @@ class ImportResult(BaseModel):
             Same dry-run rule as doc_id_mapping.
     """
 
-    success: bool = Field(..., description="Whether import succeeded")
+    success: bool = Field(
+        ...,
+        description=(
+            "Whether the import completed without entity failures or errors. "
+            "Dry-run dest-relation misses do not flip this flag."
+        ),
+    )
     dry_run: bool = Field(..., description="Whether this was a dry run")
     entities_imported: int = Field(default=0, description="Entities imported")
     entities_skipped: int = Field(default=0, description="Entities skipped")
     entities_updated: int = Field(default=0, description="Entities updated")
     entities_failed: int = Field(default=0, description="Entities failed")
     relations_imported: int = Field(default=0, description="Relation updates performed")
+    relations_unresolved: int = Field(
+        default=0,
+        description="Dest-relation targets that did not resolve",
+    )
+    unresolved_relations: list[UnresolvedRelation] = Field(
+        default_factory=list,
+        description="Per-target dest-resolution misses",
+    )
     entities_to_publish: int = Field(
         default=0,
         description=(
             "Live source rows this import would attempt to publish after "
-            "relations. Dry-run records intent without calling publish. "
+            "relations. Dry-run records source intent without calling "
+            "publish. Live increments only when a dest documentId is queued. "
             "SKIP/FAIL existing locales are not counted."
         ),
     )
@@ -179,6 +223,15 @@ class ImportResult(BaseModel):
             warning: Warning message to add
         """
         self.warnings.append(warning)
+
+    def add_unresolved(self, item: UnresolvedRelation) -> None:
+        """Record a dest-relation target that could not be mapped.
+
+        Args:
+            item: Unresolved target to attach
+        """
+        self.unresolved_relations.append(item)
+        self.relations_unresolved += 1
 
     def get_total_processed(self) -> int:
         """Get total number of entities processed.

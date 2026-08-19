@@ -548,6 +548,10 @@ class StrapiExporter:
                 # Write media manifest
                 writer.write_media_manifest(media_files)
 
+                metadata.total_entities = writer.entity_count
+                metadata.total_media = len(media_files)
+                writer.rewrite_metadata(metadata)
+
                 if progress_callback:
                     progress_callback(
                         total_content_types,

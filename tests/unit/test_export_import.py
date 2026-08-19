@@ -10,6 +10,7 @@ import respx
 from strapi_kit import StrapiConfig, StrapiExporter, StrapiImporter
 from strapi_kit.client.sync_client import SyncClient
 from strapi_kit.exceptions import FormatError, ImportExportError
+from strapi_kit.export.jsonl_reader import JSONLImportReader
 from strapi_kit.export.jsonl_writer import JSONLExportWriter
 from strapi_kit.models import (
     ConflictResolution,
@@ -19,6 +20,7 @@ from strapi_kit.models import (
     ExportMetadata,
     ImportOptions,
     ImportResult,
+    UnresolvedRelation,
 )
 from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
 from strapi_kit.utils.uid import uid_to_endpoint
@@ -1785,9 +1787,19 @@ def test_import_result_helpers() -> None:
 
     result.add_error("Test error")
     result.add_warning("Test warning")
+    result.add_unresolved(
+        UnresolvedRelation(
+            content_type="api::article.article",
+            entity_id=1,
+            field="category",
+            old_id="missing",
+            target="api::category.category",
+        )
+    )
 
     assert len(result.errors) == 1
     assert len(result.warnings) == 1
+    assert result.relations_unresolved == 1
 
 
 # Schema Export/Import Tests
@@ -4492,3 +4504,338 @@ def test_validate_relations_resolves_nested_paths(strapi_config: StrapiConfig) -
         importer._validate_relations(export_data, result)
 
     assert any("seo[0].author" in warning and "99" in warning for warning in result.warnings)
+
+
+def _author_category_article_export(*, extra_category: str | None = "cat-missing") -> ExportData:
+    """Author + category + article. Optional extra category id is unmapped."""
+    author_schema = ContentTypeSchema(
+        uid="api::author.author",
+        display_name="Author",
+        plural_name="authors",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    category_schema = ContentTypeSchema(
+        uid="api::category.category",
+        display_name="Category",
+        plural_name="categories",
+        fields={"name": FieldSchema(type=FieldType.STRING)},
+    )
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "title": FieldSchema(type=FieldType.STRING),
+            "author": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+            "categories": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_MANY,
+                target="api::category.category",
+            ),
+        },
+    )
+    category_ids: list[str] = ["cat-src"]
+    if extra_category:
+        category_ids.append(extra_category)
+    return ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v5",
+            source_url="http://localhost:1337",
+            content_types=[
+                "api::author.author",
+                "api::category.category",
+                "api::article.article",
+            ],
+            total_entities=3,
+            schemas={
+                "api::author.author": author_schema,
+                "api::category.category": category_schema,
+                "api::article.article": article_schema,
+            },
+        ),
+        entities={
+            "api::author.author": [
+                ExportedEntity(
+                    id=1,
+                    document_id="auth-src",
+                    content_type="api::author.author",
+                    data={"name": "Ada"},
+                )
+            ],
+            "api::category.category": [
+                ExportedEntity(
+                    id=2,
+                    document_id="cat-src",
+                    content_type="api::category.category",
+                    data={"name": "News"},
+                )
+            ],
+            "api::article.article": [
+                ExportedEntity(
+                    id=3,
+                    document_id="art-src",
+                    content_type="api::article.article",
+                    data={"title": "Hello"},
+                    relations={"author": ["auth-src"], "categories": category_ids},
+                )
+            ],
+        },
+    )
+
+
+def _mock_author_category_article_creates(respx_mock: respx.Router) -> respx.Route:
+    """Create mocks for the author/category/article fixture. Returns article PUT."""
+    _mock_document_missing(respx_mock, "authors", "auth-src")
+    _mock_document_missing(respx_mock, "categories", "cat-src")
+    _mock_document_missing(respx_mock, "articles", "art-src")
+    respx_mock.post("http://localhost:1337/api/authors").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 9, "documentId": "auth-new", "name": "Ada"}}
+        )
+    )
+    respx_mock.post("http://localhost:1337/api/categories").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 10, "documentId": "cat-new", "name": "News"}}
+        )
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+    return respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"id": 20, "documentId": "art-new", "title": "Hello"}}
+        )
+    )
+
+
+@pytest.mark.respx
+def test_import_records_partial_dest_resolution_and_skips_incomplete_field(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Incomplete fields are not written; misses land on ImportResult (#139)."""
+    import json
+
+    export_data = _author_category_article_export()
+    relation_route = _mock_author_category_article_creates(respx_mock)
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(
+            export_data, ImportOptions(validate_relations=False)
+        )
+
+    assert result.success is False
+    assert result.relations_imported == 1
+    assert result.relations_unresolved == 1
+    assert result.unresolved_relations[0].field == "categories"
+    assert result.unresolved_relations[0].old_id == "cat-missing"
+    assert result.unresolved_relations[0].target == "api::category.category"
+    assert any("cat-missing" in error for error in result.errors)
+    body = json.loads(relation_route.calls.last.request.content)
+    assert body["data"]["author"] == "auth-new"
+    assert "categories" not in body["data"]
+
+
+@pytest.mark.respx
+def test_import_dry_run_partial_dest_resolution_is_warning_success(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Dry-run dest misses are warnings; success stays write-safe (#139 #141)."""
+    export_data = _author_category_article_export()
+    _mock_document_exists(respx_mock, "authors", "auth-src", dest_id=9)
+    _mock_document_exists(respx_mock, "categories", "cat-src", dest_id=10)
+    _mock_document_exists(respx_mock, "articles", "art-src", dest_id=20)
+    article_put = respx_mock.put("http://localhost:1337/api/articles/art-src").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not update"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(
+            export_data,
+            ImportOptions(dry_run=True, validate_relations=False),
+        )
+
+    assert result.success is True
+    assert result.errors == []
+    assert result.relations_imported == 0
+    assert result.relations_unresolved == 1
+    assert any("cat-missing" in warning for warning in result.warnings)
+    assert article_put.call_count == 0
+
+
+@pytest.mark.respx
+def test_import_from_jsonl_records_partial_dest_resolution(
+    strapi_config: StrapiConfig, respx_mock: respx.Router, tmp_path: Path
+) -> None:
+    """JSONL live import records per-target dest misses (#139)."""
+    jsonl_path = tmp_path / "export.jsonl"
+    _write_export_jsonl(jsonl_path, _author_category_article_export())
+    _mock_author_category_article_creates(respx_mock)
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_from_jsonl(
+            jsonl_path, ImportOptions(validate_relations=False)
+        )
+
+    assert result.success is False
+    assert result.relations_unresolved == 1
+    assert result.unresolved_relations[0].old_id == "cat-missing"
+
+
+@pytest.mark.respx
+def test_import_relation_pass_unexpected_exception_propagates(
+    strapi_config: StrapiConfig, respx_mock: respx.Router, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unexpected relation-pass exceptions raise instead of success=False (#140)."""
+    export_data = _author_category_article_export(extra_category=None)
+    _mock_author_category_article_creates(respx_mock)
+
+    def boom(*_args: object, **_kwargs: object) -> object:
+        raise TypeError("bad resolve")
+
+    monkeypatch.setattr(StrapiImporter, "_apply_entity_relations", boom)
+
+    with SyncClient(strapi_config) as client:
+        with pytest.raises(ImportExportError, match="bad resolve"):
+            StrapiImporter(client).import_data(export_data, ImportOptions(validate_relations=False))
+
+
+@pytest.mark.respx
+def test_import_relation_pass_strapi_error_is_recorded(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Expected dest/schema failures stay on ImportResult (#140)."""
+    export_data = _author_category_article_export(extra_category=None)
+    _mock_author_category_article_creates(respx_mock)
+    respx_mock.put("http://localhost:1337/api/articles/art-new").mock(
+        return_value=httpx.Response(400, json={"error": {"message": "invalid relation"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(
+            export_data, ImportOptions(validate_relations=False)
+        )
+
+    assert result.success is False
+    assert any("invalid relation" in error for error in result.errors)
+
+
+@pytest.mark.respx
+def test_import_live_v4_create_without_document_id_does_not_count_publish(
+    strapi_config: StrapiConfig, respx_mock: respx.Router
+) -> None:
+    """Live v4 creates with no documentId do not increment publish intent (#140)."""
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={"title": FieldSchema(type=FieldType.STRING)},
+    )
+    export_data = ExportData(
+        metadata=ExportMetadata(
+            strapi_version="v4",
+            source_url="http://localhost:1337",
+            content_types=["api::article.article"],
+            total_entities=1,
+            schemas={"api::article.article": article_schema},
+        ),
+        entities={
+            "api::article.article": [
+                ExportedEntity(
+                    id=1,
+                    content_type="api::article.article",
+                    data={"title": "Live"},
+                    published_at=datetime(2026, 8, 16, 12, 0, 0),
+                )
+            ]
+        },
+    )
+    respx_mock.post("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(200, json={"data": {"id": 3, "attributes": {"title": "Live"}}})
+    )
+    publish_route = respx_mock.post("http://localhost:1337/api/articles/3/actions/publish").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "should not publish"}})
+    )
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_data(export_data)
+
+    assert result.success is True
+    assert result.entities_imported == 1
+    assert result.entities_to_publish == 0
+    assert publish_route.call_count == 0
+
+
+def test_jsonl_writer_rewrites_metadata_totals(tmp_path: Path) -> None:
+    """rewrite_metadata patches the first line after the stream (#142)."""
+    jsonl_path = tmp_path / "export.jsonl"
+    metadata = ExportMetadata(
+        strapi_version="v5",
+        source_url="http://localhost:1337",
+        content_types=["api::article.article"],
+    )
+    entity = ExportedEntity(
+        id=1,
+        document_id="doc1",
+        content_type="api::article.article",
+        data={"title": "Hello"},
+    )
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(metadata)
+        writer.write_entity(entity)
+        writer.write_media_manifest([])
+        metadata.total_entities = writer.entity_count
+        metadata.total_media = 0
+        writer.rewrite_metadata(metadata)
+
+    with JSONLImportReader(jsonl_path) as reader:
+        loaded = reader.read_metadata()
+        entities = list(reader.iter_entities())
+
+    assert loaded.total_entities == 1
+    assert loaded.total_media == 0
+    assert len(entities) == 1
+
+
+@pytest.mark.respx
+def test_export_to_jsonl_persists_metadata_totals(
+    strapi_config: StrapiConfig,
+    mock_article_schema_response: dict,
+    respx_mock: respx.Router,
+    tmp_path: Path,
+) -> None:
+    """Official JSONL export writes real total_entities / total_media (#142)."""
+    respx_mock.get(
+        "http://localhost:1337/api/content-type-builder/content-types/api::article.article"
+    ).mock(return_value=httpx.Response(200, json=mock_article_schema_response))
+    respx_mock.get("http://localhost:1337/api/articles").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": 1, "documentId": "doc1", "title": "One"},
+                    {"id": 2, "documentId": "doc2", "title": "Two"},
+                ],
+                "meta": {"pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "total": 2}},
+            },
+        )
+    )
+    jsonl_path = tmp_path / "export.jsonl"
+
+    with SyncClient(strapi_config) as client:
+        count = StrapiExporter(client).export_to_jsonl(
+            ["api::article.article"],
+            jsonl_path,
+            include_media=False,
+        )
+
+    assert count == 2
+    with JSONLImportReader(jsonl_path) as reader:
+        metadata = reader.read_metadata()
+    assert metadata.total_entities == 2
+    assert metadata.total_media == 0
