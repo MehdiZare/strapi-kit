@@ -47,7 +47,9 @@ JSONL import shares preflight validation with
 extract/strip unwraps v4 `{data}` / `{data, meta}` wrappers and logs
 unexpected payload shapes.
 The e2e workflow also runs on library path changes and keeps the
-compose stack until logs are collected.
+compose stack until logs are collected. The compose probe retries
+`docker compose` and does not fall back to a missing `docker-compose`
+v1 binary.
 
 ### Upgrade notes
 

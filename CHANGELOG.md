@@ -121,6 +121,8 @@ Docker e2e CI. Tracker: #144.
   numeric-looking documentId (`"5"`) is not coerced to `5` (#145)
 - Extract rejects `bool` relation ids (`True` is a subclass of `int`)
   so extract and `ExportedEntity` validation agree (#150)
+- E2E compose probe retries `docker compose` and does not fall back to a
+  missing `docker-compose` v1 binary
 - Export/import i18n streams use ``locale=*`` (Strapi 5.34 ``locale=all``
   returns an empty list). ``all`` remains a fallback when ``*`` is rejected.
 - Export drops populate ``localizations`` so dest writes do not 400
