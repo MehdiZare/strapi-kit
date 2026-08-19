@@ -33,7 +33,7 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: ⚡  Install uv (with cache)
-        uses: astral-sh/setup-uv@v10.0.0
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -73,7 +73,7 @@ jobs:
           python-version: "3.13"
 
       - name: ⚡  Install uv
-        uses: astral-sh/setup-uv@v10.0.0
+        uses: astral-sh/setup-uv@v10.0.1
 
       - name: 📊 Run all tests with coverage
         run: |
