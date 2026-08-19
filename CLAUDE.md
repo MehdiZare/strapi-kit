@@ -439,8 +439,9 @@ with SyncClient(target_config) as client:
 
 1. **JSONL Streaming**: O(1) memory for large datasets via `JSONLExportWriter`/`JSONLImportReader`.
    `export_to_jsonl` rewrites the metadata line with real
-   `total_entities` / `total_media` after the stream. Import still
-   recounts when those fields are 0 so older files work.
+   `total_entities` / `total_media` after the stream (`None` is
+   unknown, `0` is empty). Import still recounts when those fields
+   are `None` or `0` so older files work.
 2. **Schema-based Relation Resolution**: `RelationResolver` uses Strapi schema to detect and resolve relations.
    Incomplete dest-relation fields (a subset of IDs unresolved) are not
    written. Live records each miss as an error; dry-run records a warning.

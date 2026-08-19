@@ -81,8 +81,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `total_entities` / `total_media` after the stream. Import still
   recounts when those fields are 0 so older files work (#142)
 - `ExportMetadata.total_entities` / `total_media` default to `None`
-  (unknown). `0` is empty. Import still recounts when the fields are
-  `None` or `0` so older JSONL files work (#148)
+  (unknown). `0` is empty. Finished `export_content_types` snapshots
+  both (`total_media == 0` when there is no media). Import still
+  recounts when the fields are `None` or `0` so older JSONL files
+  work (#148)
 
 ### Fixed
 

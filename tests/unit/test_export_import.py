@@ -320,6 +320,8 @@ def test_export_content_types(
         assert "api::article.article" in export_data.entities
         assert len(export_data.entities["api::article.article"]) == 2
         assert export_data.get_entity_count() == 2
+        assert export_data.metadata.total_entities == 2
+        assert export_data.metadata.total_media == 0
 
 
 @pytest.mark.respx
@@ -3109,6 +3111,62 @@ def test_import_from_jsonl_counts_entities_when_metadata_totals_zero(
 
 
 @pytest.mark.respx
+def test_import_from_jsonl_counts_entities_when_metadata_totals_none(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+    tmp_path: Path,
+) -> None:
+    """Unset JSONL totals (None) are recounted on import (#148)."""
+    sample_export_data.metadata.total_entities = None
+    jsonl_path = tmp_path / "export.jsonl"
+    _write_export_jsonl(jsonl_path, sample_export_data)
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_from_jsonl(jsonl_path, ImportOptions(dry_run=True))
+
+    assert not any("No entities to import" in warning for warning in result.warnings)
+
+
+@pytest.mark.respx
+def test_import_from_jsonl_warns_from_media_manifest_when_total_media_none(
+    strapi_config: StrapiConfig,
+    sample_export_data: ExportData,
+    respx_mock: respx.Router,
+    tmp_path: Path,
+) -> None:
+    """A media manifest still triggers the skip warning when total_media is None (#148)."""
+    sample_export_data.metadata.total_media = None
+    jsonl_path = tmp_path / "export.jsonl"
+    with JSONLExportWriter(jsonl_path) as writer:
+        writer.write_metadata(sample_export_data.metadata)
+        for entity in sample_export_data.entities["api::article.article"]:
+            writer.write_entity(entity)
+        writer.write_media_manifest(
+            [
+                ExportedMediaFile(
+                    id=1,
+                    url="/uploads/image.jpg",
+                    name="image.jpg",
+                    mime="image/jpeg",
+                    size=10,
+                    hash="abc",
+                    local_path="image.jpg",
+                )
+            ]
+        )
+    _mock_document_missing(respx_mock, "articles", "doc1")
+    _mock_document_missing(respx_mock, "articles", "doc2")
+
+    with SyncClient(strapi_config) as client:
+        result = StrapiImporter(client).import_from_jsonl(jsonl_path, ImportOptions(dry_run=True))
+
+    assert any("Media directory not specified" in warning for warning in result.warnings)
+
+
+@pytest.mark.respx
 def test_import_from_jsonl_warns_from_media_manifest_when_total_media_zero(
     strapi_config: StrapiConfig,
     sample_export_data: ExportData,
@@ -5229,8 +5287,11 @@ def test_import_two_dest_misses_on_one_field_omits_field(
             export_data, ImportOptions(validate_relations=False)
         )
 
+    assert result.success is False
     assert result.relations_unresolved == 2
     assert {item.old_id for item in result.unresolved_relations} == {"miss-a", "miss-b"}
+    assert any("miss-a" in error for error in result.errors)
+    assert any("miss-b" in error for error in result.errors)
     body = json.loads(relation_route.calls.last.request.content)
     assert body["data"]["author"] == "auth-new"
     assert "categories" not in body["data"]
@@ -5266,12 +5327,17 @@ def test_import_relation_pass_schema_typeerror_propagates(
     _mock_author_category_article_creates(respx_mock)
     real = StrapiImporter._process_entity_relations
 
-    def wrapped(self: StrapiImporter, *args: object, **kwargs: object) -> None:
-        def boom(_uid: str) -> object:
-            raise TypeError("bad schema")
+    def wrapped(
+        self: StrapiImporter, entity: ExportedEntity, *args: object, **kwargs: object
+    ) -> None:
+        # Fail only after the empty-relations return, not in _get_endpoint.
+        if entity.relations:
 
-        self._schema_cache.get_schema = boom  # type: ignore[method-assign]
-        real(self, *args, **kwargs)
+            def boom(_uid: str) -> object:
+                raise TypeError("bad schema")
+
+            self._schema_cache.get_schema = boom  # type: ignore[method-assign]
+        real(self, entity, *args, **kwargs)
 
     monkeypatch.setattr(StrapiImporter, "_process_entity_relations", wrapped)
 
@@ -5294,8 +5360,10 @@ def test_import_nested_dest_miss_is_not_also_nested_skip(
             export_data, ImportOptions(validate_relations=False)
         )
 
+    assert result.success is False
     assert result.relations_unresolved == 1
     assert result.unresolved_relations[0].field == "seo[0].author"
     assert result.unresolved_relations[0].old_id == "auth-missing"
+    assert any("auth-missing" in error for error in result.errors)
     assert not any("Skipped nested relations" in error for error in result.errors)
     assert not any("Skipped nested relations" in warning for warning in result.warnings)
