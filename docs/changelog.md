@@ -11,6 +11,12 @@ user-facing summary.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-19
+
+i18n localizations, nested component/dynamic-zone relations, dest media
+writes, FAIL-write missing locales, dry-run / JSONL preflight, and
+Docker e2e CI. Tracker: #144.
+
 Import restores i18n localizations of a shared `documentId` (first locale
 creates; later locales `PUT {destDoc}?locale=`). SKIP is per-locale.
 FAIL writes missing locales, does not overwrite existing locales or their
@@ -34,13 +40,22 @@ written. Live `entities_to_publish` increments only when a dest
 import still recounts when those fields are `None` or `0`). Finished
 JSON / in-memory export also snapshots both counts (`total_media == 0`
 when there is no media). Relation
-IDs keep numeric-looking documentIds as strings. JSONL import shares
-preflight validation with
+IDs keep numeric-looking documentIds as strings. `RelationId` is a
+Pydantic input type, not an `isinstance` target; extract rejects `bool`.
+JSONL import shares preflight validation with
 `import_data` and does not pre-create empty mapping dicts. Component
 extract/strip unwraps v4 `{data}` / `{data, meta}` wrappers and logs
 unexpected payload shapes.
 The e2e workflow also runs on library path changes and keeps the
 compose stack until logs are collected.
+
+### Upgrade notes
+
+- Extra locales of a shared `documentId` are restored (`PUT {destDoc}?locale=`).
+- `SKIP` is per-locale. `FAIL` writes missing locales then raises.
+- Dry-run `success` is write-safety; check `relations_unresolved`.
+- JSONL totals: `None` is unknown, `0` is empty.
+- Relation IDs are `StrictInt | StrictStr`; `"5"` stays a string.
 
 ## [0.3.0] - 2026-08-16
 

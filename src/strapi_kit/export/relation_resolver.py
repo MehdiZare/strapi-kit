@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from ..exceptions import StrapiError
 from ..models.export_format import RelationId
@@ -21,6 +21,17 @@ if TYPE_CHECKING:
     from ..models.schema import ContentTypeSchema
 
 logger = logging.getLogger(__name__)
+
+
+def _is_relation_id_value(value: object) -> TypeGuard[int | str]:
+    """Return True for extractable relation IDs.
+
+    ``RelationId`` is a Pydantic input type, not an ``isinstance`` target.
+    ``bool`` is a subclass of ``int`` but is not a valid id.
+    """
+    if isinstance(value, bool):
+        return False
+    return isinstance(value, (int, str))
 
 
 class RelationResolver:
@@ -255,7 +266,7 @@ class RelationResolver:
             return document_id.strip()
         if "id" in item and item["id"] is not None:
             raw_id = item["id"]
-            if isinstance(raw_id, (int, str)):
+            if _is_relation_id_value(raw_id):
                 return raw_id
         return None
 
@@ -289,7 +300,7 @@ class RelationResolver:
             extracted = RelationResolver._id_from_relation_object(field_value)
             return [extracted] if extracted is not None else None
 
-        if isinstance(field_value, (int, str)):
+        if _is_relation_id_value(field_value):
             return [field_value]
 
         if isinstance(field_value, list):
@@ -308,7 +319,7 @@ class RelationResolver:
                     elif extracted is not None:
                         ids.append(extracted)
                         found = True
-                elif isinstance(item, (int, str)):
+                elif _is_relation_id_value(item):
                     ids.append(item)
                     found = True
             return ids if found else None

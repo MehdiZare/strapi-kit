@@ -79,6 +79,11 @@ On a v4 destination (create returns no `documentId`), import falls back to
 numeric `build_nested_numeric_payload` / `PUT {endpoint}/{new_id}`.
 `build_relation_payload` remains a public helper.
 
+`RelationId` (`StrictInt | StrictStr`) is a Pydantic input type on
+`ExportedEntity.relations` and `UnresolvedRelation.old_id`. It is not an
+`isinstance` target. Extract helpers accept `int` / `str` and reject
+`bool`.
+
 Media fields are converted to a dest write id (`documentId` when the
 upload recorded one, otherwise the remapped numeric id). Populate blobs
 (`mime`, `url`, source `documentId`) are not posted.

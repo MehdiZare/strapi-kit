@@ -20,6 +20,7 @@ from strapi_kit.models import (
     ExportMetadata,
     ImportOptions,
     ImportResult,
+    RelationId,
     UnresolvedRelation,
 )
 from strapi_kit.models.schema import ContentTypeSchema, FieldSchema, FieldType, RelationType
@@ -5234,6 +5235,27 @@ def test_exported_entity_keeps_numeric_looking_document_id() -> None:
     )
     assert miss.old_id == "5"
     assert isinstance(miss.old_id, str)
+
+
+def test_relation_id_is_not_an_isinstance_target() -> None:
+    """RelationId is a Pydantic input type, not an isinstance target (#150)."""
+    with pytest.raises(TypeError):
+        isinstance(5, RelationId)  # type: ignore[arg-type]
+
+
+def test_exported_entity_rejects_bool_relation_id() -> None:
+    """StrictInt rejects bool so extract and model validation agree (#150)."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ExportedEntity.model_validate(
+            {
+                "id": 1,
+                "content_type": "api::article.article",
+                "data": {},
+                "relations": {"author": [True]},
+            }
+        )
 
 
 def test_jsonl_roundtrip_keeps_numeric_looking_document_id(tmp_path: Path) -> None:

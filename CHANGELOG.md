@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-19
+
+i18n localizations, nested component/dynamic-zone relations, dest media
+writes, FAIL-write missing locales, dry-run / JSONL preflight, and
+Docker e2e CI. Tracker: #144.
+
+### Upgrade notes
+
+- Import restores extra locales of a shared `documentId`
+  (`PUT {destDoc}?locale=`). 0.3.0 keyed existence on `documentId` only.
+- `ConflictResolution.SKIP` is per-locale: a missing locale is written
+  even when another locale of the same document exists.
+- `ConflictResolution.FAIL` writes missing locales, does not overwrite
+  existing locale fields or their outbound relations, then raises after
+  the entity/relation/publish pass.
+- Dry-run no longer maps dest id `0` or the source `documentId` as a
+  write target. `success` on dry-run is write-safety; check
+  `relations_unresolved` for dest-relation apply-ability.
+- `ExportMetadata.total_entities` / `total_media` default to `None`
+  (unknown). `0` is empty. Import recounts when either field is `None`
+  or `0` so older JSONL files work.
+- Relation IDs on `ExportedEntity.relations` and
+  `UnresolvedRelation.old_id` are `StrictInt | StrictStr`. A
+  numeric-looking documentId (`"5"`) stays a string. `RelationId` is
+  not an `isinstance` target.
+
 ### Added
 
 - Import restores i18n localizations of a shared `documentId`: existence
@@ -93,21 +119,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Relation IDs on `ExportedEntity.relations` and
   `UnresolvedRelation.old_id` are `StrictInt | StrictStr` so a
   numeric-looking documentId (`"5"`) is not coerced to `5` (#145)
-
-### Removed
-
-- Unused export/import UID pluralization fallbacks and heuristic
-  `extract_relations` / `strip_relations` (schema-aware extract/strip
-  remain). `build_relation_payload` remains a public helper (#109)
-
-### Fixed
-
+- Extract rejects `bool` relation ids (`True` is a subclass of `int`)
+  so extract and `ExportedEntity` validation agree (#150)
 - Export/import i18n streams use ``locale=*`` (Strapi 5.34 ``locale=all``
   returns an empty list). ``all`` remains a fallback when ``*`` is rejected.
 - Export drops populate ``localizations`` so dest writes do not 400
   (`Invalid key localizations`).
 - `exists()` draft `ValidationError` is absent only for unknown
   `status` / `publicationState` (a populate/filter 400 raises) (#107)
+
+### Removed
+
+- Unused export/import UID pluralization fallbacks and heuristic
+  `extract_relations` / `strip_relations` (schema-aware extract/strip
+  remain). `build_relation_payload` remains a public helper (#109)
 
 ## [0.3.0] - 2026-08-16
 
@@ -571,7 +596,8 @@ stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55)
 - Dependency injection support with protocols
 - Full type hints and mypy strict mode compliance
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.6...v0.1.0
