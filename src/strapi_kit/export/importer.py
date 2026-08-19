@@ -27,7 +27,12 @@ from strapi_kit.models.export_format import (
     ExportedMediaFile,
     ExportMetadata,
 )
-from strapi_kit.models.import_options import ConflictResolution, ImportOptions, ImportResult
+from strapi_kit.models.import_options import (
+    ConflictResolution,
+    ImportOptions,
+    ImportResult,
+    UnresolvedRelation,
+)
 from strapi_kit.models.request.filters import FilterBuilder
 from strapi_kit.models.request.query import StrapiQuery
 from strapi_kit.models.schema import ContentTypeSchema
@@ -54,6 +59,15 @@ class _ExistingDocument:
 
     id: int
     document_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _UnresolvedTarget:
+    """A single dest-relation id that did not resolve."""
+
+    field: str
+    old_id: int | str
+    target: str | None
 
 
 class StrapiImporter:
@@ -119,7 +133,9 @@ class StrapiImporter:
             ...     media_dir="export/media"
             ... )
             >>> if result.success:
-            ...     print("Import successful!")
+            ...     print("Import completed without errors")
+            >>> if result.relations_unresolved:
+            ...     print(f"{result.relations_unresolved} dest relations unresolved")
         """
         if options is None:
             options = ImportOptions()
@@ -786,6 +802,7 @@ class StrapiImporter:
             "entities_skipped": result.entities_skipped,
             "relations_imported": result.relations_imported,
             "entities_to_publish": result.entities_to_publish,
+            "relations_unresolved": result.relations_unresolved,
         }
         extra = ""
         if result.errors:
@@ -807,11 +824,18 @@ class StrapiImporter:
         options: ImportOptions,
         result: ImportResult,
     ) -> None:
-        """Count publish intent; queue a dest write only when not dry-run."""
+        """Count publish intent; queue a dest write only when not dry-run.
+
+        Dry-run counts source intent whenever ``published_at`` is set.
+        Live increments only when a dest documentId is actually queued.
+        """
         if entity.published_at is None:
             return
-        result.entities_to_publish += 1
-        if dest_document_id and not options.dry_run:
+        if options.dry_run:
+            result.entities_to_publish += 1
+            return
+        if dest_document_id:
+            result.entities_to_publish += 1
             pending_publish.append((content_type, entity, dest_document_id))
 
     def _publish_pending(
@@ -903,14 +927,20 @@ class StrapiImporter:
 
         try:
             schema = self._schema_cache.get_schema(entity.content_type)
-        except Exception as e:
+        except StrapiError as e:
+            logger.error(
+                "Failed to load schema for %s while importing relations: %s",
+                entity.content_type,
+                e,
+                exc_info=True,
+            )
             result.add_error(
                 f"Failed to load schema for {entity.content_type} while importing relations: {e}"
             )
             return
 
         try:
-            applied, skipped = self._apply_entity_relations(
+            applied, skipped, unresolved = self._apply_entity_relations(
                 entity,
                 schema,
                 endpoint,
@@ -921,6 +951,7 @@ class StrapiImporter:
                 media_maps,
                 write=not options.dry_run,
             )
+            self._record_unresolved_targets(entity, unresolved, options, result)
             if skipped:
                 message = (
                     "Skipped nested relations for "
@@ -933,7 +964,7 @@ class StrapiImporter:
             if applied:
                 if not options.dry_run:
                     result.relations_imported += 1
-            elif entity.relations:
+            elif entity.relations and not unresolved:
                 message = (
                     f"Could not {'resolve' if options.dry_run else 'write'} relations "
                     f"for {entity.content_type} #{entity.id}"
@@ -942,7 +973,14 @@ class StrapiImporter:
                     result.add_warning(message)
                 else:
                     result.add_error(message)
-        except Exception as e:
+        except StrapiError as e:
+            logger.error(
+                "Failed to import relations for %s #%s: %s",
+                entity.content_type,
+                entity.id,
+                e,
+                exc_info=True,
+            )
             result.add_error(
                 f"Failed to import relations for {entity.content_type} #{entity.id}: {e}"
             )
@@ -1102,12 +1140,13 @@ class StrapiImporter:
         id_mapping: dict[str, dict[int, int]],
         doc_id_to_new_id: dict[str, dict[str, int]] | None = None,
         entity_data: dict[str, Any] | None = None,
-    ) -> dict[str, list[int]]:
+    ) -> tuple[dict[str, list[int]], list[_UnresolvedTarget]]:
         """Resolve relation IDs using schema information.
 
         Uses content type schemas to determine relation targets, enabling
         proper ID mapping during import. Handles both numeric IDs and
-        string documentIds (v5 format).
+        string documentIds (v5 format). Incomplete fields (any unresolved
+        id) are omitted from the resolved payload.
 
         Args:
             relations: Raw relations from export (field -> [old_ids])
@@ -1117,9 +1156,10 @@ class StrapiImporter:
                 (content_type -> {old_document_id: new_id})
 
         Returns:
-            Resolved relations with new IDs
+            Resolved complete fields and per-target misses
         """
         resolved: dict[str, list[int]] = {}
+        unresolved: list[_UnresolvedTarget] = []
 
         for field_name, old_ids in relations.items():
             # Get target content type from schema (including nested paths)
@@ -1131,6 +1171,7 @@ class StrapiImporter:
 
             if not target_content_type:
                 logger.warning(f"Field {field_name} is not a relation. Skipping.")
+                unresolved.extend(_UnresolvedTarget(field_name, old_id, None) for old_id in old_ids)
                 continue
 
             # Get ID mapping for target content type
@@ -1138,6 +1179,9 @@ class StrapiImporter:
                 logger.warning(
                     f"No ID mapping for {target_content_type}. "
                     f"Relations in {field_name} cannot be resolved."
+                )
+                unresolved.extend(
+                    _UnresolvedTarget(field_name, old_id, target_content_type) for old_id in old_ids
                 )
                 continue
 
@@ -1147,7 +1191,8 @@ class StrapiImporter:
             )
 
             # Resolve old IDs to new IDs (supports both int and str IDs)
-            new_ids = []
+            new_ids: list[int] = []
+            missed: list[int | str] = []
             for old_id in old_ids:
                 if isinstance(old_id, int) and old_id in target_mapping:
                     new_ids.append(target_mapping[old_id])
@@ -1159,13 +1204,16 @@ class StrapiImporter:
                         f"Could not resolve {target_content_type} ID {old_id} "
                         f"for field {field_name}"
                     )
+                    missed.append(old_id)
 
-            # Preserve empty lists only when source relation was explicitly empty.
-            # If old_ids had values but none resolved, skip to avoid clearing relations.
-            if new_ids or len(old_ids) == 0:
+            unresolved.extend(
+                _UnresolvedTarget(field_name, old_id, target_content_type) for old_id in missed
+            )
+            # Write only complete fields. Preserve explicit empty lists.
+            if not missed and (new_ids or len(old_ids) == 0):
                 resolved[field_name] = new_ids
 
-        return resolved
+        return resolved, unresolved
 
     def _apply_entity_relations(
         self,
@@ -1179,7 +1227,7 @@ class StrapiImporter:
         media_maps: _MediaMaps,
         *,
         write: bool = True,
-    ) -> tuple[bool, list[str]]:
+    ) -> tuple[bool, list[str], list[_UnresolvedTarget]]:
         """Resolve relations and optionally write them.
 
         Nested component / dynamic-zone shells are copied from a remapped
@@ -1190,12 +1238,14 @@ class StrapiImporter:
 
         Returns:
             Tuple of (whether an update was or would be sent, nested paths
-            that could not be written).
+            that could not be written, dest-resolution misses from the
+            write path that ran: documentId misses if that path wrote,
+            otherwise numeric misses after the numeric path ran).
         """
         skipped: list[str] = []
         write_query = self._write_query(entity)
         remapped_data = self._entity_data_for_write(entity.data, media_maps, entity.content_type)
-        resolved_docs = self._resolve_relation_document_ids(
+        resolved_docs, unresolved_docs = self._resolve_relation_document_ids(
             entity.relations,
             schema,
             id_mapping,
@@ -1218,10 +1268,11 @@ class StrapiImporter:
                     endpoint, payload, document_id=new_document_id, query=write_query
                 )
             self._mark_unwritten_nested_relations(entity.relations, resolved_docs, skipped)
-            return True, skipped
+            skipped = self._skipped_without_unresolved(skipped, unresolved_docs)
+            return True, skipped, unresolved_docs
 
         skipped.clear()
-        resolved_nums = self._resolve_relations_with_schema(
+        resolved_nums, unresolved_nums = self._resolve_relations_with_schema(
             entity.relations,
             schema,
             id_mapping,
@@ -1242,10 +1293,16 @@ class StrapiImporter:
                 if write:
                     self.client.update(f"{endpoint}/{new_id}", numeric_payload, query=write_query)
                 self._mark_unwritten_nested_relations(entity.relations, resolved_nums, skipped)
-                return True, skipped
+                skipped = self._skipped_without_unresolved(skipped, unresolved_nums)
+                return True, skipped, unresolved_nums
 
+        # Numeric path ran; its misses are the dest-resolution result.
+        # DocumentId-path misses are not dest gaps once IDs resolved here
+        # (v4 dest, or a missing component shell).
+        unresolved = unresolved_nums
         self._mark_unwritten_nested_relations(entity.relations, {}, skipped)
-        return False, skipped
+        skipped = self._skipped_without_unresolved(skipped, unresolved)
+        return False, skipped, unresolved
 
     def _entity_data_for_write(
         self,
@@ -1289,17 +1346,23 @@ class StrapiImporter:
         doc_id_to_new_id: dict[str, dict[str, int]],
         doc_id_to_new_document_id: dict[str, dict[str, str]],
         entity_data: dict[str, Any] | None = None,
-    ) -> dict[str, list[str]]:
-        """Resolve exported relation IDs to destination documentIds."""
+    ) -> tuple[dict[str, list[str]], list[_UnresolvedTarget]]:
+        """Resolve exported relation IDs to destination documentIds.
+
+        Incomplete fields (any unresolved id) are omitted from the payload.
+        """
         resolved: dict[str, list[str]] = {}
+        unresolved: list[_UnresolvedTarget] = []
         for field_name, old_ids in relations.items():
             target = RelationResolver.target_for_field_path(
                 schema, field_name, self._schema_cache, entity_data
             )
             if not target:
                 logger.warning(f"Field {field_name} is not a relation. Skipping.")
+                unresolved.extend(_UnresolvedTarget(field_name, old_id, None) for old_id in old_ids)
                 continue
             new_docs: list[str] = []
+            missed: list[int | str] = []
             for old_id in old_ids:
                 new_doc: str | None = None
                 if isinstance(old_id, str):
@@ -1317,9 +1380,52 @@ class StrapiImporter:
                     new_docs.append(new_doc)
                 else:
                     logger.warning(f"Could not resolve {target} ID {old_id} for field {field_name}")
-            if new_docs or len(old_ids) == 0:
+                    missed.append(old_id)
+            unresolved.extend(_UnresolvedTarget(field_name, old_id, target) for old_id in missed)
+            if not missed and (new_docs or len(old_ids) == 0):
                 resolved[field_name] = new_docs
-        return resolved
+        return resolved, unresolved
+
+    @staticmethod
+    def _skipped_without_unresolved(
+        skipped: list[str], unresolved: list[_UnresolvedTarget]
+    ) -> list[str]:
+        """Drop nested-skip paths already recorded as dest-resolution misses."""
+        unresolved_fields = {item.field for item in unresolved}
+        return [path for path in skipped if path not in unresolved_fields]
+
+    @staticmethod
+    def _record_unresolved_targets(
+        entity: ExportedEntity,
+        unresolved: list[_UnresolvedTarget],
+        options: ImportOptions,
+        result: ImportResult,
+    ) -> None:
+        """Attach per-target dest misses to ImportResult.
+
+        Dry-run records a warning (does not flip ``success``). Live records
+        an error (flips ``success``). Each miss increments
+        ``relations_unresolved``.
+        """
+        for item in unresolved:
+            target_label = item.target or "unknown"
+            message = (
+                f"Could not resolve {target_label} ID {item.old_id} "
+                f"for field {item.field} on {entity.content_type} #{entity.id}"
+            )
+            result.add_unresolved(
+                UnresolvedRelation(
+                    content_type=entity.content_type,
+                    entity_id=entity.id,
+                    field=item.field,
+                    old_id=item.old_id,
+                    target=item.target,
+                )
+            )
+            if options.dry_run:
+                result.add_warning(message)
+            else:
+                result.add_error(message)
 
     def _get_endpoint(self, uid: str) -> str:
         """Return the REST collection id from the cached schema ``pluralName``."""
@@ -1370,6 +1476,8 @@ class StrapiImporter:
             ... )
             >>> if result.success:
             ...     print(f"Imported {result.entities_imported} entities")
+            >>> if result.relations_unresolved:
+            ...     print(f"{result.relations_unresolved} dest relations unresolved")
         """
         from strapi_kit.export.jsonl_reader import JSONLImportReader
 
@@ -1394,9 +1502,10 @@ class StrapiImporter:
                 metadata = reader.read_metadata()
 
                 self._cache_export_metadata_schemas(metadata)
-                # export_to_jsonl writes metadata first and leaves
-                # total_entities / total_media at 0. Count the file when
-                # those fields are unset so preflight matches import_data.
+                # Older JSONL files leave total_entities / total_media at 0.
+                # When total_entities is 0, recount so preflight matches
+                # import_data. Media 0 is probed later only to decide the
+                # missing-media_dir warning.
                 entity_count = metadata.total_entities or reader.get_entity_count()
                 self._validate_export_metadata(metadata, result, entity_count)
                 if options.validate_relations:

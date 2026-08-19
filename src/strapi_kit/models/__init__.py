@@ -40,7 +40,12 @@ from .export_format import (
     ExportFormat,
     ExportMetadata,
 )
-from .import_options import ConflictResolution, ImportOptions, ImportResult
+from .import_options import (
+    ConflictResolution,
+    ImportOptions,
+    ImportResult,
+    UnresolvedRelation,
+)
 from .request.fields import FieldSelection
 from .request.filters import FilterBuilder, FilterCondition, FilterGroup
 from .request.media_write import media_write
@@ -84,6 +89,7 @@ __all__ = [
     "ExportFormat",
     "ImportOptions",
     "ImportResult",
+    "UnresolvedRelation",
     "ConflictResolution",
     # Enums
     "FilterOperator",

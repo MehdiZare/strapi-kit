@@ -25,10 +25,16 @@ follows `FieldType.MEDIA` when a schema is present.
 FAIL dry-run probes locale conflicts and raises without writing.
 Dry-run no longer maps missing dests to id `0` or the source
 `documentId`; existing dests still map real dest ids. Dry-run reports
-unresolved dest relations as warnings and counts `entities_to_publish`.
-JSONL import shares preflight validation with `import_data` and does
-not pre-create empty mapping dicts. Component extract/strip unwraps
-v4 `{data}` / `{data, meta}` wrappers and logs unexpected payload shapes.
+unresolved dest relations as warnings (`relations_unresolved`) and
+counts `entities_to_publish`. `success` on dry-run is write-safety,
+not “relations would apply.” Incomplete dest-relation fields are not
+written. Live `entities_to_publish` increments only when a dest
+`documentId` is queued. JSONL export persists `total_entities` /
+`total_media` on the metadata line; import still recounts when those
+fields are 0. JSONL import shares preflight validation with
+`import_data` and does not pre-create empty mapping dicts. Component
+extract/strip unwraps v4 `{data}` / `{data, meta}` wrappers and logs
+unexpected payload shapes.
 The e2e workflow also runs on library path changes and keeps the
 compose stack until logs are collected.
 
