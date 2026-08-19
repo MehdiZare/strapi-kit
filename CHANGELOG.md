@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or a path cannot resolve to a target type (#136)
 - Import records per-target dest-resolution misses on
   `ImportResult.unresolved_relations` / `relations_unresolved` (#139 #141)
+- `ImportResult.finalize()` snapshots `success` from `entities_failed`
+  and `errors` (#146)
 
 ### Changed
 
@@ -78,11 +80,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `export_to_jsonl` rewrites the metadata line with real
   `total_entities` / `total_media` after the stream. Import still
   recounts when those fields are 0 so older files work (#142)
+- `ExportMetadata.total_entities` / `total_media` default to `None`
+  (unknown). `0` is empty. Finished `export_content_types` snapshots
+  both (`total_media == 0` when there is no media). Import still
+  recounts when the fields are `None` or `0` so older JSONL files
+  work (#148)
 
 ### Fixed
 
 - Numeric dest fallback no longer reports documentId-path misses after
   IDs resolved (a v4 nested skip is not a dest-resolution miss)
+- Relation IDs on `ExportedEntity.relations` and
+  `UnresolvedRelation.old_id` are `StrictInt | StrictStr` so a
+  numeric-looking documentId (`"5"`) is not coerced to `5` (#145)
 
 ### Removed
 

@@ -30,8 +30,12 @@ counts `entities_to_publish`. `success` on dry-run is write-safety,
 not “relations would apply.” Incomplete dest-relation fields are not
 written. Live `entities_to_publish` increments only when a dest
 `documentId` is queued. JSONL export persists `total_entities` /
-`total_media` on the metadata line; import still recounts when those
-fields are 0. JSONL import shares preflight validation with
+`total_media` on the metadata line (`None` is unknown, `0` is empty;
+import still recounts when those fields are `None` or `0`). Finished
+JSON / in-memory export also snapshots both counts (`total_media == 0`
+when there is no media). Relation
+IDs keep numeric-looking documentIds as strings. JSONL import shares
+preflight validation with
 `import_data` and does not pre-create empty mapping dicts. Component
 extract/strip unwraps v4 `{data}` / `{data, meta}` wrappers and logs
 unexpected payload shapes.

@@ -12,6 +12,7 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import StrapiError
+from ..models.export_format import RelationId
 from ..models.request.relation_write import relation_write
 from ..models.schema import FieldSchema, FieldType, RelationType
 
@@ -31,7 +32,7 @@ class RelationResolver:
 
     @staticmethod
     def resolve_relations(
-        relations: dict[str, list[int | str]],
+        relations: dict[str, list[RelationId]],
         id_mapping: dict[str, dict[int, int]],
         content_type: str,
     ) -> dict[str, list[int]]:
@@ -120,7 +121,7 @@ class RelationResolver:
         data: dict[str, Any],
         schema: ContentTypeSchema,
         schema_cache: InMemorySchemaCache | None = None,
-    ) -> dict[str, list[int | str]]:
+    ) -> dict[str, list[RelationId]]:
         """Extract relations using schema - only actual relation fields.
 
         This method uses the content type schema to identify relation fields,
@@ -145,7 +146,7 @@ class RelationResolver:
             >>> relations = RelationResolver.extract_relations_with_schema(data, schema)
             {'author': [5]}  # metadata excluded because not a relation in schema
         """
-        relations: dict[str, list[int | str]] = {}
+        relations: dict[str, list[RelationId]] = {}
 
         for field_name, field_value in data.items():
             field_schema = schema.fields.get(field_name)
@@ -188,7 +189,7 @@ class RelationResolver:
         component_uid: str,
         schema_cache: InMemorySchemaCache,
         prefix: str = "",
-    ) -> dict[str, list[int | str]]:
+    ) -> dict[str, list[RelationId]]:
         """Recursively extract relations from a component.
 
         Args:
@@ -206,7 +207,7 @@ class RelationResolver:
             logger.warning(f"Could not fetch component schema: {component_uid}", exc_info=True)
             return {}
 
-        relations: dict[str, list[int | str]] = {}
+        relations: dict[str, list[RelationId]] = {}
 
         for field_name, field_value in component_data.items():
             if field_name == "__component":
@@ -247,7 +248,7 @@ class RelationResolver:
         return relations
 
     @staticmethod
-    def _id_from_relation_object(item: dict[str, Any]) -> int | str | None:
+    def _id_from_relation_object(item: dict[str, Any]) -> RelationId | None:
         """Prefer v5 ``documentId``; fall back to numeric ``id``."""
         document_id = item.get("documentId", item.get("document_id"))
         if isinstance(document_id, str) and document_id.strip():
@@ -259,7 +260,7 @@ class RelationResolver:
         return None
 
     @staticmethod
-    def _extract_ids_from_field(field_value: Any) -> list[int | str] | None:
+    def _extract_ids_from_field(field_value: Any) -> list[RelationId] | None:
         """Extract IDs from a relation field value.
 
         Handles v4 ``{"data": ...}`` wrappers, flat v5 objects
@@ -294,7 +295,7 @@ class RelationResolver:
         if isinstance(field_value, list):
             if not field_value:
                 return []
-            ids: list[int | str] = []
+            ids: list[RelationId] = []
             found = False
             for item in field_value:
                 if isinstance(item, dict):

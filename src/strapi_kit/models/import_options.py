@@ -8,6 +8,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, computed_field
 
+from strapi_kit.models.export_format import RelationId
+
 
 class ConflictResolution(StrEnum):
     """Strategy for handling conflicts during import.
@@ -99,7 +101,7 @@ class UnresolvedRelation(BaseModel):
     content_type: str = Field(..., description="Source entity content-type UID")
     entity_id: int = Field(..., description="Source numeric entity id")
     field: str = Field(..., description="Relation field path")
-    old_id: int | str = Field(..., description="Unresolved source id or documentId")
+    old_id: RelationId = Field(..., description="Unresolved source id or documentId")
     target: str | None = Field(
         default=None,
         description="Target content-type UID when the field is a relation",
@@ -235,6 +237,14 @@ class ImportResult(BaseModel):
             item: Unresolved target to attach
         """
         self.unresolved_relations.append(item)
+
+    def finalize(self) -> None:
+        """Snapshot ``success`` from ``entities_failed`` and ``errors``.
+
+        Dry-run dest-relation misses stay on ``warnings`` and do not flip
+        this flag. The importer constructs ``success=False`` before work.
+        """
+        self.success = self.entities_failed == 0 and not self.errors
 
     def get_total_processed(self) -> int:
         """Get total number of entities processed.

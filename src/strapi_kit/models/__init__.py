@@ -39,6 +39,7 @@ from .export_format import (
     ExportedMediaFile,
     ExportFormat,
     ExportMetadata,
+    RelationId,
 )
 from .import_options import (
     ConflictResolution,
@@ -87,6 +88,7 @@ __all__ = [
     "ExportedEntity",
     "ExportedMediaFile",
     "ExportFormat",
+    "RelationId",
     "ImportOptions",
     "ImportResult",
     "UnresolvedRelation",

@@ -178,6 +178,8 @@ class StrapiExporter:
                     export_data, media_dir, progress_callback, media_ids=all_media_ids
                 )
 
+            export_data.metadata.total_media = export_data.get_media_count()
+
             if progress_callback:
                 progress_callback(
                     total_content_types,
