@@ -2,6 +2,10 @@
 
 Defines the structure of exported Strapi data for portability
 and version compatibility.
+
+``RelationId`` (``StrictInt | StrictStr``) is a Pydantic input type for
+relation IDs. It is not an ``isinstance`` target. Runtime extract
+checks use ``int`` / ``str`` and reject ``bool``.
 """
 
 from datetime import UTC, datetime
@@ -15,6 +19,7 @@ from strapi_kit.exceptions import FormatError
 
 from .schema import ContentTypeSchema
 
+# Pydantic input type. Not valid with isinstance().
 type RelationId = StrictInt | StrictStr
 
 

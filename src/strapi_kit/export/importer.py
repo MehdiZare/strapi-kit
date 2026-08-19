@@ -64,7 +64,11 @@ class _ExistingDocument:
 
 @dataclass(frozen=True, slots=True)
 class _UnresolvedTarget:
-    """A single dest-relation id that did not resolve."""
+    """A single dest-relation id that did not resolve.
+
+    ``old_id`` is annotated as ``RelationId`` for consistency with the
+    Pydantic models. This dataclass does not validate.
+    """
 
     field: str
     old_id: RelationId
@@ -267,9 +271,9 @@ class StrapiImporter:
             result: Result object to add warnings to
         """
         # Build set of available IDs per content type (both int and str for v5)
-        available_ids: dict[str, set[int | str]] = {}
+        available_ids: dict[str, set[RelationId]] = {}
         for ct, entities in export_data.entities.items():
-            ids: set[int | str] = set()
+            ids: set[RelationId] = set()
             for e in entities:
                 ids.add(e.id)
                 # Include document_id for v5 string-based relations
@@ -289,7 +293,7 @@ class StrapiImporter:
         """Same export-ID relation checks as ``_validate_relations``, streamed."""
         from strapi_kit.export.jsonl_reader import JSONLImportReader
 
-        available_ids: dict[str, set[int | str]] = {}
+        available_ids: dict[str, set[RelationId]] = {}
         with JSONLImportReader(jsonl_path) as reader:
             reader.read_metadata()
             for entity in reader.iter_entities():
@@ -321,7 +325,7 @@ class StrapiImporter:
         self,
         entity: ExportedEntity,
         schema: ContentTypeSchema,
-        available_ids: dict[str, set[int | str]],
+        available_ids: dict[str, set[RelationId]],
         result: ImportResult,
     ) -> None:
         """Warn when a relation target type or ID is absent from the export."""

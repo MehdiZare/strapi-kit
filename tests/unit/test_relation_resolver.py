@@ -695,3 +695,39 @@ def test_strip_component_warns_on_non_dict_list_item(
         )
     assert stripped == {"title": "Hello", "seo": ["x", {"metaTitle": "T"}]}
     assert any("Unexpected component list item" in rec.message for rec in caplog.records)
+
+
+def test_extract_ids_rejects_bool() -> None:
+    """bool is a subclass of int but is not a relation id (#150)."""
+    article_schema = ContentTypeSchema(
+        uid="api::article.article",
+        display_name="Article",
+        plural_name="articles",
+        fields={
+            "featured": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_ONE,
+                target="api::author.author",
+            ),
+            "categories": FieldSchema(
+                type=FieldType.RELATION,
+                relation=RelationType.MANY_TO_MANY,
+                target="api::category.category",
+            ),
+        },
+    )
+    assert RelationResolver.extract_relations_with_schema({"featured": True}, article_schema) == {}
+    assert RelationResolver.extract_relations_with_schema({"featured": False}, article_schema) == {}
+    assert (
+        RelationResolver.extract_relations_with_schema(
+            {"categories": [True, False]}, article_schema
+        )
+        == {}
+    )
+    assert RelationResolver.extract_relations_with_schema(
+        {"categories": [1, True, "cat-src"]}, article_schema
+    ) == {"categories": [1, "cat-src"]}
+    assert (
+        RelationResolver.extract_relations_with_schema({"featured": {"id": True}}, article_schema)
+        == {}
+    )
