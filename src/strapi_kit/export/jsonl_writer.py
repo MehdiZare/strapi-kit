@@ -119,12 +119,17 @@ class JSONLExportWriter:
         what was written. Copies remaining lines through a sibling temp
         file (O(1) memory) and keeps metadata on line 1.
 
+        This is a terminal operation: the file handle is closed and not
+        reopened. Later ``write_entity`` / ``write_media_manifest`` calls
+        raise ``ImportExportError``.
+
         Args:
             metadata: Export metadata with final totals
 
         Raises:
-            ImportExportError: If the writer is closed or the first line
-                is not metadata
+            ImportExportError: If the writer is closed, the file is empty,
+                the first line is not JSON, or the first line is not
+                metadata
         """
         if not self._file:
             raise ImportExportError("Writer not opened - use context manager")

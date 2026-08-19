@@ -79,6 +79,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `total_entities` / `total_media` after the stream. Import still
   recounts when those fields are 0 so older files work (#142)
 
+### Fixed
+
+- Numeric dest fallback no longer reports documentId-path misses after
+  IDs resolved (a v4 nested skip is not a dest-resolution miss)
+
 ### Removed
 
 - Unused export/import UID pluralization fallbacks and heuristic

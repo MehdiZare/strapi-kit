@@ -420,6 +420,11 @@ class StrapiExporter:
         This method writes entities directly to disk as they're fetched,
         providing O(1) memory usage regardless of export size.
 
+        After entities and the media manifest, the first metadata line is
+        rewritten with real ``total_entities`` / ``total_media`` (sibling
+        temp copy, O(1) memory, metadata-first preserved). Import still
+        recounts when those fields are 0 so older files work.
+
         Args:
             content_types: List of content type UIDs to export
             output_path: Path to output JSONL file

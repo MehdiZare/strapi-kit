@@ -6,7 +6,7 @@ Defines how imported data should be processed and validated.
 from collections.abc import Callable
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class ConflictResolution(StrEnum):
@@ -113,8 +113,9 @@ class ImportResult(BaseModel):
         success: Whether the import completed without entity failures or
             errors. Dry-run dest-relation misses are warnings and do not
             flip this flag; check ``relations_unresolved`` /
-            ``unresolved_relations`` to see whether dest relations would
-            apply.
+            ``unresolved_relations`` to see whether every dest-relation
+            target ID resolved. Nested paths that cannot be applied stay
+            on warnings/errors and are not dest-resolution misses.
         dry_run: Whether this was a dry run
         entities_imported: Number of entities imported
         entities_skipped: Number of entities skipped
@@ -122,7 +123,7 @@ class ImportResult(BaseModel):
         entities_failed: Number of entities that failed
         relations_imported: Number of relation updates performed
         relations_unresolved: Dest-relation targets that did not resolve.
-            Same value as ``len(unresolved_relations)``.
+            Derived as ``len(unresolved_relations)``.
         unresolved_relations: Per-target dest-resolution misses
         entities_to_publish: Live source rows this import would attempt to
             publish after relations. Dry-run records source intent without
@@ -156,14 +157,17 @@ class ImportResult(BaseModel):
     entities_updated: int = Field(default=0, description="Entities updated")
     entities_failed: int = Field(default=0, description="Entities failed")
     relations_imported: int = Field(default=0, description="Relation updates performed")
-    relations_unresolved: int = Field(
-        default=0,
-        description="Dest-relation targets that did not resolve",
-    )
     unresolved_relations: list[UnresolvedRelation] = Field(
         default_factory=list,
         description="Per-target dest-resolution misses",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def relations_unresolved(self) -> int:
+        """Dest-relation targets that did not resolve."""
+        return len(self.unresolved_relations)
+
     entities_to_publish: int = Field(
         default=0,
         description=(
@@ -231,7 +235,6 @@ class ImportResult(BaseModel):
             item: Unresolved target to attach
         """
         self.unresolved_relations.append(item)
-        self.relations_unresolved += 1
 
     def get_total_processed(self) -> int:
         """Get total number of entities processed.

@@ -802,6 +802,7 @@ class StrapiImporter:
             "entities_skipped": result.entities_skipped,
             "relations_imported": result.relations_imported,
             "entities_to_publish": result.entities_to_publish,
+            "relations_unresolved": result.relations_unresolved,
         }
         extra = ""
         if result.errors:
@@ -1238,7 +1239,8 @@ class StrapiImporter:
         Returns:
             Tuple of (whether an update was or would be sent, nested paths
             that could not be written, dest-resolution misses from the
-            path that was used).
+            write path that ran: documentId misses if that path wrote,
+            otherwise numeric misses after the numeric path ran).
         """
         skipped: list[str] = []
         write_query = self._write_query(entity)
@@ -1294,7 +1296,10 @@ class StrapiImporter:
                 skipped = self._skipped_without_unresolved(skipped, unresolved_nums)
                 return True, skipped, unresolved_nums
 
-        unresolved = unresolved_docs or unresolved_nums
+        # Numeric path ran; its misses are the dest-resolution result.
+        # DocumentId-path misses are not dest gaps once IDs resolved here
+        # (v4 dest, or a missing component shell).
+        unresolved = unresolved_nums
         self._mark_unwritten_nested_relations(entity.relations, {}, skipped)
         skipped = self._skipped_without_unresolved(skipped, unresolved)
         return False, skipped, unresolved
@@ -1396,7 +1401,12 @@ class StrapiImporter:
         options: ImportOptions,
         result: ImportResult,
     ) -> None:
-        """Attach per-target dest misses to ImportResult (warning / error)."""
+        """Attach per-target dest misses to ImportResult.
+
+        Dry-run records a warning (does not flip ``success``). Live records
+        an error (flips ``success``). Each miss increments
+        ``relations_unresolved``.
+        """
         for item in unresolved:
             target_label = item.target or "unknown"
             message = (
@@ -1466,6 +1476,8 @@ class StrapiImporter:
             ... )
             >>> if result.success:
             ...     print(f"Imported {result.entities_imported} entities")
+            >>> if result.relations_unresolved:
+            ...     print(f"{result.relations_unresolved} dest relations unresolved")
         """
         from strapi_kit.export.jsonl_reader import JSONLImportReader
 
@@ -1491,8 +1503,9 @@ class StrapiImporter:
 
                 self._cache_export_metadata_schemas(metadata)
                 # Older JSONL files leave total_entities / total_media at 0.
-                # Count the file when those fields are unset so preflight
-                # matches import_data.
+                # When total_entities is 0, recount so preflight matches
+                # import_data. Media 0 is probed later only to decide the
+                # missing-media_dir warning.
                 entity_count = metadata.total_entities or reader.get_entity_count()
                 self._validate_export_metadata(metadata, result, entity_count)
                 if options.validate_relations:

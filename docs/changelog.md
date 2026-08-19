@@ -28,8 +28,10 @@ Dry-run no longer maps missing dests to id `0` or the source
 unresolved dest relations as warnings (`relations_unresolved`) and
 counts `entities_to_publish`. `success` on dry-run is write-safety,
 not “relations would apply.” Incomplete dest-relation fields are not
-written. JSONL export persists `total_entities` / `total_media` on the
-metadata line. JSONL import shares preflight validation with
+written. Live `entities_to_publish` increments only when a dest
+`documentId` is queued. JSONL export persists `total_entities` /
+`total_media` on the metadata line; import still recounts when those
+fields are 0. JSONL import shares preflight validation with
 `import_data` and does not pre-create empty mapping dicts. Component
 extract/strip unwraps v4 `{data}` / `{data, meta}` wrappers and logs
 unexpected payload shapes.
