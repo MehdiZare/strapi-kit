@@ -878,8 +878,8 @@ class BaseClient:
 
         Args:
             response_data: Raw JSON response from content-type-builder
-            skip_unparsable: If True, log and skip items that fail validation.
-                If False (default), raise ValidationError.
+            skip_unparsable: If True, log and skip items that fail Pydantic
+                validation. If False (default), raise ValidationError.
 
         Returns:
             List of ComponentListItem instances
