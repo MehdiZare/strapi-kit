@@ -321,7 +321,7 @@ class SyncClient(BaseClient):
         """GET ``{base}/admin/information`` (origin-rooted, no ``/api`` prefix).
 
         Use this to probe a Strapi instance. Content, Content-Type Builder, and
-        upload endpoints remain under ``/api``. Default ``get("admin/information")``
+        upload endpoints remain under ``/api``. Default ``get(\"admin/information\")``
         still prefixes ``/api`` for backward compatibility.
 
         Version is read from ``strapiVersion`` or ``data.strapiVersion``. A
@@ -358,9 +358,9 @@ class SyncClient(BaseClient):
         """Get a single entity with typed, normalized response.
 
         Args:
-            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123").
+            endpoint: API endpoint path (e.g., \"articles/1\" or \"articles/abc123\").
                 When ``document_id`` is provided, this is the collection name
-                (e.g., "articles").
+                (e.g., \"articles\").
             query: Optional query configuration (populate, fields, locale, etc.)
             headers: Additional headers
             document_id: Optional document ID. When provided, ``endpoint`` is
@@ -376,286 +376,15 @@ class SyncClient(BaseClient):
         Examples:
             >>> from strapi_kit.models import StrapiQuery, Populate
             >>> query = (StrapiQuery()
-            ...     .populate_fields(["author", "category"])
-            ...     .select(["title", "content"]))
-            >>> response = client.get_one("articles/1", query=query)
-            >>> response = client.get_one("articles", document_id="abc123")
+            ...     .populate_fields([\"author\", \"category\"])
+            ...     .select([\"title\", \"content\"]))
+            >>> response = client.get_one(\"articles/1\", query=query)
+            >>> response = client.get_one(\"articles\", document_id=\"abc123\")
             >>> article = response.data
-            >>> article.attributes["title"]
+            >>> article.attributes[\"title\"]
             'My Article'
         """
         path = self._document_endpoint(endpoint, document_id)
         params = query.to_query_params() if query else None
         raw_response = self.get(path, params=params, headers=headers)
-        return self._parse_single_response(raw_response)
-
-    def get_many(
-        self,
-        endpoint: str,
-        query: StrapiQuery | None = None,
-        headers: dict[str, str] | None = None,
-    ) -> NormalizedCollectionResponse:
-        """Get multiple entities with typed, normalized response.
-
-        Args:
-            endpoint: API endpoint path (e.g., "articles")
-            query: Optional query configuration (filters, sort, pagination, etc.)
-            headers: Additional headers
-
-        Returns:
-            Normalized collection response
-
-        Examples:
-            >>> from strapi_kit.models import StrapiQuery, FilterBuilder, SortDirection
-            >>> query = (StrapiQuery()
-            ...     .filter(FilterBuilder().eq("status", "published"))
-            ...     .sort_by("publishedAt", SortDirection.DESC)
-            ...     .paginate(page=1, page_size=25)
-            ...     .populate_fields(["author"]))
-            >>> response = client.get_many("articles", query=query)
-            >>> for article in response.data:
-            ...     print(article.attributes["title"])
-        """
-        params = query.to_query_params() if query else None
-        raw_response = self.get(endpoint, params=params, headers=headers)
-        return self._parse_collection_response(raw_response)
-
-    def create(
-        self,
-        endpoint: str,
-        data: dict[str, Any],
-        query: StrapiQuery | None = None,
-        headers: dict[str, str] | None = None,
-    ) -> NormalizedSingleResponse:
-        """Create a new entity with typed, normalized response.
-
-        Args:
-            endpoint: API endpoint path (e.g., "articles")
-            data: Entity data to create (wrapped in {"data": {...}} automatically)
-            query: Optional query configuration (populate, fields, etc.)
-            headers: Additional headers
-
-        Returns:
-            Normalized single entity response
-
-        Examples:
-            >>> data = {"title": "New Article", "content": "Article body"}
-            >>> response = client.create("articles", data)
-            >>> created = response.data
-            >>> created.id
-            42
-        """
-        params = query.to_query_params() if query else None
-        # Wrap data in Strapi format
-        payload = {"data": data}
-        raw_response = self.post(endpoint, json=payload, params=params, headers=headers)
-        self._require_write_data_object(raw_response)
-        return self._parse_single_response(raw_response)
-
-    def update(
-        self,
-        endpoint: str,
-        data: dict[str, Any],
-        query: StrapiQuery | None = None,
-        headers: dict[str, str] | None = None,
-        *,
-        document_id: str | None = None,
-        classify_write_404: bool = False,
-    ) -> NormalizedSingleResponse:
-        """Update an existing entity with typed, normalized response.
-
-        Args:
-            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123").
-                When ``document_id`` is provided, this is the collection name
-                (e.g., "articles").
-            data: Entity data to update (wrapped in {"data": {...}} automatically)
-            query: Optional query configuration (populate, fields, etc.)
-            headers: Additional headers
-            document_id: Optional document ID. When provided, ``endpoint`` is
-                treated as the collection name and the ID is percent-encoded.
-            classify_write_404: If True, a write ``NotFoundError`` is probed
-                with the write's own query params, then ``status=draft``
-                if the write was not already draft. A hit on the write's
-                params remaps to ``AuthorizationError`` (token likely
-                lacks Update/Publish). A draft-only document stays
-                ``NotFoundError``. Default False keeps today's 404 mapping.
-
-        Returns:
-            Normalized single entity response
-
-        Raises:
-            ValidationError: If ``document_id`` is provided and collection or
-                document ID is blank.
-
-        Examples:
-            >>> data = {"title": "Updated Title"}
-            >>> response = client.update("articles/1", data)
-            >>> response = client.update("articles", data, document_id="abc123")
-            >>> updated = response.data
-            >>> updated.attributes["title"]
-            'Updated Title'
-        """
-        path = self._document_endpoint(endpoint, document_id)
-        params = query.to_query_params() if query else None
-        # Wrap data in Strapi format
-        payload = {"data": data}
-        try:
-            raw_response = self.put(path, json=payload, params=params, headers=headers)
-        except NotFoundError as original:
-            if classify_write_404:
-                self._classify_write_404(path, original, write_query=query)
-            raise
-        self._require_write_data_object(raw_response)
-        return self._parse_single_response(raw_response)
-
-    def remove(
-        self,
-        endpoint: str,
-        headers: dict[str, str] | None = None,
-        *,
-        document_id: str | None = None,
-        classify_write_404: bool = False,
-    ) -> NormalizedSingleResponse:
-        """Delete an entity with typed, normalized response.
-
-        Args:
-            endpoint: API endpoint path (e.g., "articles/1" or "articles/abc123").
-                When ``document_id`` is provided, this is the collection name
-                (e.g., "articles").
-            headers: Additional headers
-            document_id: Optional document ID. When provided, ``endpoint`` is
-                treated as the collection name and the ID is percent-encoded.
-            classify_write_404: If True, a write ``NotFoundError`` is probed
-                with omit-status (published), then ``status=draft``. A hit
-                on the published probe remaps to ``AuthorizationError``.
-                A draft-only document stays ``NotFoundError``. Default
-                False keeps today's 404 mapping.
-
-        Returns:
-            Normalized single entity response (deleted entity)
-
-        Raises:
-            ValidationError: If ``document_id`` is provided and collection or
-                document ID is blank.
-
-        Examples:
-            >>> response = client.remove("articles/1")
-            >>> response = client.remove("articles", document_id="abc123")
-            >>> deleted = response.data
-            >>> deleted.id
-            1
-        """
-        path = self._document_endpoint(endpoint, document_id)
-        try:
-            raw_response = self.delete(path, headers=headers)
-        except NotFoundError as original:
-            if classify_write_404:
-                self._classify_write_404(path, original)
-            raise
-        return self._parse_single_response(raw_response)
-
-    def exists(self, collection: str, document_id: str) -> bool:
-        """Return whether a document exists as published or draft.
-
-        Strapi 5 omitted ``status=`` means published, so a draft-only
-        document 404s on the default GET. A published miss is retried
-        once with ``status=draft``. A draft ``ValidationError`` is absent
-        only for unknown ``status`` / ``publicationState``. Other 400s
-        (populate, filters) raise.
-        Auth, 5xx, and network errors on either read raise. Collection
-        must be a single path segment; ``document_id`` is percent-encoded
-        via :meth:`document_path`. This check is not locale-scoped: a hit
-        is the default published or draft version of the document.
-
-        Args:
-            collection: Collection API id (e.g. ``"articles"``)
-            document_id: Strapi v5 ``documentId`` (or numeric id)
-
-        Returns:
-            True if a published or draft version is readable
-
-        Raises:
-            ValidationError: Draft probe 400 that is not an unknown
-                ``status`` / ``publicationState``
-        """
-        endpoint = self._single_segment_document_path(collection, document_id)
-        try:
-            response = self.get_one(endpoint)
-            return self._entity_identifies_document(response.data)
-        except NotFoundError:
-            pass
-
-        try:
-            response = self.get_one(endpoint, query=self._draft_status_query())
-        except NotFoundError:
-            return False
-        except ValidationError as error:
-            if is_unknown_status_param(error):
-                return False
-            raise
-        return self._entity_identifies_document(response.data)
-
-    def _probe_document_entity(
-        self, endpoint: str, query: StrapiQuery | None
-    ) -> NormalizedEntity | None:
-        """GET existence probe. HTTP 404 or an unidentified body is absent."""
-        try:
-            response = self.get_one(endpoint, query=query)
-        except NotFoundError:
-            return None
-        if self._entity_identifies_document(response.data):
-            return response.data
-        return None
-
-    def _classify_write_404(
-        self,
-        endpoint: str,
-        original: NotFoundError,
-        *,
-        write_query: StrapiQuery | None = None,
-    ) -> NoReturn:
-        """Probe the write's own params, then draft; never mask the original error.
-
-        A probe HTTP 404 is an answer (that variant is absent), not a
-        failed probe. Other probe errors re-raise ``original``.
-        """
-        try:
-            write_entity = self._probe_document_entity(endpoint, write_query)
-        except Exception:
-            raise original from None
-        if write_entity is not None:
-            self._reraise_classified_write_404(original, write_entity)
-        if self._write_query_is_draft(write_query):
-            raise original
-        try:
-            self._probe_document_entity(endpoint, self._draft_status_query())
-        except Exception:
-            raise original from None
-        raise original
-
-    def publish(
-        self,
-        collection: str,
-        document_id: str,
-        query: StrapiQuery | None = None,
-        headers: dict[str, str] | None = None,
-    ) -> NormalizedSingleResponse:
-        """Publish a Strapi v5 draft via stock REST.
-
-        PUT ``/api/{collection}/{documentId}?status=published`` with
-        ``{\"data\": {}}``. Stock Strapi 5 does not register
-        ``POST /actions/publish``.
-
-        Args:
-            collection: Collection API id (e.g. ``"articles"``)
-            document_id: Strapi v5 ``documentId``
-            query: Optional query (populate / fields after publish)
-            headers: Additional headers
-
-        Returns:
-            Normalized published entity
-        """
-        path, params = self._publish_put_args(collection, document_id, query)
-        raw_response = self.put(path, json={"data": {}}, params=params, headers=headers)
-        self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
