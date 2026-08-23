@@ -337,3 +337,63 @@ class BaseClient:
                 reason=UnstructuredResponseReason.NON_OBJECT,
             )
         return data
+
+    def _detect_api_version(self, response_data: dict[str, Any]) -> Literal["v4", "v5"]:
+        """Detect Strapi API version from response structure.
+
+        Only caches the version when detection is definitive (attributes or documentId found).
+        Ambiguous responses return v4 as fallback without caching.
+
+        Args:
+            response_data: Response JSON data
+
+        Returns:
+            Detected API version
+        """
+        # If already detected or configured, use that
+        if self._api_version:
+            return self._api_version
+
+        # V4: data.attributes structure
+        # V5: flattened data with documentId
+        if isinstance(response_data.get("data"), dict):
+            data = response_data["data"]
+            if "attributes" in data:
+                self._api_version = "v4"
+                logger.info("Detected Strapi v4 API format")
+                return self._api_version
+            elif "documentId" in data:
+                self._api_version = "v5"
+                logger.info("Detected Strapi v5 API format")
+                return self._api_version
+            else:
+                # Ambiguous - don't cache, return v4 as fallback
+                logger.warning("Could not detect API version, using v4 fallback (not cached)")
+                return "v4"
+        elif isinstance(response_data.get("data"), list) and response_data["data"]:
+            # Check first item in list
+            first_item = response_data["data"][0]
+            if "attributes" in first_item:
+                self._api_version = "v4"
+                logger.info("Detected Strapi v4 API format")
+                return self._api_version
+            elif "documentId" in first_item:
+                self._api_version = "v5"
+                logger.info("Detected Strapi v5 API format")
+                return self._api_version
+            else:
+                # Ambiguous - don't cache, return v4 as fallback
+                logger.warning("Could not detect API version, using v4 fallback (not cached)")
+                return "v4"
+        else:
+            # No data field or empty - don't cache, return v4 as fallback
+            return "v4"
+
+    def reset_version_detection(self) -> None:
+        """Reset the cached API version detection.
+
+        Call this if you need to re-detect the API version, for example
+        after changing the Strapi instance or during testing.
+        """
+        self._api_version = None
+        logger.info("Reset API version detection cache")
