@@ -474,9 +474,11 @@ class SyncClient(BaseClient):
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
             classify_write_404: If True, a write ``NotFoundError`` is probed
-                with one draft GET. A readable document is remapped to
-                ``AuthorizationError`` (token likely lacks Update/Publish).
-                Default False keeps today's 404 mapping.
+                with the write's own query params, then ``status=draft``
+                if the write was not already draft. A hit on the write's
+                params remaps to ``AuthorizationError`` (token likely
+                lacks Update/Publish). A draft-only document stays
+                ``NotFoundError``. Default False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response
@@ -501,7 +503,7 @@ class SyncClient(BaseClient):
             raw_response = self.put(path, json=payload, params=params, headers=headers)
         except NotFoundError as original:
             if classify_write_404:
-                self._classify_write_404(path, original)
+                self._classify_write_404(path, original, write_query=query)
             raise
         self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
@@ -524,9 +526,10 @@ class SyncClient(BaseClient):
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
             classify_write_404: If True, a write ``NotFoundError`` is probed
-                with one draft GET. A readable document is remapped to
-                ``AuthorizationError`` (token likely lacks Update/Publish).
-                Default False keeps today's 404 mapping.
+                with omit-status (published), then ``status=draft``. A hit
+                on the published probe remaps to ``AuthorizationError``.
+                A draft-only document stays ``NotFoundError``. Default
+                False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response (deleted entity)
@@ -592,13 +595,43 @@ class SyncClient(BaseClient):
             raise
         return self._entity_identifies_document(response.data)
 
-    def _classify_write_404(self, endpoint: str, original: NotFoundError) -> NoReturn:
-        """Probe one draft GET after a write 404; never mask the original error."""
+    def _probe_document_entity(
+        self, endpoint: str, query: StrapiQuery | None
+    ) -> NormalizedEntity | None:
+        """GET existence probe. HTTP 404 or an unidentified body is absent."""
         try:
-            response = self.get_one(endpoint, query=self._draft_status_query())
+            response = self.get_one(endpoint, query=query)
+        except NotFoundError:
+            return None
+        if self._entity_identifies_document(response.data):
+            return response.data
+        return None
+
+    def _classify_write_404(
+        self,
+        endpoint: str,
+        original: NotFoundError,
+        *,
+        write_query: StrapiQuery | None = None,
+    ) -> NoReturn:
+        """Probe the write's own params, then draft; never mask the original error.
+
+        A probe HTTP 404 is an answer (that variant is absent), not a
+        failed probe. Other probe errors re-raise ``original``.
+        """
+        try:
+            write_entity = self._probe_document_entity(endpoint, write_query)
         except Exception:
             raise original from None
-        self._reraise_classified_write_404(original, response.data)
+        if write_entity is not None:
+            self._reraise_classified_write_404(original, write_entity)
+        if self._write_query_is_draft(write_query):
+            raise original
+        try:
+            self._probe_document_entity(endpoint, self._draft_status_query())
+        except Exception:
+            raise original from None
+        raise original
 
     def publish(
         self,
