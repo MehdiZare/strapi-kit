@@ -738,7 +738,8 @@ class BaseClient:
         Or with flat schema properties (actual v5 API - Issue #28):
         {"uid": "...", "apiID": "...", "schema": {"kind": "...", "displayName": "...", ...}}
 
-        This method flattens names/attributes to v4 format and retains Draft & Publish sources (``options``, ``schema.draftAndPublish``,
+        This method flattens names/attributes to v4 format and retains Draft &
+        Publish sources (``options``, ``schema.draftAndPublish``,
         ``schema.options.draftAndPublish``, top-level item flag):
         {"uid": "...", "kind": "...", "info": {...}, "attributes": {...},
          "options": {...} | None, "draftAndPublish": True | False | None}
@@ -792,3 +793,175 @@ class BaseClient:
                 "attributes": schema.get("attributes", {}),
             }
         return item
+
+    def _parse_content_types_response(
+        self,
+        response_data: dict[str, Any],
+        include_plugins: bool = False,
+        *,
+        skip_unparsable: bool = False,
+    ) -> list["ContentTypeListItem"]:
+        """Parse content-type-builder content types response.
+
+        Automatically normalizes v5 nested schema format to v4 flat format.
+
+        Args:
+            response_data: Raw JSON response from content-type-builder
+            include_plugins: Whether to include plugin content types
+            skip_unparsable: If True, log and skip items that fail Pydantic
+                validation. If False (default), raise ValidationError.
+
+        Returns:
+            List of ContentTypeListItem instances
+
+        Raises:
+            ValidationError: If ``data`` is not a list, an item is not an
+                object, or an item cannot be parsed — unless skip_unparsable
+                is True (list items only)
+        """
+        from ..models.content_type import ContentTypeListItem
+
+        data = response_data.get("data", [])
+        if data is None:
+            data = []
+        if not isinstance(data, list):
+            raise ValidationError(
+                "Invalid content types response: 'data' must be a list",
+                details={"data_type": type(data).__name__},
+            )
+
+        result = []
+
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                if skip_unparsable:
+                    logger.warning(
+                        "Failed to parse content type: expected object at index %s",
+                        index,
+                    )
+                    continue
+                raise ValidationError(
+                    "Failed to parse content type: <unknown>",
+                    details={"index": index, "item_type": type(item).__name__},
+                )
+
+            uid_raw = item.get("uid")
+            uid = uid_raw if isinstance(uid_raw, str) else ""
+            # Filter out plugin content types if not requested
+            if not include_plugins and uid.startswith("plugin::"):
+                continue
+
+            try:
+                normalized_item = self._normalize_content_type_item(item)
+                content_type = ContentTypeListItem.model_validate(normalized_item)
+                result.append(content_type)
+            except PydanticValidationError as e:
+                if skip_unparsable:
+                    logger.warning(f"Failed to parse content type: {uid}", exc_info=e)
+                    continue
+                raise ValidationError(
+                    f"Failed to parse content type: {uid or '<unknown>'}",
+                    details={"uid": uid or None, "errors": e.errors()},
+                ) from e
+
+        return result
+
+    def _parse_components_response(
+        self,
+        response_data: dict[str, Any],
+        *,
+        skip_unparsable: bool = False,
+    ) -> list["ComponentListItem"]:
+        """Parse content-type-builder components response.
+
+        Automatically normalizes v5 nested schema format to v4 flat format.
+
+        Args:
+            response_data: Raw JSON response from content-type-builder
+            skip_unparsable: If True, log and skip items that fail Pydantic
+                validation. If False (default), raise ValidationError.
+
+        Returns:
+            List of ComponentListItem instances
+
+        Raises:
+            ValidationError: If ``data`` is not a list, an item is not an
+                object, or an item cannot be parsed — unless skip_unparsable
+                is True (list items only)
+        """
+        from ..models.content_type import ComponentListItem
+
+        data = response_data.get("data", [])
+        if data is None:
+            data = []
+        if not isinstance(data, list):
+            raise ValidationError(
+                "Invalid components response: 'data' must be a list",
+                details={"data_type": type(data).__name__},
+            )
+
+        result = []
+
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                if skip_unparsable:
+                    logger.warning(
+                        "Failed to parse component: expected object at index %s",
+                        index,
+                    )
+                    continue
+                raise ValidationError(
+                    "Failed to parse component: <unknown>",
+                    details={"index": index, "item_type": type(item).__name__},
+                )
+
+            uid_raw = item.get("uid")
+            uid = uid_raw if isinstance(uid_raw, str) else ""
+            try:
+                normalized_item = self._normalize_component_item(item)
+                component = ComponentListItem.model_validate(normalized_item)
+                result.append(component)
+            except PydanticValidationError as e:
+                if skip_unparsable:
+                    logger.warning(f"Failed to parse component: {uid}", exc_info=e)
+                    continue
+                raise ValidationError(
+                    f"Failed to parse component: {uid or '<unknown>'}",
+                    details={"uid": uid or None, "errors": e.errors()},
+                ) from e
+
+        return result
+
+    def _parse_content_type_schema_response(
+        self,
+        response_data: dict[str, Any],
+    ) -> "CTBContentTypeSchema":
+        """Parse content-type-builder single content type schema response.
+
+        Automatically normalizes v5 nested schema format to v4 flat format.
+
+        Args:
+            response_data: Raw JSON response from content-type-builder
+
+        Returns:
+            CTBContentTypeSchema instance
+
+        Raises:
+            ValidationError: If response cannot be parsed
+        """
+        from ..models.content_type import ContentTypeSchema as CTBContentTypeSchema
+
+        data = response_data.get("data", response_data)
+        if not isinstance(data, dict):
+            raise ValidationError(
+                "Invalid content type schema response",
+                details={"data_type": type(data).__name__},
+            )
+        try:
+            normalized_data = self._normalize_content_type_item(data)
+            return CTBContentTypeSchema.model_validate(normalized_data)
+        except PydanticValidationError as e:
+            raise ValidationError(
+                "Invalid content type schema response",
+                details={"errors": e.errors()},
+            ) from e
