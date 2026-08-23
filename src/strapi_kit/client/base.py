@@ -5,6 +5,7 @@ automatic response format detection, error handling, and authentication.
 """
 
 import logging
+from collections.abc import Mapping
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
 from urllib.parse import quote
@@ -250,6 +251,24 @@ class BaseClient:
         """Query that requests the Strapi 5 draft version (``status=draft``)."""
         return StrapiQuery().with_document_status(DocumentStatus.DRAFT)
 
+    def _status_query_for_write_params(
+        self, write_params: Mapping[str, Any] | None
+    ) -> StrapiQuery | None:
+        """Rebuild the write's ``status`` query so the probe addresses the same variant."""
+        if not write_params:
+            return None
+        status = write_params.get("status")
+        if status == DocumentStatus.DRAFT:
+            return self._draft_status_query()
+        if status == DocumentStatus.PUBLISHED:
+            return StrapiQuery().with_document_status(DocumentStatus.PUBLISHED)
+        return None
+
+    def _write_params_are_draft(self, write_params: Mapping[str, Any] | None) -> bool:
+        if write_params is None:
+            return False
+        return write_params.get("status") == DocumentStatus.DRAFT
+
     def _entity_identifies_document(self, entity: NormalizedEntity | None) -> bool:
         """Return True if a GET body identifies a document (``documentId`` or ``id``)."""
         if entity is None:
@@ -257,7 +276,7 @@ class BaseClient:
         return entity.document_id is not None or entity.id is not None
 
     def _authorization_error_for_write_404(self, original: NotFoundError) -> AuthorizationError:
-        """Map a write 404 to AuthorizationError when the document is readable."""
+        """Map a write 404 to AuthorizationError when the addressed variant is readable."""
         status_code = original.status_code if original.status_code is not None else 404
         details = dict(original.details)
         details["status_code"] = status_code
@@ -268,15 +287,52 @@ class BaseClient:
             status_code=status_code,
         )
 
-    def _reraise_classified_write_404(
+    def _draft_only_not_found_error(self, original: NotFoundError) -> NotFoundError:
+        """Write 404 while only the draft version is readable (no published version)."""
+        status_code = original.status_code if original.status_code is not None else 404
+        details = dict(original.details)
+        details["status_code"] = status_code
+        details["classified_from"] = "draft_only"
+        return NotFoundError(
+            "document exists only as a draft; no published version to update.",
+            details=details,
+            status_code=status_code,
+        )
+
+    def _raise_classified_write_404(
         self,
         original: NotFoundError,
-        probe_entity: NormalizedEntity | None,
+        *,
+        addressed: Literal["hit", "miss", "error"],
+        draft: Literal["hit", "miss", "error"],
+        write_addressed_draft: bool,
+        draft_hit_is_auth: bool,
     ) -> NoReturn:
-        """Raise AuthorizationError if the draft probe found a document, else original."""
-        if self._entity_identifies_document(probe_entity):
+        """Narrow a write 404 using probe results (roboad-mono-repo #4508 / #4509).
+
+        A probe 404 is an answer, not a failed probe. ``error`` (transport /
+        5xx / unstructured 2xx) keeps the original ``NotFoundError``.
+
+        * addressed hit → ``AuthorizationError`` (readable variant the write
+          targeted, so the 404 is permission/routing).
+        * draft hit, update path → ``NotFoundError`` with
+          ``classified_from=draft_only`` (never-published; do **not** call
+          this a missing token).
+        * draft hit, delete path (``draft_hit_is_auth``) →
+          ``AuthorizationError`` (stock DELETE removes drafts too; a
+          remaining draft means the delete did not run).
+        """
+        if addressed == "error":
+            raise original from None
+        if addressed == "hit":
             raise self._authorization_error_for_write_404(original) from original
-        raise original
+        if write_addressed_draft:
+            raise original from None
+        if draft == "hit":
+            if draft_hit_is_auth:
+                raise self._authorization_error_for_write_404(original) from original
+            raise self._draft_only_not_found_error(original) from original
+        raise original from None
 
     def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
         """Parse a 2xx response body.

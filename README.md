@@ -554,7 +554,7 @@ with SyncClient(config) as client:
         client.discard_draft("articles", document_id)
 
     # Delete. classify_write_404 remaps a 404 to AuthorizationError when
-    # a draft GET still finds the document (token likely lacks Update/Publish).
+    # the document is still readable (token likely lacks Delete).
     response = client.remove("articles", document_id=created_id, classify_write_404=True)
 
     # String endpoints still work (caller must encode special characters):

@@ -395,8 +395,10 @@ class StrapiClient(Protocol):
             query: Optional query configuration
             headers: Additional headers
             document_id: Optional document ID (percent-encoded onto the path)
-            classify_write_404: Opt-in remapping of write 404s when a draft GET
-                shows the document still exists
+            classify_write_404: Opt-in remapping of write 404s. Probe the
+                write's status params, then draft. A readable addressed
+                variant is AuthorizationError. Draft-only stays
+                NotFoundError (classified_from=draft_only).
 
         Returns:
             Normalized single entity response
@@ -417,8 +419,8 @@ class StrapiClient(Protocol):
             endpoint: API endpoint path, or collection name when document_id is set
             headers: Additional headers
             document_id: Optional document ID (percent-encoded onto the path)
-            classify_write_404: Opt-in remapping of write 404s when a draft GET
-                shows the document still exists
+            classify_write_404: Opt-in remapping of DELETE 404s. A still-
+                readable document (published or draft) is AuthorizationError.
 
         Returns:
             Normalized single entity response

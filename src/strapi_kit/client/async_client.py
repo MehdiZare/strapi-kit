@@ -8,7 +8,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 if TYPE_CHECKING:
     from ..models.content_type import ComponentListItem, ContentTypeListItem
@@ -33,7 +33,7 @@ from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
 )
 from ..models.bulk import BulkOperationFailure, BulkOperationResult
-from ..models.enums import DocumentAction, HttpMethod
+from ..models.enums import DocumentAction, DocumentStatus, HttpMethod
 from ..models.request.query import StrapiQuery
 from ..models.response.admin import AdminInformation
 from ..models.response.media import MediaFile
@@ -481,9 +481,11 @@ class AsyncClient(BaseClient):
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
             classify_write_404: If True, a write ``NotFoundError`` is probed
-                with one draft GET. A readable document is remapped to
-                ``AuthorizationError`` (token likely lacks Update/Publish).
-                Default False keeps today's 404 mapping.
+                with the write's own status params, then ``status=draft``.
+                A readable addressed variant is ``AuthorizationError``.
+                A draft-only document stays ``NotFoundError`` with
+                ``details["classified_from"] == "draft_only"``. Default
+                False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response
@@ -508,7 +510,12 @@ class AsyncClient(BaseClient):
             raw_response = await self.put(path, json=payload, params=params, headers=headers)
         except NotFoundError as original:
             if classify_write_404:
-                await self._classify_write_404(path, original)
+                await self._classify_write_404(
+                    path,
+                    original,
+                    write_params=params,
+                    draft_hit_is_auth=False,
+                )
             raise
         self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
@@ -530,9 +537,10 @@ class AsyncClient(BaseClient):
             headers: Additional headers
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
-            classify_write_404: If True, a write ``NotFoundError`` is probed
-                with one draft GET. A readable document is remapped to
-                ``AuthorizationError`` (token likely lacks Update/Publish).
+            classify_write_404: If True, a DELETE ``NotFoundError`` is
+                probed omit-status then ``status=draft``. A still-readable
+                document is ``AuthorizationError`` (stock DELETE removes
+                drafts; a remaining draft means the delete did not run).
                 Default False keeps today's 404 mapping.
 
         Returns:
@@ -554,7 +562,12 @@ class AsyncClient(BaseClient):
             raw_response = await self.delete(path, headers=headers)
         except NotFoundError as original:
             if classify_write_404:
-                await self._classify_write_404(path, original)
+                await self._classify_write_404(
+                    path,
+                    original,
+                    write_params=None,
+                    draft_hit_is_auth=True,
+                )
             raise
         return self._parse_single_response(raw_response)
 
@@ -599,13 +612,42 @@ class AsyncClient(BaseClient):
             raise
         return self._entity_identifies_document(response.data)
 
-    async def _classify_write_404(self, endpoint: str, original: NotFoundError) -> NoReturn:
-        """Probe one draft GET after a write 404; never mask the original error."""
+    async def _probe_write_404_target(
+        self, endpoint: str, write_params: dict[str, Any] | None
+    ) -> Literal["hit", "miss", "error"]:
+        """GET the write target; a 404 is a miss, not a failed probe."""
+        query = self._status_query_for_write_params(write_params)
         try:
-            response = await self.get_one(endpoint, query=self._draft_status_query())
+            response = await self.get_one(endpoint, query=query)
+        except NotFoundError:
+            return "miss"
         except Exception:
-            raise original from None
-        self._reraise_classified_write_404(original, response.data)
+            return "error"
+        if self._entity_identifies_document(response.data):
+            return "hit"
+        return "error"
+
+    async def _classify_write_404(
+        self,
+        endpoint: str,
+        original: NotFoundError,
+        *,
+        write_params: dict[str, Any] | None,
+        draft_hit_is_auth: bool,
+    ) -> NoReturn:
+        """Two-probe write-404 narrowing; never mask the original error."""
+        addressed = await self._probe_write_404_target(endpoint, write_params)
+        write_addressed_draft = self._write_params_are_draft(write_params)
+        draft: Literal["hit", "miss", "error"] = "miss"
+        if addressed == "miss" and not write_addressed_draft:
+            draft = await self._probe_write_404_target(endpoint, {"status": DocumentStatus.DRAFT})
+        self._raise_classified_write_404(
+            original,
+            addressed=addressed,
+            draft=draft,
+            write_addressed_draft=write_addressed_draft,
+            draft_hit_is_auth=draft_hit_is_auth,
+        )
 
     async def publish(
         self,

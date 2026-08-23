@@ -18,6 +18,8 @@ from strapi_kit.exceptions import (
 from strapi_kit.exceptions import (
     ConnectionError as StrapiConnectionError,
 )
+from strapi_kit.models.enums import DocumentStatus
+from strapi_kit.models.request.query import StrapiQuery
 
 DOCUMENT_ID = "abc123def456"
 COLLECTION = "articles"
@@ -401,12 +403,15 @@ class TestSyncClassifyWrite404:
     """Opt-in write-404 remapping on SyncClient.update / remove."""
 
     @pytest.mark.respx
-    def test_update_404_draft_exists_authorization(
+    def test_update_404_addressed_variant_readable_is_authorization(
         self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
         put_route = respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
         get_route = respx_mock.get(DOCUMENT_URL).mock(
-            return_value=Response(200, json=mock_v5_response)
+            side_effect=_route_by_status(
+                Response(200, json=mock_v5_response),
+                _not_found(),
+            )
         )
 
         with SyncClient(strapi_config) as client:
@@ -415,24 +420,72 @@ class TestSyncClassifyWrite404:
 
         assert put_route.called
         assert get_route.call_count == 1
-        assert get_route.calls[0].request.url.params["status"] == "draft"
+        assert "status" not in get_route.calls[0].request.url.params
         assert "document exists" in str(exc_info.value)
         assert exc_info.value.details["status_code"] == 404
         assert exc_info.value.details["classified_from"] == "write_404"
         assert exc_info.value.status_code == 404
 
     @pytest.mark.respx
+    def test_update_404_draft_only_stays_not_found(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(_not_found(), Response(200, json=mock_v5_response))
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError) as exc_info:
+                client.update(ENDPOINT, {"title": "x"}, classify_write_404=True)
+
+        assert not isinstance(exc_info.value, AuthorizationError)
+        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert exc_info.value.status_code == 404
+        assert get_route.call_count == 2
+        assert "status" not in get_route.calls[0].request.url.params
+        assert get_route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    def test_update_published_status_404_draft_only(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(_not_found(), Response(200, json=mock_v5_response))
+        )
+        query = StrapiQuery().with_document_status(DocumentStatus.PUBLISHED)
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError) as exc_info:
+                client.update(
+                    ENDPOINT,
+                    {"title": "x"},
+                    query=query,
+                    classify_write_404=True,
+                )
+
+        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert get_route.call_count == 2
+        assert get_route.calls[0].request.url.params["status"] == "published"
+        assert get_route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
     def test_remove_404_draft_exists_authorization(
         self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
         respx_mock.delete(DOCUMENT_URL).mock(return_value=_not_found())
-        respx_mock.get(DOCUMENT_URL).mock(return_value=Response(200, json=mock_v5_response))
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(_not_found(), Response(200, json=mock_v5_response))
+        )
 
         with SyncClient(strapi_config) as client:
             with pytest.raises(AuthorizationError) as exc_info:
                 client.remove(ENDPOINT, classify_write_404=True)
 
         assert exc_info.value.details["status_code"] == 404
+        assert exc_info.value.details["classified_from"] == "write_404"
+        assert get_route.call_count == 2
 
     @pytest.mark.respx
     def test_update_404_draft_404_original_not_found(
@@ -445,10 +498,11 @@ class TestSyncClassifyWrite404:
             with pytest.raises(NotFoundError) as exc_info:
                 client.update(ENDPOINT, {"title": "x"}, classify_write_404=True)
 
-        assert get_route.call_count == 1
+        assert get_route.call_count == 2
         assert isinstance(exc_info.value, NotFoundError)
         assert exc_info.value.status_code == 404
         assert not isinstance(exc_info.value, AuthorizationError)
+        assert exc_info.value.details.get("classified_from") != "draft_only"
 
     @pytest.mark.respx
     def test_update_404_probe_exception_keeps_original(
@@ -508,12 +562,15 @@ class TestAsyncClassifyWrite404:
     """Opt-in write-404 remapping on AsyncClient.update / remove."""
 
     @pytest.mark.respx
-    async def test_update_404_draft_exists_authorization(
+    async def test_update_404_addressed_variant_readable_is_authorization(
         self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
         respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
         get_route = respx_mock.get(DOCUMENT_URL).mock(
-            return_value=Response(200, json=mock_v5_response)
+            side_effect=_route_by_status(
+                Response(200, json=mock_v5_response),
+                _not_found(),
+            )
         )
 
         async with AsyncClient(strapi_config) as client:
@@ -521,23 +578,44 @@ class TestAsyncClassifyWrite404:
                 await client.update(ENDPOINT, {"title": "x"}, classify_write_404=True)
 
         assert get_route.call_count == 1
-        assert get_route.calls[0].request.url.params["status"] == "draft"
+        assert "status" not in get_route.calls[0].request.url.params
         assert exc_info.value.details["status_code"] == 404
         assert exc_info.value.details["classified_from"] == "write_404"
         assert exc_info.value.status_code == 404
+
+    @pytest.mark.respx
+    async def test_update_404_draft_only_stays_not_found(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(_not_found(), Response(200, json=mock_v5_response))
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError) as exc_info:
+                await client.update(ENDPOINT, {"title": "x"}, classify_write_404=True)
+
+        assert not isinstance(exc_info.value, AuthorizationError)
+        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert get_route.call_count == 2
+        assert get_route.calls[1].request.url.params["status"] == "draft"
 
     @pytest.mark.respx
     async def test_remove_404_draft_exists_authorization(
         self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
         respx_mock.delete(DOCUMENT_URL).mock(return_value=_not_found())
-        respx_mock.get(DOCUMENT_URL).mock(return_value=Response(200, json=mock_v5_response))
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(_not_found(), Response(200, json=mock_v5_response))
+        )
 
         async with AsyncClient(strapi_config) as client:
             with pytest.raises(AuthorizationError) as exc_info:
                 await client.remove(ENDPOINT, classify_write_404=True)
 
         assert exc_info.value.details["status_code"] == 404
+        assert get_route.call_count == 2
 
     @pytest.mark.respx
     async def test_update_404_draft_404_original_not_found(
