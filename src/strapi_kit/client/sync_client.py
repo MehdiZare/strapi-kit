@@ -1005,3 +1005,392 @@ class SyncClient(BaseClient):
             raise  # Preserve specific error types (NotFoundError, etc.)
         except Exception as e:
             raise MediaError(f"Media deletion failed: {e}") from e
+
+    def update_media(
+        self,
+        media_id: str | int,
+        *,
+        alternative_text: str | None = None,
+        caption: str | None = None,
+        name: str | None = None,
+    ) -> MediaFile:
+        """Update media file metadata.
+
+        Args:
+            media_id: Media file ID (numeric or documentId)
+            alternative_text: New alt text
+            caption: New caption
+            name: New file name
+
+        Returns:
+            Updated MediaFile
+
+        Raises:
+            NotFoundError: If media doesn't exist
+            MediaError: On update failure
+
+        Examples:
+            >>> media = client.update_media(
+            ...     42,
+            ...     alternative_text="Updated alt text",
+            ...     caption="Updated caption"
+            ... )
+            >>> media.alternative_text
+            'Updated alt text'
+        """
+        import json as json_module
+
+        try:
+            # Ensure API version is detected before choosing endpoint
+            # When api_version="auto" and no prior API call, _api_version is None
+            if self._api_version is None:
+                self.get_media(media_id)  # Triggers version detection
+
+            # Build update payload
+            file_info: dict[str, Any] = {}
+            if alternative_text is not None:
+                file_info["alternativeText"] = alternative_text
+            if caption is not None:
+                file_info["caption"] = caption
+            if name is not None:
+                file_info["name"] = name
+
+            headers = self._build_upload_headers()
+
+            # v4 uses PUT /api/upload/files/:id
+            # v5 uses POST /api/upload?id=x with form-data
+            if self._api_version == "v4":
+                url = self._build_url(f"upload/files/{media_id}")
+                response = self._client.request(
+                    method=HttpMethod.PUT,
+                    url=url,
+                    json={"fileInfo": file_info} if file_info else {},
+                    headers=self._get_headers(),
+                )
+            else:
+                # v5 or auto (default to v5 behavior)
+                url = f"{self._build_url('upload')}?id={media_id}"
+                response = self._client.post(
+                    url,
+                    data={"fileInfo": json_module.dumps(file_info)} if file_info else {},
+                    headers=headers,
+                )
+
+            # Handle errors
+            if not response.is_success:
+                self._handle_error_response(response)
+
+            # Parse response
+            response_json = response.json()
+            if isinstance(response_json, list) and response_json:
+                return self._parse_media_response(response_json[0])
+            else:
+                return self._parse_media_response(response_json)
+
+        except StrapiError:
+            raise  # Preserve specific error types (NotFoundError, etc.)
+        except Exception as e:
+            raise MediaError(f"Media update failed: {e}") from e
+
+    # Bulk Operations
+
+    def bulk_create(
+        self,
+        endpoint: str,
+        items: list[dict[str, Any]],
+        *,
+        batch_size: int = 10,
+        query: StrapiQuery | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Create multiple entities in batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            items: List of entity data dicts
+            batch_size: Number of items to create per batch (default: 10)
+            query: Optional query for populate, locale, etc.
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult with successes, failures, and metadata
+
+        Example:
+            >>> items = [
+            ...     {"title": "Article 1", "content": "..."},
+            ...     {"title": "Article 2", "content": "..."},
+            ... ]
+            >>> result = client.bulk_create("articles", items, batch_size=5)
+            >>> print(f"Created {len(result.successes)}/{len(items)}")
+            >>> if result.failures:
+            ...     for failure in result.failures:
+            ...         print(f"Failed item {failure.index}: {failure.error}")
+        """
+        successes = []
+        failures = []
+
+        for i in range(0, len(items), batch_size):
+            batch = items[i : i + batch_size]
+
+            for idx, item in enumerate(batch):
+                global_idx = i + idx
+
+                try:
+                    response = self.create(endpoint, item, query=query)
+                    if response.data:
+                        successes.append(response.data)
+
+                    if progress_callback:
+                        progress_callback(global_idx + 1, len(items))
+
+                except StrapiError as e:
+                    failures.append(
+                        BulkOperationFailure(
+                            index=global_idx,
+                            item=item,
+                            error=str(e),
+                            exception=e,
+                        )
+                    )
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(items),
+            succeeded=len(successes),
+            failed=len(failures),
+        )
+
+    def bulk_update(
+        self,
+        endpoint: str,
+        updates: list[tuple[str | int, dict[str, Any]]],
+        *,
+        batch_size: int = 10,
+        query: StrapiQuery | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Update multiple entities in batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            updates: List of (id, data) tuples
+            batch_size: Items per batch (default: 10)
+            query: Optional query
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult
+
+        Example:
+            >>> updates = [
+            ...     (1, {"title": "Updated Title 1"}),
+            ...     (2, {"title": "Updated Title 2"}),
+            ... ]
+            >>> result = client.bulk_update("articles", updates)
+            >>> print(f"Updated {result.succeeded}/{result.total}")
+        """
+        successes = []
+        failures = []
+
+        for i in range(0, len(updates), batch_size):
+            batch = updates[i : i + batch_size]
+
+            for idx, (entity_id, data) in enumerate(batch):
+                global_idx = i + idx
+
+                try:
+                    response = self.update(f"{endpoint}/{entity_id}", data, query=query)
+                    if response.data:
+                        successes.append(response.data)
+
+                    if progress_callback:
+                        progress_callback(global_idx + 1, len(updates))
+
+                except StrapiError as e:
+                    failures.append(
+                        BulkOperationFailure(
+                            index=global_idx,
+                            item={"id": entity_id, "data": data},
+                            error=str(e),
+                            exception=e,
+                        )
+                    )
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(updates),
+            succeeded=len(successes),
+            failed=len(failures),
+        )
+
+    def bulk_delete(
+        self,
+        endpoint: str,
+        ids: list[str | int],
+        *,
+        batch_size: int = 10,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Delete multiple entities in batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            ids: List of entity IDs (numeric or documentId)
+            batch_size: Items per batch (default: 10)
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult
+
+        Example:
+            >>> ids = [1, 2, 3, 4, 5]
+            >>> result = client.bulk_delete("articles", ids)
+            >>> print(f"Deleted {result.succeeded} articles")
+        """
+        successes: list[NormalizedEntity] = []
+        failures: list[BulkOperationFailure] = []
+        success_count = 0
+
+        for i in range(0, len(ids), batch_size):
+            batch = ids[i : i + batch_size]
+
+            for idx, entity_id in enumerate(batch):
+                global_idx = i + idx
+
+                try:
+                    response = self.remove(f"{endpoint}/{entity_id}")
+                    # DELETE may return 204 No Content with no data
+                    # Count as success when no exception is raised
+                    success_count += 1
+                    if response.data:
+                        successes.append(response.data)
+
+                    if progress_callback:
+                        progress_callback(global_idx + 1, len(ids))
+
+                except StrapiError as e:
+                    failures.append(
+                        BulkOperationFailure(
+                            index=global_idx,
+                            item={"id": entity_id},
+                            error=str(e),
+                            exception=e,
+                        )
+                    )
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(ids),
+            succeeded=success_count,
+            failed=len(failures),
+        )
+
+    # Content-Type Builder API
+
+    def get_content_types(
+        self,
+        *,
+        include_plugins: bool = False,
+        skip_unparsable: bool = False,
+    ) -> list["ContentTypeListItem"]:
+        """List all content types from Content-Type Builder API.
+
+        Retrieves schema information for all content types defined in Strapi.
+
+        Each item exposes ``draft_and_publish`` as ``True`` / ``False`` when
+        Strapi declared Draft & Publish, or ``None`` when the flag was absent.
+        Absence is not ``False``.
+
+        Args:
+            include_plugins: Whether to include plugin content types
+                            (e.g., users-permissions). Defaults to False.
+            skip_unparsable: If True, log and skip items that fail validation.
+                            If False (default), raise ValidationError.
+
+        Returns:
+            List of ContentTypeListItem with uid, kind, info, attributes,
+            options, and draft_and_publish
+
+        Raises:
+            ValidationError: If an item cannot be parsed and skip_unparsable
+                is False
+
+        Examples:
+            >>> # Get only API content types
+            >>> content_types = client.get_content_types()
+            >>> for ct in content_types:
+            ...     print(f"{ct.uid}: {ct.info.display_name}")
+            api::article.article: Article
+            api::category.category: Category
+
+            >>> # Include plugin content types
+            >>> all_types = client.get_content_types(include_plugins=True)
+            >>> plugin_types = [ct for ct in all_types if ct.uid.startswith("plugin::")]
+        """
+
+        raw_response = self.get("content-type-builder/content-types")
+        return self._parse_content_types_response(
+            raw_response, include_plugins, skip_unparsable=skip_unparsable
+        )
+
+    def get_components(self, *, skip_unparsable: bool = False) -> list["ComponentListItem"]:
+        """List all components from Content-Type Builder API.
+
+        Retrieves schema information for all components defined in Strapi.
+
+        Args:
+            skip_unparsable: If True, log and skip items that fail validation.
+                Default False raises :class:`ValidationError`.
+
+        Returns:
+            List of ComponentListItem with uid, category, info, and attributes
+
+        Raises:
+            ValidationError: If an item cannot be parsed and skip_unparsable
+                is False.
+
+        Examples:
+            >>> components = client.get_components()
+            >>> for comp in components:
+            ...     print(f"{comp.category}/{comp.uid}: {comp.info.display_name}")
+            shared/shared.seo: SEO
+            blocks/blocks.hero: Hero Section
+        """
+
+        raw_response = self.get("content-type-builder/components")
+        return self._parse_components_response(raw_response, skip_unparsable=skip_unparsable)
+
+    def get_content_type_schema(self, uid: str) -> "CTBContentTypeSchema":
+        """Get full schema for a specific content type.
+
+        Retrieves detailed schema information including all field configurations.
+
+        Args:
+            uid: Content type UID (e.g., "api::article.article")
+
+        Returns:
+            CTBContentTypeSchema with complete field definitions, including
+            ``draft_and_publish`` (True / False / None; absence is not False)
+            and retained ``options``
+
+        Raises:
+            NotFoundError: If content type doesn't exist
+            ValidationError: If the schema payload cannot be parsed
+
+        Examples:
+            >>> schema = client.get_content_type_schema("api::article.article")
+            >>> schema.info.display_name
+            'Article'
+            >>> schema.attributes["title"]["type"]
+            'string'
+            >>> schema.is_relation_field("author")
+            True
+            >>> schema.get_relation_target("author")
+            'api::author.author'
+        """
+
+        raw_response = self.get(f"content-type-builder/content-types/{uid}")
+        return self._parse_content_type_schema_response(raw_response)
