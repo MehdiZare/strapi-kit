@@ -286,3 +286,54 @@ class BaseClient:
         if self._entity_identifies_document(probe_entity):
             raise self._authorization_error_for_write_404(original) from original
         raise original
+
+    def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
+        """Parse a 2xx response body.
+
+        Empty DELETE bodies (any 2xx) are success with ``{}``. JSON
+        objects and arrays are success (Upload ``GET /upload/files`` is a
+        raw array). Other empty or scalar 2xx bodies — including 204 on
+        POST/PUT/GET — raise :class:`UnstructuredResponseError`.
+        """
+        verb = method.upper()
+        _response_status_code.set(response.status_code)
+        empty = response.status_code == 204 or not response.content
+        if empty:
+            if verb == HttpMethod.DELETE:
+                logger.debug(f"Response: {response.status_code} (no content)")
+                return {}
+            raise UnstructuredResponseError(
+                f"Successful HTTP {response.status_code} returned an empty body",
+                details={"method": verb, "body_preview": ""},
+                status_code=response.status_code,
+                reason=UnstructuredResponseReason.EMPTY_BODY,
+            )
+
+        try:
+            data: Any = response.json()
+        except ValueError as json_error:
+            content_type = response.headers.get("content-type", "unknown")
+            body_preview = response.text[:500] if response.text else ""
+            raise UnstructuredResponseError(
+                f"Successful HTTP {response.status_code} returned non-JSON "
+                f"(content-type: {content_type})",
+                details={"method": verb, "body_preview": body_preview},
+                status_code=response.status_code,
+                reason=UnstructuredResponseReason.NON_JSON,
+            ) from json_error
+
+        if isinstance(data, list):
+            return {"data": data}
+        if not isinstance(data, dict):
+            body_preview = response.text[:500] if response.text else ""
+            raise UnstructuredResponseError(
+                f"Successful HTTP {response.status_code} returned non-object JSON",
+                details={
+                    "method": verb,
+                    "body_preview": body_preview,
+                    "parsed_type": type(data).__name__,
+                },
+                status_code=response.status_code,
+                reason=UnstructuredResponseReason.NON_OBJECT,
+            )
+        return data
