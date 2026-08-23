@@ -577,9 +577,9 @@ class BaseClient:
     def _require_write_data_object(self, response_data: dict[str, Any]) -> None:
         """Raise if a typed write response has no JSON ``data`` object.
 
-        Stock REST create/update/publish bodies are ``{\"data\": {...}}``.
-        A 2xx ``{}`` or ``{\"ok\": true}`` must not look like a successful
-        entity write (no ``documentId``). Collection ``{\"data\": []}`` is
+        Stock REST create/update/publish bodies are ``{"data": {...}}``.
+        A 2xx ``{}`` or ``{"ok": true}`` must not look like a successful
+        entity write (no ``documentId``). Collection ``{"data": []}`` is
         not a write body.
         """
         data = response_data.get("data")
@@ -628,3 +628,167 @@ class BaseClient:
         """
         # Delegate to injected parser
         return self.parser.parse_collection(response_data)
+
+    def _build_upload_headers(self) -> dict[str, str]:
+        """Build headers for multipart file upload.
+
+        Omits Content-Type header to let httpx set the multipart boundary automatically.
+
+        Returns:
+            Headers dictionary without Content-Type
+        """
+        headers = {
+            "Accept": "application/json",
+            **self.auth.get_headers(),
+        }
+        return headers
+
+    def _parse_media_response(self, response_data: dict[str, Any]) -> MediaFile:
+        """Parse media upload/download response into MediaFile model.
+
+        Automatically detects v4/v5 format and normalizes the response.
+
+        Args:
+            response_data: Raw JSON response from Strapi media endpoint
+
+        Returns:
+            Validated MediaFile instance
+
+        Examples:
+            >>> # v5 response
+            >>> response_data = {
+            ...     "id": 1,
+            ...     "documentId": "abc123",
+            ...     "name": "image.jpg",
+            ...     "url": "/uploads/image.jpg",
+            ...     ...
+            ... }
+            >>> media = client._parse_media_response(response_data)
+            >>> media.name
+            'image.jpg'
+        """
+        api_version = self._detect_api_version({"data": response_data})
+        return normalize_media_response(response_data, api_version)
+
+    def _parse_media_list_response(
+        self, response_data: dict[str, Any] | list[dict[str, Any]]
+    ) -> NormalizedCollectionResponse:
+        """Parse media library list response into normalized collection.
+
+        Media list responses may be in standard Strapi collection format
+        or a raw array (depending on Strapi version/plugin).
+
+        For v4 responses with nested attributes, this method flattens each
+        item before passing to the collection parser to ensure consistent
+        handling with single media responses.
+
+        Args:
+            response_data: Raw JSON response from media list endpoint
+                          (may be dict with "data" key or raw array)
+
+        Returns:
+            Normalized collection response with MediaFile entities
+
+        Examples:
+            >>> # Standard format
+            >>> response_data = {
+            ...     "data": [
+            ...         {"id": 1, "name": "image1.jpg", ...},
+            ...         {"id": 2, "name": "image2.jpg", ...}
+            ...     ],
+            ...     "meta": {"pagination": {...}}
+            ... }
+            >>> result = client._parse_media_list_response(response_data)
+            >>> len(result.data)
+            2
+
+            >>> # Raw array format (Strapi Upload plugin)
+            >>> response_data = [{"id": 1, "name": "image.jpg", ...}]
+            >>> result = client._parse_media_list_response(response_data)
+            >>> len(result.data)
+            1
+        """
+        # Handle raw array response (Strapi Upload plugin may return this)
+        if isinstance(response_data, list):
+            response_data = {"data": response_data, "meta": {}}
+
+        # For v4, flatten nested attributes to match v5 format before parsing
+        if isinstance(response_data.get("data"), list):
+            data_items = response_data["data"]
+            if data_items and isinstance(data_items[0], dict) and "attributes" in data_items[0]:
+                # v4 format - flatten each item
+                flattened_items = []
+                for item in data_items:
+                    if "attributes" in item:
+                        flattened = {"id": item["id"], **item["attributes"]}
+                        flattened_items.append(flattened)
+                    else:
+                        flattened_items.append(item)
+                response_data = {"data": flattened_items, "meta": response_data.get("meta", {})}
+
+        # Media list follows standard collection format
+        return self._parse_collection_response(response_data)
+
+    def _normalize_content_type_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Normalize content type item - flatten v5 schema to v4 format.
+
+        Strapi v5 returns content types with a nested 'schema' structure:
+        {"uid": "...", "apiID": "...", "schema": {"kind": "...", "info": {...}, ...}}
+
+        Or with flat schema properties (actual v5 API - Issue #28):
+        {"uid": "...", "apiID": "...", "schema": {"kind": "...", "displayName": "...", ...}}
+
+        This method flattens names/attributes to v4 format and retains Draft & Publish sources (``options``, ``schema.draftAndPublish``,
+        ``schema.options.draftAndPublish``, top-level item flag):
+        {"uid": "...", "kind": "...", "info": {...}, "attributes": {...},
+         "options": {...} | None, "draftAndPublish": True | False | None}
+
+        ``draftAndPublish`` is ``None`` when the flag is absent. Absence is not
+        ``False``. ``publishedAt`` is never used to infer Draft & Publish.
+
+        Args:
+            item: Raw content type item from API response
+
+        Returns:
+            Normalized content type item in v4-compatible format
+        """
+        if "schema" in item and isinstance(item["schema"], dict):
+            schema = item["schema"]
+            return {
+                "uid": item.get("uid", ""),
+                "kind": schema.get("kind", "collectionType"),
+                "info": extract_info_from_schema(schema),
+                "attributes": schema.get("attributes", {}),
+                "pluginOptions": schema.get("pluginOptions"),
+                "options": extract_content_type_options(item),
+                "draftAndPublish": extract_draft_and_publish(item),
+            }
+        return item
+
+    def _normalize_component_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Normalize component item - flatten v5 schema to v4 format.
+
+        Strapi v5 returns components with a nested 'schema' structure:
+        {"uid": "...", "category": "...", "schema": {"info": {...}, "attributes": {...}}}
+
+        Or with flat schema properties (actual v5 API - Issue #28):
+        {"uid": "...", "category": "...", "schema": {"displayName": "...", "attributes": {...}}}
+
+        This method flattens it to v4 format:
+        {"uid": "...", "category": "...", "info": {...}, "attributes": {...}}
+
+        Args:
+            item: Raw component item from API response
+
+        Returns:
+            Normalized component item in v4-compatible format
+        """
+        if "schema" in item and isinstance(item["schema"], dict):
+            schema = item["schema"]
+            return {
+                "uid": item.get("uid", ""),
+                "category": item.get("category", schema.get("category", "")),
+                "info": extract_info_from_schema(schema),
+                "attributes": schema.get("attributes", {}),
+            }
+        return item
