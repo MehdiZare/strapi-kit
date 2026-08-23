@@ -757,4 +757,391 @@ class AsyncClient(BaseClient):
         Raises:
             FileNotFoundError: If the local file does not exist.
             AuthenticationError: If the upload is unauthorized (401).
-        
+            AuthorizationError: If the token lacks permission (403).
+            NotFoundError: If the upload endpoint is not found (404).
+            ServerError: If Strapi returns a 5xx.
+            MediaError: Other upload failures (validation, parse, unexpected).
+
+        Examples:
+            >>> # Simple upload
+            >>> media = await client.upload_file("image.jpg")
+            >>> media.name
+            'image.jpg'
+
+            >>> # Upload with metadata
+            >>> media = await client.upload_file(
+            ...     "hero.jpg",
+            ...     alternative_text="Hero image",
+            ...     caption="Main article image"
+            ... )
+
+            >>> # Upload and attach to entity
+            >>> media = await client.upload_file(
+            ...     "cover.jpg",
+            ...     ref="api::article.article",
+            ...     ref_id="abc123",
+            ...     field="cover"
+            ... )
+        """
+        try:
+            # Build multipart payload with context manager to ensure file handle cleanup
+            with build_upload_payload(
+                file_path,
+                ref=ref,
+                ref_id=ref_id,
+                field=field,
+                folder=folder,
+                alternative_text=alternative_text,
+                caption=caption,
+            ) as payload:
+                # Build URL and headers
+                url = self._build_url("upload")
+                headers = self._build_upload_headers()
+
+                # Make async request with multipart data
+                response = await self._client.post(
+                    url,
+                    files={"files": payload.files_tuple},
+                    data=payload.data,
+                    headers=headers,
+                )
+
+                # Handle errors
+                if not response.is_success:
+                    self._handle_error_response(response)
+
+                # Parse response (upload returns single file object, not wrapped in data)
+                response_json = response.json()
+                # Upload endpoint returns array with single file
+                if isinstance(response_json, list) and response_json:
+                    return self._parse_media_response(response_json[0])
+                else:
+                    return self._parse_media_response(response_json)
+
+        except FileNotFoundError:
+            raise
+        except (AuthenticationError, AuthorizationError, NotFoundError, ServerError):
+            raise
+        except Exception as e:
+            raise MediaError(f"File upload failed: {e}") from e
+
+    async def upload_files(
+        self,
+        file_paths: list[str | Path],
+        **kwargs: Any,
+    ) -> list[MediaFile]:
+        """Upload multiple files sequentially.
+
+        Args:
+            file_paths: List of file paths to upload
+            **kwargs: Same metadata options as upload_file
+
+        Returns:
+            List of MediaFile objects
+
+        Raises:
+            AuthenticationError: If the upload is unauthorized (401).
+            AuthorizationError: If the token lacks permission (403).
+            NotFoundError: If the upload endpoint is not found (404).
+            ServerError: If Strapi returns a 5xx.
+            MediaError: On other upload failures (partial uploads NOT rolled back)
+
+        Examples:
+            >>> files = ["image1.jpg", "image2.jpg", "image3.jpg"]
+            >>> media_list = await client.upload_files(files)
+            >>> len(media_list)
+            3
+
+            >>> # Upload with shared metadata
+            >>> media_list = await client.upload_files(
+            ...     ["thumb1.jpg", "thumb2.jpg"],
+            ...     folder="thumbnails"
+            ... )
+        """
+        uploaded: list[MediaFile] = []
+
+        for idx, file_path in enumerate(file_paths):
+            try:
+                media = await self.upload_file(file_path, **kwargs)
+                uploaded.append(media)
+            except (AuthenticationError, AuthorizationError, NotFoundError, ServerError):
+                raise
+            except Exception as e:
+                raise MediaError(
+                    f"Batch upload failed at file {idx} ({file_path}): {e}. "
+                    f"{len(uploaded)} files were uploaded successfully before failure."
+                ) from e
+
+        return uploaded
+
+    async def download_file(
+        self,
+        media_url: str,
+        save_path: str | Path | None = None,
+    ) -> bytes | Path:
+        """Download a media file from Strapi.
+
+        Args:
+            media_url: Media URL (relative /uploads/... or absolute)
+            save_path: Optional path to save file (if None, returns bytes only)
+
+        Returns:
+            File content as bytes when save_path is None, or Path when save_path is provided
+
+        Raises:
+            MediaError: On download failure
+
+        Examples:
+            >>> # Download to bytes
+            >>> content = await client.download_file("/uploads/image.jpg")
+            >>> len(content)
+            102400
+
+            >>> # Download and save to file (returns Path, not bytes)
+            >>> path = await client.download_file(
+            ...     "/uploads/image.jpg",
+            ...     save_path="downloaded_image.jpg"
+            ... )
+            >>> path.exists()
+            True
+        """
+        try:
+            # Build full URL
+            url = build_media_download_url(self.base_url, media_url)
+
+            # Download with async streaming for large files
+            async with self._client.stream(HttpMethod.GET, url) as response:
+                if not response.is_success:
+                    self._handle_error_response(response)
+
+                if save_path:
+                    # Stream directly to disk for memory efficiency
+                    # Note: Using sync file I/O here as aiofiles is not a dependency
+                    # The streaming download itself is async which is the main benefit
+                    path = Path(save_path)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    total_bytes = 0
+                    with open(path, "wb") as f:
+                        async for chunk in response.aiter_bytes():
+                            f.write(chunk)
+                            total_bytes += len(chunk)
+                    logger.info(f"Downloaded {total_bytes} bytes to {save_path}")
+                    # Return path instead of reading back to avoid memory overhead
+                    return path
+                else:
+                    # Buffer in memory (original behavior for in-memory use)
+                    chunks = []
+                    async for chunk in response.aiter_bytes():
+                        chunks.append(chunk)
+                    return b"".join(chunks)
+
+        except StrapiError:
+            raise  # Preserve specific error types (NotFoundError, etc.)
+        except Exception as e:
+            raise MediaError(f"File download failed: {e}") from e
+
+    async def list_media(
+        self,
+        query: StrapiQuery | None = None,
+    ) -> NormalizedCollectionResponse:
+        """List media files from media library.
+
+        Args:
+            query: Optional query for filtering, sorting, pagination
+
+        Returns:
+            NormalizedCollectionResponse with MediaFile entities
+
+        Examples:
+            >>> # List all media
+            >>> response = await client.list_media()
+            >>> for media in response.data:
+            ...     print(media.attributes["name"])
+
+            >>> # List with filters
+            >>> from strapi_kit.models import StrapiQuery, FilterBuilder
+            >>> query = (StrapiQuery()
+            ...     .filter(FilterBuilder().eq("mime", "image/jpeg"))
+            ...     .paginate(page=1, page_size=10))
+            >>> response = await client.list_media(query)
+        """
+        params = query.to_query_params() if query else None
+        raw_response = await self.get("upload/files", params=params)
+        return self._parse_media_list_response(raw_response)
+
+    async def get_media(
+        self,
+        media_id: str | int,
+    ) -> MediaFile:
+        """Get specific media file details.
+
+        Args:
+            media_id: Media file ID (numeric or documentId)
+
+        Returns:
+            MediaFile details
+
+        Raises:
+            NotFoundError: If media doesn't exist
+
+        Examples:
+            >>> media = await client.get_media(42)
+            >>> media.name
+            'image.jpg'
+            >>> media.url
+            '/uploads/image.jpg'
+        """
+        raw_response = await self.get(f"upload/files/{media_id}")
+        return self._parse_media_response(raw_response)
+
+    async def delete_media(
+        self,
+        media_id: str | int,
+    ) -> None:
+        """Delete a media file.
+
+        Args:
+            media_id: Media file ID (numeric or documentId)
+
+        Raises:
+            NotFoundError: If media doesn't exist
+            MediaError: On deletion failure
+
+        Examples:
+            >>> await client.delete_media(42)
+            >>> # File deleted successfully
+        """
+        try:
+            await self.delete(f"upload/files/{media_id}")
+        except StrapiError:
+            raise  # Preserve specific error types (NotFoundError, etc.)
+        except Exception as e:
+            raise MediaError(f"Media deletion failed: {e}") from e
+
+    async def update_media(
+        self,
+        media_id: str | int,
+        *,
+        alternative_text: str | None = None,
+        caption: str | None = None,
+        name: str | None = None,
+    ) -> MediaFile:
+        """Update media file metadata.
+
+        Args:
+            media_id: Media file ID (numeric or documentId)
+            alternative_text: New alt text
+            caption: New caption
+            name: New file name
+
+        Returns:
+            Updated MediaFile
+
+        Raises:
+            NotFoundError: If media doesn't exist
+            MediaError: On update failure
+
+        Examples:
+            >>> media = await client.update_media(
+            ...     42,
+            ...     alternative_text="Updated alt text",
+            ...     caption="Updated caption"
+            ... )
+            >>> media.alternative_text
+            'Updated alt text'
+        """
+        import json as json_module
+
+        try:
+            # Ensure API version is detected before choosing endpoint
+            # When api_version="auto" and no prior API call, _api_version is None
+            if self._api_version is None:
+                await self.get_media(media_id)  # Triggers version detection
+
+            # Build update payload
+            file_info: dict[str, Any] = {}
+            if alternative_text is not None:
+                file_info["alternativeText"] = alternative_text
+            if caption is not None:
+                file_info["caption"] = caption
+            if name is not None:
+                file_info["name"] = name
+
+            headers = self._build_upload_headers()
+
+            # v4 uses PUT /api/upload/files/:id
+            # v5 uses POST /api/upload?id=x with form-data
+            if self._api_version == "v4":
+                url = self._build_url(f"upload/files/{media_id}")
+                response = await self._client.request(
+                    method=HttpMethod.PUT,
+                    url=url,
+                    json={"fileInfo": file_info} if file_info else {},
+                    headers=self._get_headers(),
+                )
+            else:
+                # v5 or auto (default to v5 behavior)
+                url = f"{self._build_url('upload')}?id={media_id}"
+                response = await self._client.post(
+                    url,
+                    data={"fileInfo": json_module.dumps(file_info)} if file_info else {},
+                    headers=headers,
+                )
+
+            # Handle errors
+            if not response.is_success:
+                self._handle_error_response(response)
+
+            # Parse response
+            response_json = response.json()
+            if isinstance(response_json, list) and response_json:
+                return self._parse_media_response(response_json[0])
+            else:
+                return self._parse_media_response(response_json)
+
+        except StrapiError:
+            raise  # Preserve specific error types (NotFoundError, etc.)
+        except Exception as e:
+            raise MediaError(f"Media update failed: {e}") from e
+
+    # Bulk Operations
+
+    async def bulk_create(
+        self,
+        endpoint: str,
+        items: list[dict[str, Any]],
+        *,
+        batch_size: int = 10,
+        max_concurrency: int = 5,
+        query: StrapiQuery | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Create multiple entities in concurrent batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            items: List of entity data dicts
+            batch_size: Items per batch wave (default: 10). Controls memory usage
+                by limiting how many tasks are active at once.
+            max_concurrency: Max parallel requests within each batch (default: 5)
+            query: Optional query
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult with successes and failures
+
+        Example:
+            >>> items = [
+            ...     {"title": "Article 1", "content": "..."},
+            ...     {"title": "Article 2", "content": "..."},
+            ... ]
+            >>> result = await client.bulk_create("articles", items, batch_size=20, max_concurrency=10)
+            >>> print(f"Created {result.succeeded}/{result.total}")
+        """
+        successes: list[NormalizedEntity] = []
+        failures: list[BulkOperationFailure] = []
+        completed = 0
+        lock = asyncio.Lock()
+
+        async def create_one(idx: int, item: dict[str, Any], semaphore: asyncio.Semaphore) -> None:
+   
