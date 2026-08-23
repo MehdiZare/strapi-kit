@@ -397,3 +397,234 @@ class BaseClient:
         """
         self._api_version = None
         logger.info("Reset API version detection cache")
+
+    def _handle_error_response(self, response: httpx.Response) -> None:
+        """Handle HTTP error responses by raising appropriate exceptions.
+
+        Args:
+            response: HTTPX response object
+
+        Raises:
+            Appropriate StrapiError subclass based on status code
+        """
+        status_code = response.status_code
+
+        # Try to extract error details from response
+        try:
+            error_data = response.json()
+            error_message = error_data.get("error", {}).get("message", response.text)
+            error_details = error_data.get("error", {}).get("details", {})
+        except Exception:
+            error_message = response.text or f"HTTP {status_code}"
+            error_details = {}
+
+        # Map status codes to exceptions. Every HTTP error carries status_code
+        # so callers can classify without parsing the message string.
+        if status_code == 401:
+            raise AuthenticationError(
+                f"Authentication failed: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code == 403:
+            raise AuthorizationError(
+                f"Authorization failed: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code == 404:
+            raise NotFoundError(
+                f"Resource not found: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code in {400, 422}:
+            raise ValidationError(
+                f"Validation error: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code == 405:
+            raise MethodNotAllowedError(
+                f"Method not allowed: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code == 409:
+            raise ConflictError(
+                f"Conflict: {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+        elif status_code == 429:
+            retry_after = response.headers.get("Retry-After")
+            # RFC 7231: Retry-After can be numeric seconds or HTTP-date string
+            retry_seconds: int | None = None
+            if retry_after:
+                try:
+                    retry_seconds = int(retry_after)
+                except ValueError:
+                    # HTTP-date format (e.g., "Wed, 21 Oct 2015 07:28:00 GMT")
+                    # Fall back to default retry behavior
+                    retry_seconds = None
+            raise RateLimitError(
+                f"Rate limit exceeded: {error_message}",
+                retry_after=retry_seconds,
+                details=error_details,
+            )
+        elif 500 <= status_code < 600:
+            raise ServerError(
+                f"Server error: {error_message}",
+                status_code=status_code,
+                details=error_details,
+            )
+        else:
+            raise StrapiError(
+                f"Unexpected error (HTTP {status_code}): {error_message}",
+                details=error_details,
+                status_code=status_code,
+            )
+
+    def _create_retry_decorator(self) -> Any:
+        """Create a retry decorator based on configuration.
+
+        The decorator retries on:
+        - Server errors (5xx) and connection issues
+        - Rate limit errors (429) with retry_after support
+        - Configured status codes from retry_on_status
+
+        Returns:
+            Configured tenacity retry decorator
+        """
+        retry_config = self.config.retry
+
+        def should_retry_exception(exception: BaseException) -> bool:
+            """Determine if exception should trigger retry."""
+            # Always retry connection issues
+            if isinstance(exception, StrapiConnectionError):
+                return True
+
+            # Retry RateLimitError with exponential backoff
+            if isinstance(exception, RateLimitError):
+                return True
+
+            # Check if exception has status_code matching retry_on_status
+            # This includes ServerError if its status code is in retry_on_status
+            if hasattr(exception, "status_code"):
+                return exception.status_code in retry_config.retry_on_status
+
+            return False
+
+        def wait_strategy(retry_state):  # type: ignore[no-untyped-def]
+            """Custom wait strategy that respects retry_after."""
+            exception = retry_state.outcome.exception()
+
+            # If RateLimitError with retry_after, use that value
+            if isinstance(exception, RateLimitError) and exception.retry_after:
+                return exception.retry_after
+
+            # Otherwise use exponential backoff
+            return wait_exponential(
+                multiplier=retry_config.exponential_base,
+                min=retry_config.initial_wait,
+                max=retry_config.max_wait,
+            )(retry_state)
+
+        return retry(
+            stop=stop_after_attempt(retry_config.max_attempts),
+            wait=wait_strategy,
+            retry=retry_if_exception(should_retry_exception),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+            reraise=True,
+        )
+
+    @property
+    def api_version(self) -> Literal["v4", "v5"] | None:
+        """Get the detected or configured API version.
+
+        Returns:
+            API version or None if not yet detected
+        """
+        return self._api_version
+
+    def _parse_single_response(self, response_data: dict[str, Any]) -> NormalizedSingleResponse:
+        """Parse a single entity response into normalized format.
+
+        Delegates to the injected parser for actual parsing logic.
+
+        Args:
+            response_data: Raw JSON response from Strapi
+
+        Returns:
+            Normalized single entity response
+
+        Examples:
+            >>> response_data = {"data": {"id": 1, "documentId": "abc", ...}}
+            >>> normalized = client._parse_single_response(response_data)
+            >>> normalized.data.id
+            1
+        """
+        try:
+            return self.parser.parse_single(response_data)
+        except PydanticValidationError as e:
+            raise UnstructuredResponseError(
+                "Successful response did not match a single-entity document",
+                details={"errors": e.errors()},
+                status_code=_response_status_code.get(),
+                reason=UnstructuredResponseReason.UNPARSEABLE_ENTITY,
+            ) from e
+
+    def _require_write_data_object(self, response_data: dict[str, Any]) -> None:
+        """Raise if a typed write response has no JSON ``data`` object.
+
+        Stock REST create/update/publish bodies are ``{\"data\": {...}}``.
+        A 2xx ``{}`` or ``{\"ok\": true}`` must not look like a successful
+        entity write (no ``documentId``). Collection ``{\"data\": []}`` is
+        not a write body.
+        """
+        data = response_data.get("data")
+        if isinstance(data, dict):
+            return
+        raise UnstructuredResponseError(
+            "Successful write returned no data object",
+            details={
+                "has_data": "data" in response_data,
+                "parsed_type": type(data).__name__,
+            },
+            status_code=_response_status_code.get(),
+            reason=UnstructuredResponseReason.MISSING_DATA,
+        )
+
+    def _publish_put_args(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Build stock REST publish path and query (PUT + ``status=published``)."""
+        path = self._single_segment_document_path(collection, document_id)
+        publish_query = query.copy() if query is not None else StrapiQuery()
+        publish_query = publish_query.with_document_status(DocumentStatus.PUBLISHED)
+        return path, publish_query.to_query_params()
+
+    def _parse_collection_response(
+        self, response_data: dict[str, Any]
+    ) -> NormalizedCollectionResponse:
+        """Parse a collection response into normalized format.
+
+        Delegates to the injected parser for actual parsing logic.
+
+        Args:
+            response_data: Raw JSON response from Strapi
+
+        Returns:
+            Normalized collection response
+
+        Examples:
+            >>> response_data = {"data": [{"id": 1, ...}, {"id": 2, ...}]}
+            >>> normalized = client._parse_collection_response(response_data)
+            >>> len(normalized.data)
+            2
+        """
+        # Delegate to injected parser
+        return self.parser.parse_collection(response_data)
