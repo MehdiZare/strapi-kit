@@ -209,9 +209,11 @@ data = {"title": "Updated Title"}
 response = client.update("articles", data, document_id="abc123")
 # Also valid: client.update("articles/1", data)
 
-# Opt-in: write 404 while the draft is still readable → AuthorizationError
-# (token likely lacks Update/Publish). status_code=404 and
-# details["classified_from"] == "write_404".
+# Opt-in: write 404 while the addressed variant is still readable →
+# AuthorizationError (token likely lacks Update/Publish). Probes the
+# write's own query params first, then status=draft if the write was
+# not already draft. A draft-only document stays NotFoundError.
+# status_code=404 and details["classified_from"] == "write_404".
 client.update("articles", data, document_id="abc123", classify_write_404=True)
 ```
 
@@ -718,7 +720,7 @@ while True:
 `stream_entities` / `stream_entities_async` (and therefore `StrapiExporter`)
 already call `assert_pagination_echo` and default to
 `document_status=DocumentStatus.DRAFT`. That is v5 `status=draft` (the
-**draft version** of each document, not a published∪draft union) or,
+**draft version** of each document, not a published∪ draft union) or,
 on a confirmed v4 client, `publicationState=preview`. Confirmed v4
 never sends `status=`. Later v5 pages keep `status=`. After an auto
 detect pins v4, page 1 is re-fetched with `publicationState` (the
@@ -813,7 +815,7 @@ export SOURCE_STRAPI_TOKEN='your-source-token'
 export TARGET_STRAPI_TOKEN='your-target-token'
 
 # Run basic CRUD
-python examples/basic_crud.py
+python examples.basic_crud.py
 
 # Run simple migration
 python examples/simple_migration.py
