@@ -395,8 +395,9 @@ class StrapiClient(Protocol):
             query: Optional query configuration
             headers: Additional headers
             document_id: Optional document ID (percent-encoded onto the path)
-            classify_write_404: Opt-in remapping of write 404s when a draft GET
-                shows the document still exists
+            classify_write_404: Opt-in remapping of write 404s when a GET
+                with the write's own params shows the addressed variant
+                still exists
 
         Returns:
             Normalized single entity response
@@ -417,8 +418,9 @@ class StrapiClient(Protocol):
             endpoint: API endpoint path, or collection name when document_id is set
             headers: Additional headers
             document_id: Optional document ID (percent-encoded onto the path)
-            classify_write_404: Opt-in remapping of write 404s when a draft GET
-                shows the document still exists
+            classify_write_404: Opt-in remapping of write 404s when a GET
+                with the write's own params shows the addressed variant
+                still exists
 
         Returns:
             Normalized single entity response
