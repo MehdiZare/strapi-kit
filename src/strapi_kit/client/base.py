@@ -250,6 +250,10 @@ class BaseClient:
         """Query that requests the Strapi 5 draft version (``status=draft``)."""
         return StrapiQuery().with_document_status(DocumentStatus.DRAFT)
 
+    def _write_query_is_draft(self, query: StrapiQuery | None) -> bool:
+        """Return True when the write already addressed ``status=draft``."""
+        return query is not None and query.document_status is DocumentStatus.DRAFT
+
     def _entity_identifies_document(self, entity: NormalizedEntity | None) -> bool:
         """Return True if a GET body identifies a document (``documentId`` or ``id``)."""
         if entity is None:
@@ -273,7 +277,12 @@ class BaseClient:
         original: NotFoundError,
         probe_entity: NormalizedEntity | None,
     ) -> NoReturn:
-        """Raise AuthorizationError if the draft probe found a document, else original."""
+        """Raise AuthorizationError if the write-params probe found a document.
+
+        A hit on the same query the write used means the addressed variant
+        is readable, so the write 404 was permission / routing — not a
+        missing published version. Otherwise re-raise the original 404.
+        """
         if self._entity_identifies_document(probe_entity):
             raise self._authorization_error_for_write_404(original) from original
         raise original
@@ -869,8 +878,8 @@ class BaseClient:
 
         Args:
             response_data: Raw JSON response from content-type-builder
-            skip_unparsable: If True, log and skip items that fail Pydantic
-                validation. If False (default), raise ValidationError.
+            skip_unparsable: If True, log and skip items that fail validation.
+                If False (default), raise ValidationError.
 
         Returns:
             List of ComponentListItem instances
