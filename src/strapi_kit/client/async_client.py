@@ -1144,4 +1144,330 @@ class AsyncClient(BaseClient):
         lock = asyncio.Lock()
 
         async def create_one(idx: int, item: dict[str, Any], semaphore: asyncio.Semaphore) -> None:
-   
+            nonlocal completed
+
+            async with semaphore:
+                try:
+                    response = await self.create(endpoint, item, query=query)
+
+                    async with lock:
+                        if response.data:
+                            successes.append(response.data)
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(items))
+
+                except StrapiError as e:
+                    async with lock:
+                        failures.append(
+                            BulkOperationFailure(
+                                index=idx,
+                                item=item,
+                                error=str(e),
+                                exception=e,
+                            )
+                        )
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(items))
+
+        # Process items in batches to control memory usage
+        for batch_start in range(0, len(items), batch_size):
+            batch = items[batch_start : batch_start + batch_size]
+            semaphore = asyncio.Semaphore(max_concurrency)
+
+            # Create tasks for this batch only
+            tasks = [create_one(batch_start + i, item, semaphore) for i, item in enumerate(batch)]
+
+            # Execute batch with gather
+            await asyncio.gather(*tasks, return_exceptions=False)
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(items),
+            succeeded=len(successes),
+            failed=len(failures),
+        )
+
+    async def bulk_update(
+        self,
+        endpoint: str,
+        updates: list[tuple[str | int, dict[str, Any]]],
+        *,
+        batch_size: int = 10,
+        max_concurrency: int = 5,
+        query: StrapiQuery | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Update multiple entities in concurrent batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            updates: List of (id, data) tuples
+            batch_size: Items per batch wave (default: 10). Controls memory usage
+                by limiting how many tasks are active at once.
+            max_concurrency: Max parallel requests within each batch (default: 5)
+            query: Optional query
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult
+
+        Example:
+            >>> updates = [
+            ...     (1, {"title": "Updated Title 1"}),
+            ...     (2, {"title": "Updated Title 2"}),
+            ... ]
+            >>> result = await client.bulk_update("articles", updates, batch_size=20)
+            >>> print(f"Updated {result.succeeded}/{result.total}")
+        """
+        successes: list[NormalizedEntity] = []
+        failures: list[BulkOperationFailure] = []
+        completed = 0
+        lock = asyncio.Lock()
+
+        async def update_one(
+            idx: int, entity_id: str | int, data: dict[str, Any], semaphore: asyncio.Semaphore
+        ) -> None:
+            nonlocal completed
+
+            async with semaphore:
+                try:
+                    response = await self.update(f"{endpoint}/{entity_id}", data, query=query)
+
+                    async with lock:
+                        if response.data:
+                            successes.append(response.data)
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(updates))
+
+                except StrapiError as e:
+                    async with lock:
+                        failures.append(
+                            BulkOperationFailure(
+                                index=idx,
+                                item={"id": entity_id, "data": data},
+                                error=str(e),
+                                exception=e,
+                            )
+                        )
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(updates))
+
+        # Process updates in batches to control memory usage
+        for batch_start in range(0, len(updates), batch_size):
+            batch = updates[batch_start : batch_start + batch_size]
+            semaphore = asyncio.Semaphore(max_concurrency)
+
+            # Create tasks for this batch only
+            tasks = [
+                update_one(batch_start + i, entity_id, data, semaphore)
+                for i, (entity_id, data) in enumerate(batch)
+            ]
+
+            # Execute batch with gather
+            await asyncio.gather(*tasks, return_exceptions=False)
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(updates),
+            succeeded=len(successes),
+            failed=len(failures),
+        )
+
+    async def bulk_delete(
+        self,
+        endpoint: str,
+        ids: list[str | int],
+        *,
+        batch_size: int = 10,
+        max_concurrency: int = 5,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> BulkOperationResult:
+        """Delete multiple entities in concurrent batches.
+
+        Args:
+            endpoint: API endpoint (e.g., "articles")
+            ids: List of entity IDs (numeric or documentId)
+            batch_size: Items per batch wave (default: 10). Controls memory usage
+                by limiting how many tasks are active at once.
+            max_concurrency: Max parallel requests within each batch (default: 5)
+            progress_callback: Optional callback(completed, total)
+
+        Returns:
+            BulkOperationResult
+
+        Example:
+            >>> ids = [1, 2, 3, 4, 5]
+            >>> result = await client.bulk_delete("articles", ids, batch_size=20)
+            >>> print(f"Deleted {result.succeeded} articles")
+        """
+        successes: list[NormalizedEntity] = []
+        failures: list[BulkOperationFailure] = []
+        completed = 0
+        success_count = 0
+        lock = asyncio.Lock()
+
+        async def delete_one(idx: int, entity_id: str | int, semaphore: asyncio.Semaphore) -> None:
+            nonlocal completed, success_count
+
+            async with semaphore:
+                try:
+                    response = await self.remove(f"{endpoint}/{entity_id}")
+
+                    # DELETE may return 204 No Content with no data
+                    # Count as success when no exception is raised
+                    async with lock:
+                        success_count += 1
+                        if response.data:
+                            successes.append(response.data)
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(ids))
+
+                except StrapiError as e:
+                    async with lock:
+                        failures.append(
+                            BulkOperationFailure(
+                                index=idx,
+                                item={"id": entity_id},
+                                error=str(e),
+                                exception=e,
+                            )
+                        )
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(ids))
+
+        # Process deletes in batches to control memory usage
+        for batch_start in range(0, len(ids), batch_size):
+            batch = ids[batch_start : batch_start + batch_size]
+            semaphore = asyncio.Semaphore(max_concurrency)
+
+            # Create tasks for this batch only
+            tasks = [
+                delete_one(batch_start + i, entity_id, semaphore)
+                for i, entity_id in enumerate(batch)
+            ]
+
+            # Execute batch with gather
+            await asyncio.gather(*tasks, return_exceptions=False)
+
+        return BulkOperationResult(
+            successes=successes,
+            failures=failures,
+            total=len(ids),
+            succeeded=success_count,
+            failed=len(failures),
+        )
+
+    # Content-Type Builder API
+
+    async def get_content_types(
+        self,
+        *,
+        include_plugins: bool = False,
+        skip_unparsable: bool = False,
+    ) -> list["ContentTypeListItem"]:
+        """List all content types from Content-Type Builder API.
+
+        Retrieves schema information for all content types defined in Strapi.
+
+        Each item exposes ``draft_and_publish`` as ``True`` / ``False`` when
+        Strapi declared Draft & Publish, or ``None`` when the flag was absent.
+        Absence is not ``False``.
+
+        Args:
+            include_plugins: Whether to include plugin content types
+                            (e.g., users-permissions). Defaults to False.
+            skip_unparsable: If True, log and skip items that fail validation.
+                            If False (default), raise ValidationError.
+
+        Returns:
+            List of ContentTypeListItem with uid, kind, info, attributes,
+            options, and draft_and_publish
+
+        Raises:
+            ValidationError: If an item cannot be parsed and skip_unparsable
+                is False
+
+        Examples:
+            >>> # Get only API content types
+            >>> content_types = await client.get_content_types()
+            >>> for ct in content_types:
+            ...     print(f"{ct.uid}: {ct.info.display_name}")
+            api::article.article: Article
+            api::category.category: Category
+
+            >>> # Include plugin content types
+            >>> all_types = await client.get_content_types(include_plugins=True)
+            >>> plugin_types = [ct for ct in all_types if ct.uid.startswith("plugin::")]
+        """
+
+        raw_response = await self.get("content-type-builder/content-types")
+        return self._parse_content_types_response(
+            raw_response, include_plugins, skip_unparsable=skip_unparsable
+        )
+
+    async def get_components(self, *, skip_unparsable: bool = False) -> list["ComponentListItem"]:
+        """List all components from Content-Type Builder API.
+
+        Retrieves schema information for all components defined in Strapi.
+
+        Args:
+            skip_unparsable: If True, log and skip items that fail validation.
+                Default False raises :class:`ValidationError`.
+
+        Returns:
+            List of ComponentListItem with uid, category, info, and attributes
+
+        Raises:
+            ValidationError: If an item cannot be parsed and skip_unparsable
+                is False.
+
+        Examples:
+            >>> components = await client.get_components()
+            >>> for comp in components:
+            ...     print(f"{comp.category}/{comp.uid}: {comp.info.display_name}")
+            shared/shared.seo: SEO
+            blocks/blocks.hero: Hero Section
+        """
+
+        raw_response = await self.get("content-type-builder/components")
+        return self._parse_components_response(raw_response, skip_unparsable=skip_unparsable)
+
+    async def get_content_type_schema(self, uid: str) -> "CTBContentTypeSchema":
+        """Get full schema for a specific content type.
+
+        Retrieves detailed schema information including all field configurations.
+
+        Args:
+            uid: Content type UID (e.g., "api::article.article")
+
+        Returns:
+            CTBContentTypeSchema with complete field definitions, including
+            ``draft_and_publish`` (True / False / None; absence is not False)
+            and retained ``options``
+
+        Raises:
+            NotFoundError: If content type doesn't exist
+            ValidationError: If the schema payload cannot be parsed
+
+        Examples:
+            >>> schema = await client.get_content_type_schema("api::article.article")
+            >>> schema.info.display_name
+            'Article'
+            >>> schema.attributes["title"]["type"]
+            'string'
+            >>> schema.is_relation_field("author")
+            True
+            >>> schema.get_relation_target("author")
+            'api::author.author'
+        """
+
+        raw_response = await self.get(f"content-type-builder/content-types/{uid}")
+        return self._parse_content_type_schema_response(raw_response)
