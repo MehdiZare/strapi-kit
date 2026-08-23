@@ -720,7 +720,7 @@ while True:
 `stream_entities` / `stream_entities_async` (and therefore `StrapiExporter`)
 already call `assert_pagination_echo` and default to
 `document_status=DocumentStatus.DRAFT`. That is v5 `status=draft` (the
-**draft version** of each document, not a published∪ draft union) or,
+**draft version** of each document, not a published∪draft union) or,
 on a confirmed v4 client, `publicationState=preview`. Confirmed v4
 never sends `status=`. Later v5 pages keep `status=`. After an auto
 detect pins v4, page 1 is re-fetched with `publicationState` (the
