@@ -328,7 +328,7 @@ class AsyncClient(BaseClient):
         """GET ``{base}/admin/information`` (origin-rooted, no ``/api`` prefix).
 
         Use this to probe a Strapi instance. Content, Content-Type Builder, and
-        upload endpoints remain under ``/api``. Default ``get(\"admin/information\")``
+        upload endpoints remain under ``/api``. Default ``get("admin/information")``
         still prefixes ``/api`` for backward compatibility.
 
         Version is read from ``strapiVersion`` or ``data.strapiVersion``. A
