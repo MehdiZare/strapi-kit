@@ -628,4 +628,380 @@ class SyncClient(BaseClient):
         if self._write_query_is_draft(write_query):
             raise original
         try:
-            self._probe_document_entity(endpoint, self._draft
+            self._probe_document_entity(endpoint, self._draft_status_query())
+        except Exception:
+            raise original from None
+        raise original
+
+    def publish(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Publish a Strapi v5 draft via stock REST.
+
+        PUT ``/api/{collection}/{documentId}?status=published`` with
+        ``{"data": {}}``. Stock Strapi 5 does not register
+        ``POST /actions/publish``.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields after publish)
+            headers: Additional headers
+
+        Returns:
+            Normalized published entity
+        """
+        path, params = self._publish_put_args(collection, document_id, query)
+        raw_response = self.put(path, json={"data": {}}, params=params, headers=headers)
+        self._require_write_data_object(raw_response)
+        return self._parse_single_response(raw_response)
+
+    def unpublish(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Unpublish a Strapi v5 live document.
+
+        POST ``/api/{collection}/{documentId}/actions/unpublish``.
+
+        Stock Strapi 5 public REST does not register this route. This
+        helper is for instances that add a custom document-action
+        controller. There is no public REST unpublish.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields after unpublish)
+            headers: Additional headers
+
+        Returns:
+            Normalized unpublished entity
+        """
+        endpoint = self._document_action_endpoint(collection, document_id, DocumentAction.UNPUBLISH)
+        params = query.to_query_params() if query else None
+        raw_response = self.post(endpoint, json={}, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    def discard_draft(
+        self,
+        collection: str,
+        document_id: str,
+        query: StrapiQuery | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> NormalizedSingleResponse:
+        """Discard a Strapi v5 draft and keep the published version.
+
+        POST ``/api/{collection}/{documentId}/actions/discardDraft``.
+
+        Stock Strapi 5 public REST does not register this route. This
+        helper is for instances that add a custom document-action
+        controller. There is no public REST discardDraft.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId``
+            query: Optional query (populate / fields / locale)
+            headers: Additional headers
+
+        Returns:
+            Normalized entity after the draft is discarded
+        """
+        endpoint = self._document_action_endpoint(
+            collection, document_id, DocumentAction.DISCARD_DRAFT
+        )
+        params = query.to_query_params() if query else None
+        raw_response = self.post(endpoint, json={}, params=params, headers=headers)
+        return self._parse_single_response(raw_response)
+
+    # Media Operations
+
+    def upload_file(
+        self,
+        file_path: str | Path,
+        *,
+        ref: str | None = None,
+        ref_id: str | int | None = None,
+        field: str | None = None,
+        folder: str | None = None,
+        alternative_text: str | None = None,
+        caption: str | None = None,
+    ) -> MediaFile:
+        """Upload a single file to Strapi media library.
+
+        Args:
+            file_path: Path to file to upload
+            ref: Reference model name (e.g., "api::article.article")
+            ref_id: Reference document ID (numeric or string)
+            field: Field name in reference model
+            folder: Folder ID for organization
+            alternative_text: Alt text for images
+            caption: Caption text
+
+        Returns:
+            MediaFile with upload details
+
+        Raises:
+            FileNotFoundError: If the local file does not exist.
+            AuthenticationError: If the upload is unauthorized (401).
+            AuthorizationError: If the token lacks permission (403).
+            NotFoundError: If the upload endpoint is not found (404).
+            ServerError: If Strapi returns a 5xx.
+            MediaError: Other upload failures (validation, parse, unexpected).
+
+        Examples:
+            >>> # Simple upload
+            >>> media = client.upload_file("image.jpg")
+            >>> media.name
+            'image.jpg'
+
+            >>> # Upload with metadata
+            >>> media = client.upload_file(
+            ...     "hero.jpg",
+            ...     alternative_text="Hero image",
+            ...     caption="Main article image"
+            ... )
+
+            >>> # Upload and attach to entity
+            >>> media = client.upload_file(
+            ...     "cover.jpg",
+            ...     ref="api::article.article",
+            ...     ref_id="abc123",
+            ...     field="cover"
+            ... )
+        """
+        try:
+            # Build multipart payload with context manager to ensure file handle cleanup
+            with build_upload_payload(
+                file_path,
+                ref=ref,
+                ref_id=ref_id,
+                field=field,
+                folder=folder,
+                alternative_text=alternative_text,
+                caption=caption,
+            ) as payload:
+                # Build URL and headers
+                url = self._build_url("upload")
+                headers = self._build_upload_headers()
+
+                # Make request with multipart data
+                response = self._client.post(
+                    url,
+                    files={"files": payload.files_tuple},
+                    data=payload.data,
+                    headers=headers,
+                )
+
+                # Handle errors
+                if not response.is_success:
+                    self._handle_error_response(response)
+
+                # Parse response (upload returns single file object, not wrapped in data)
+                response_json = response.json()
+                # Upload endpoint returns array with single file
+                if isinstance(response_json, list) and response_json:
+                    return self._parse_media_response(response_json[0])
+                else:
+                    return self._parse_media_response(response_json)
+
+        except FileNotFoundError:
+            raise
+        except (AuthenticationError, AuthorizationError, NotFoundError, ServerError):
+            raise
+        except Exception as e:
+            raise MediaError(f"File upload failed: {e}") from e
+
+    def upload_files(
+        self,
+        file_paths: list[str | Path],
+        **kwargs: Any,
+    ) -> list[MediaFile]:
+        """Upload multiple files sequentially.
+
+        Args:
+            file_paths: List of file paths to upload
+            **kwargs: Same metadata options as upload_file
+
+        Returns:
+            List of MediaFile objects
+
+        Raises:
+            AuthenticationError: If the upload is unauthorized (401).
+            AuthorizationError: If the token lacks permission (403).
+            NotFoundError: If the upload endpoint is not found (404).
+            ServerError: If Strapi returns a 5xx.
+            MediaError: On other upload failures (partial uploads NOT rolled back)
+
+        Examples:
+            >>> files = ["image1.jpg", "image2.jpg", "image3.jpg"]
+            >>> media_list = client.upload_files(files)
+            >>> len(media_list)
+            3
+
+            >>> # Upload with shared metadata
+            >>> media_list = client.upload_files(
+            ...     ["thumb1.jpg", "thumb2.jpg"],
+            ...     folder="thumbnails"
+            ... )
+        """
+        uploaded: list[MediaFile] = []
+
+        for idx, file_path in enumerate(file_paths):
+            try:
+                media = self.upload_file(file_path, **kwargs)
+                uploaded.append(media)
+            except (AuthenticationError, AuthorizationError, NotFoundError, ServerError):
+                raise
+            except Exception as e:
+                raise MediaError(
+                    f"Batch upload failed at file {idx} ({file_path}): {e}. "
+                    f"{len(uploaded)} files were uploaded successfully before failure."
+                ) from e
+
+        return uploaded
+
+    def download_file(
+        self,
+        media_url: str,
+        save_path: str | Path | None = None,
+    ) -> bytes | Path:
+        """Download a media file from Strapi.
+
+        Args:
+            media_url: Media URL (relative /uploads/... or absolute)
+            save_path: Optional path to save file (if None, returns bytes only)
+
+        Returns:
+            File content as bytes when save_path is None, or Path when save_path is provided
+
+        Raises:
+            MediaError: On download failure
+
+        Examples:
+            >>> # Download to bytes
+            >>> content = client.download_file("/uploads/image.jpg")
+            >>> len(content)
+            102400
+
+            >>> # Download and save to file (returns Path, not bytes)
+            >>> path = client.download_file(
+            ...     "/uploads/image.jpg",
+            ...     save_path="downloaded_image.jpg"
+            ... )
+            >>> path.exists()
+            True
+        """
+        try:
+            # Build full URL
+            url = build_media_download_url(self.base_url, media_url)
+
+            # Download with streaming for large files
+            with self._client.stream(HttpMethod.GET, url) as response:
+                if not response.is_success:
+                    self._handle_error_response(response)
+
+                if save_path:
+                    # Stream directly to disk for memory efficiency
+                    path = Path(save_path)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    total_bytes = 0
+                    with open(path, "wb") as f:
+                        for chunk in response.iter_bytes():
+                            f.write(chunk)
+                            total_bytes += len(chunk)
+                    logger.info(f"Downloaded {total_bytes} bytes to {save_path}")
+                    # Return path instead of reading back to avoid memory overhead
+                    return path
+                else:
+                    # Buffer in memory (original behavior for in-memory use)
+                    return b"".join(response.iter_bytes())
+
+        except StrapiError:
+            raise  # Preserve specific error types (NotFoundError, etc.)
+        except Exception as e:
+            raise MediaError(f"File download failed: {e}") from e
+
+    def list_media(
+        self,
+        query: StrapiQuery | None = None,
+    ) -> NormalizedCollectionResponse:
+        """List media files from media library.
+
+        Args:
+            query: Optional query for filtering, sorting, pagination
+
+        Returns:
+            NormalizedCollectionResponse with MediaFile entities
+
+        Examples:
+            >>> # List all media
+            >>> response = client.list_media()
+            >>> for media in response.data:
+            ...     print(media.attributes["name"])
+
+            >>> # List with filters
+            >>> from strapi_kit.models import StrapiQuery, FilterBuilder
+            >>> query = (StrapiQuery()
+            ...     .filter(FilterBuilder().eq("mime", "image/jpeg"))
+            ...     .paginate(page=1, page_size=10))
+            >>> response = client.list_media(query)
+        """
+        params = query.to_query_params() if query else None
+        raw_response = self.get("upload/files", params=params)
+        return self._parse_media_list_response(raw_response)
+
+    def get_media(
+        self,
+        media_id: str | int,
+    ) -> MediaFile:
+        """Get specific media file details.
+
+        Args:
+            media_id: Media file ID (numeric or documentId)
+
+        Returns:
+            MediaFile details
+
+        Raises:
+            NotFoundError: If media doesn't exist
+
+        Examples:
+            >>> media = client.get_media(42)
+            >>> media.name
+            'image.jpg'
+            >>> media.url
+            '/uploads/image.jpg'
+        """
+        raw_response = self.get(f"upload/files/{media_id}")
+        return self._parse_media_response(raw_response)
+
+    def delete_media(
+        self,
+        media_id: str | int,
+    ) -> None:
+        """Delete a media file.
+
+        Args:
+            media_id: Media file ID (numeric or documentId)
+
+        Raises:
+            NotFoundError: If media doesn't exist
+            MediaError: On deletion failure
+
+        Examples:
+            >>> client.delete_media(42)
+            >>> # File deleted successfully
+        """
+        try:
+            self.delete(f"upload/files/{media_id}")
+        except StrapiError:
+            raise  # Preserve specific error types (NotFoundError, etc.)
+        except Exception as e:
+            raise MediaError(f"Media deletion failed: {e}") from e
