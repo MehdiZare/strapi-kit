@@ -421,7 +421,8 @@ class StrapiClient(Protocol):
             endpoint: API endpoint path, or collection name when document_id is set
             headers: Additional headers
             document_id: Optional document ID (percent-encoded onto the path)
-            query: Optional addressing params (locale / status) on DELETE
+            query: Optional query forwarded on DELETE. Probes keep locale /
+                status / publicationState only.
             classify_write_404: Opt-in remapping of DELETE 404s. A still-
                 readable document (published or draft) is AuthorizationError.
 

@@ -252,7 +252,12 @@ class BaseClient:
 
     def _write_query_is_draft(self, write_query: StrapiQuery | None) -> bool:
         """Return True when the write already addressed the draft variant."""
-        return write_query is not None and write_query.document_status is DocumentStatus.DRAFT
+        if write_query is None:
+            return False
+        return (
+            write_query.document_status is DocumentStatus.DRAFT
+            or write_query.publication_state is PublicationState.PREVIEW
+        )
 
     def _addressing_probe_query(
         self,

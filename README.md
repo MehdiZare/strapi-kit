@@ -518,7 +518,7 @@ with SyncClient(config) as client:
 Create, read, update, and delete entities:
 
 ```python
-from strapi_kit import SyncClient, StrapiConfig
+from strapi_kit import StrapiConfig, StrapiQuery, SyncClient
 
 config = StrapiConfig(base_url="http://localhost:1337", api_token="your-token")
 
@@ -546,7 +546,8 @@ with SyncClient(config) as client:
         print("document is published or draft")
 
     # v5 Draft & Publish. publish() is stock REST PUT ?status=published.
-    # classify_write_404 on publish/update probes locale + status, then draft.
+    # classify_write_404 on publish/update probes locale + status
+    # (or v4 publicationState), then draft.
     # unpublish() / discard_draft() need custom POST /actions/* routes
     # (not registered by stock Strapi 5 REST) and 404/405 if missing.
     if document_id:
@@ -556,7 +557,12 @@ with SyncClient(config) as client:
 
     # Delete. classify_write_404 remaps a 404 to AuthorizationError when
     # the document is still readable (token likely lacks Delete).
-    response = client.remove("articles", document_id=created_id, classify_write_404=True)
+    response = client.remove(
+        "articles",
+        document_id=created_id,
+        query=StrapiQuery().with_locale("en"),
+        classify_write_404=True,
+    )
 
     # String endpoints still work (caller must encode special characters):
     # client.get_one("articles/abc")

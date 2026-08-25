@@ -532,8 +532,10 @@ class SyncClient(BaseClient):
             headers: Additional headers
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
-            query: Optional addressing params (``locale``, ``status``) sent
-                on the DELETE and reused by write-404 probes.
+            query: Optional query forwarded on the DELETE (locale, status,
+                populate, filters, and the rest of ``to_query_params()``).
+                Write-404 probes copy only addressing params (``locale``,
+                ``status``, v4 ``publicationState``).
             classify_write_404: If True, a DELETE ``NotFoundError`` is
                 probed with the write's addressing params, then
                 ``status=draft``. A still-readable document is
