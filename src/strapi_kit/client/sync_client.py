@@ -32,7 +32,7 @@ from ..exceptions import (
     TimeoutError as StrapiTimeoutError,
 )
 from ..models.bulk import BulkOperationFailure, BulkOperationResult
-from ..models.enums import DocumentAction, DocumentStatus, HttpMethod
+from ..models.enums import DocumentAction, HttpMethod
 from ..models.request.query import StrapiQuery
 from ..models.response.admin import AdminInformation
 from ..models.response.media import MediaFile
@@ -474,9 +474,10 @@ class SyncClient(BaseClient):
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
             classify_write_404: If True, a write ``NotFoundError`` is probed
-                with the write's own status params, then ``status=draft``.
-                A readable addressed variant is ``AuthorizationError``.
-                A draft-only document stays ``NotFoundError`` with
+                with the write's addressing params (``status`` / ``locale`` /
+                v4 ``publicationState``), then the draft variant. A readable
+                addressed variant is ``AuthorizationError``. A draft-only
+                document stays ``NotFoundError`` with
                 ``details["classified_from"] == "draft_only"``. Default
                 False keeps today's 404 mapping.
 
@@ -506,7 +507,7 @@ class SyncClient(BaseClient):
                 self._classify_write_404(
                     path,
                     original,
-                    write_params=params,
+                    write_query=query,
                     draft_hit_is_auth=False,
                 )
             raise
@@ -519,6 +520,7 @@ class SyncClient(BaseClient):
         headers: dict[str, str] | None = None,
         *,
         document_id: str | None = None,
+        query: StrapiQuery | None = None,
         classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Delete an entity with typed, normalized response.
@@ -530,11 +532,14 @@ class SyncClient(BaseClient):
             headers: Additional headers
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
+            query: Optional addressing params (``locale``, ``status``) sent
+                on the DELETE and reused by write-404 probes.
             classify_write_404: If True, a DELETE ``NotFoundError`` is
-                probed omit-status then ``status=draft``. A still-readable
-                document is ``AuthorizationError`` (stock DELETE removes
-                drafts; a remaining draft means the delete did not run).
-                Default False keeps today's 404 mapping.
+                probed with the write's addressing params, then
+                ``status=draft``. A still-readable document is
+                ``AuthorizationError`` (stock DELETE removes drafts; a
+                remaining draft means the delete did not run). Default
+                False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response (deleted entity)
@@ -551,14 +556,15 @@ class SyncClient(BaseClient):
             1
         """
         path = self._document_endpoint(endpoint, document_id)
+        params = query.to_query_params() if query else None
         try:
-            raw_response = self.delete(path, headers=headers)
+            raw_response = self.delete(path, params=params, headers=headers)
         except NotFoundError as original:
             if classify_write_404:
                 self._classify_write_404(
                     path,
                     original,
-                    write_params=None,
+                    write_query=query,
                     draft_hit_is_auth=True,
                 )
             raise
@@ -606,10 +612,9 @@ class SyncClient(BaseClient):
         return self._entity_identifies_document(response.data)
 
     def _probe_write_404_target(
-        self, endpoint: str, write_params: dict[str, Any] | None
+        self, endpoint: str, query: StrapiQuery | None
     ) -> Literal["hit", "miss", "error"]:
         """GET the write target; a 404 is a miss, not a failed probe."""
-        query = self._status_query_for_write_params(write_params)
         try:
             response = self.get_one(endpoint, query=query)
         except NotFoundError:
@@ -625,15 +630,19 @@ class SyncClient(BaseClient):
         endpoint: str,
         original: NotFoundError,
         *,
-        write_params: dict[str, Any] | None,
+        write_query: StrapiQuery | None,
         draft_hit_is_auth: bool,
     ) -> NoReturn:
         """Two-probe write-404 narrowing; never mask the original error."""
-        addressed = self._probe_write_404_target(endpoint, write_params)
-        write_addressed_draft = self._write_params_are_draft(write_params)
+        addressed = self._probe_write_404_target(
+            endpoint, self._addressing_probe_query(write_query)
+        )
+        write_addressed_draft = self._write_query_is_draft(write_query)
         draft: Literal["hit", "miss", "error"] = "miss"
         if addressed == "miss" and not write_addressed_draft:
-            draft = self._probe_write_404_target(endpoint, {"status": DocumentStatus.DRAFT})
+            draft = self._probe_write_404_target(
+                endpoint, self._addressing_probe_query(write_query, draft=True)
+            )
         self._raise_classified_write_404(
             original,
             addressed=addressed,
@@ -648,6 +657,8 @@ class SyncClient(BaseClient):
         document_id: str,
         query: StrapiQuery | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Publish a Strapi v5 draft via stock REST.
 
@@ -658,14 +669,30 @@ class SyncClient(BaseClient):
         Args:
             collection: Collection API id (e.g. ``"articles"``)
             document_id: Strapi v5 ``documentId``
-            query: Optional query (populate / fields after publish)
+            query: Optional query (populate / fields / locale after publish)
             headers: Additional headers
+            classify_write_404: If True, a publish ``NotFoundError`` is
+                probed with the write's addressing params
+                (``status=published`` plus ``locale``), then
+                ``status=draft``. A readable published variant is
+                ``AuthorizationError``. Draft-only stays
+                ``NotFoundError`` with ``classified_from=draft_only``.
 
         Returns:
             Normalized published entity
         """
         path, params = self._publish_put_args(collection, document_id, query)
-        raw_response = self.put(path, json={"data": {}}, params=params, headers=headers)
+        try:
+            raw_response = self.put(path, json={"data": {}}, params=params, headers=headers)
+        except NotFoundError as original:
+            if classify_write_404:
+                self._classify_write_404(
+                    path,
+                    original,
+                    write_query=self._publish_query(query),
+                    draft_hit_is_auth=False,
+                )
+            raise
         self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
 

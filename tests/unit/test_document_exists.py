@@ -683,3 +683,243 @@ class TestAsyncClassifyWrite404:
                 await client.remove(ENDPOINT)
 
         assert get_route.call_count == 0
+
+
+def _route_by_status_and_locale(
+    published: Response,
+    draft: Response,
+    *,
+    locale: str,
+) -> Any:
+    def _handler(request: httpx.Request) -> Response:
+        if request.url.params.get("locale") != locale:
+            return _not_found()
+        if request.url.params.get("status") == "draft":
+            return draft
+        return published
+
+    return _handler
+
+
+class TestSyncClassifyWrite404LocaleAndPublish:
+    """Locale-preserving probes and opt-in publish classification."""
+
+    @pytest.mark.respx
+    def test_update_404_preserves_locale_on_both_probes(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status_and_locale(
+                _not_found(), Response(200, json=mock_v5_response), locale="fr"
+            )
+        )
+        query = StrapiQuery().with_locale("fr").with_document_status(DocumentStatus.PUBLISHED)
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError) as exc_info:
+                client.update(ENDPOINT, {"title": "x"}, query=query, classify_write_404=True)
+
+        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert get_route.call_count == 2
+        assert get_route.calls[0].request.url.params["locale"] == "fr"
+        assert get_route.calls[0].request.url.params["status"] == "published"
+        assert get_route.calls[1].request.url.params["locale"] == "fr"
+        assert get_route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    def test_update_404_does_not_treat_other_locale_as_addressed(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status_and_locale(
+                Response(200, json=mock_v5_response),
+                Response(200, json=mock_v5_response),
+                locale="en",
+            )
+        )
+        query = StrapiQuery().with_locale("fr")
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError) as exc_info:
+                client.update(ENDPOINT, {"title": "x"}, query=query, classify_write_404=True)
+
+        assert exc_info.value.details.get("classified_from") != "draft_only"
+        assert not isinstance(exc_info.value, AuthorizationError)
+        assert get_route.call_count == 2
+        assert get_route.calls[0].request.url.params["locale"] == "fr"
+        assert get_route.calls[1].request.url.params["locale"] == "fr"
+
+    @pytest.mark.respx
+    def test_remove_404_preserves_locale_on_probes(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        delete_route = respx_mock.delete(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status_and_locale(
+                _not_found(), Response(200, json=mock_v5_response), locale="fr"
+            )
+        )
+        query = StrapiQuery().with_locale("fr")
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(AuthorizationError) as exc_info:
+                client.remove(ENDPOINT, query=query, classify_write_404=True)
+
+        assert delete_route.calls[0].request.url.params["locale"] == "fr"
+        assert exc_info.value.details["classified_from"] == "write_404"
+        assert get_route.call_count == 2
+        assert get_route.calls[0].request.url.params["locale"] == "fr"
+        assert get_route.calls[1].request.url.params["locale"] == "fr"
+        assert get_route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    def test_publish_404_draft_only_stays_not_found(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(_not_found(), Response(200, json=mock_v5_response))
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError) as exc_info:
+                client.publish(COLLECTION, DOCUMENT_ID, classify_write_404=True)
+
+        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert get_route.call_count == 2
+        assert get_route.calls[0].request.url.params["status"] == "published"
+        assert get_route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    def test_publish_404_addressed_variant_readable_is_authorization(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(
+                Response(200, json=mock_v5_response),
+                _not_found(),
+            )
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(AuthorizationError) as exc_info:
+                client.publish(COLLECTION, DOCUMENT_ID, classify_write_404=True)
+
+        assert exc_info.value.details["classified_from"] == "write_404"
+        assert get_route.call_count == 1
+        assert get_route.calls[0].request.url.params["status"] == "published"
+
+    @pytest.mark.respx
+    def test_publish_404_preserves_locale(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status_and_locale(
+                _not_found(), Response(200, json=mock_v5_response), locale="fr"
+            )
+        )
+        query = StrapiQuery().with_locale("fr")
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError) as exc_info:
+                client.publish(COLLECTION, DOCUMENT_ID, query=query, classify_write_404=True)
+
+        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert get_route.call_count == 2
+        assert get_route.calls[0].request.url.params["locale"] == "fr"
+        assert get_route.calls[0].request.url.params["status"] == "published"
+        assert get_route.calls[1].request.url.params["locale"] == "fr"
+        assert get_route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    def test_update_404_probe_omits_populate(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(
+                Response(200, json=mock_v5_response),
+                _not_found(),
+            )
+        )
+        query = StrapiQuery().with_locale("fr").populate_fields(["author"])
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(AuthorizationError):
+                client.update(ENDPOINT, {"title": "x"}, query=query, classify_write_404=True)
+
+        params = get_route.calls[0].request.url.params
+        assert params["locale"] == "fr"
+        assert "populate" not in params
+        assert "populate[0]" not in params
+
+    @pytest.mark.respx
+    def test_default_publish_404_unchanged(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(return_value=_not_found())
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError):
+                client.publish(COLLECTION, DOCUMENT_ID)
+
+        assert get_route.call_count == 0
+
+
+class TestAsyncClassifyWrite404LocaleAndPublish:
+    """Async locale-preserving probes and publish classification."""
+
+    @pytest.mark.respx
+    async def test_update_404_preserves_locale_on_both_probes(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status_and_locale(
+                _not_found(), Response(200, json=mock_v5_response), locale="fr"
+            )
+        )
+        query = StrapiQuery().with_locale("fr").with_document_status(DocumentStatus.PUBLISHED)
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError) as exc_info:
+                await client.update(ENDPOINT, {"title": "x"}, query=query, classify_write_404=True)
+
+        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert get_route.call_count == 2
+        assert get_route.calls[1].request.url.params["locale"] == "fr"
+
+    @pytest.mark.respx
+    async def test_publish_404_draft_only_stays_not_found(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(_not_found(), Response(200, json=mock_v5_response))
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError) as exc_info:
+                await client.publish(COLLECTION, DOCUMENT_ID, classify_write_404=True)
+
+        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert get_route.call_count == 2
+        assert get_route.calls[0].request.url.params["status"] == "published"
+
+    @pytest.mark.respx
+    async def test_default_publish_404_unchanged(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(return_value=_not_found())
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(NotFoundError):
+                await client.publish(COLLECTION, DOCUMENT_ID)
+
+        assert get_route.call_count == 0

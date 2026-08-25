@@ -114,6 +114,7 @@ class TestStrapiQuery:
     def test_with_locale(self) -> None:
         """Test locale parameter."""
         query = StrapiQuery().with_locale("fr")
+        assert query.locale == "fr"
         params = query.to_query_params()
 
         assert params["locale"] == "fr"

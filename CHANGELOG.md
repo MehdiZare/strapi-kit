@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Opt-in `classify_write_404` on `update` / `remove` no longer treats every
-  readable draft as a missing token (roboad-mono-repo #4507 / #4509). The
-  probe uses the write's own `status` params, then `status=draft`. A 404
-  from the probe is an answer. Draft-only **updates** stay `NotFoundError`
-  with `details["classified_from"] == "draft_only"`. A DELETE 404 while
-  the document is still readable stays `AuthorizationError` (stock DELETE
-  removes drafts).
+- Opt-in `classify_write_404` on `update` / `remove` / `publish` no longer
+  treats every readable draft as a missing token (roboad-mono-repo #4507 /
+  #4509). The probe uses the write's addressing params (`status`,
+  `locale`, v4 `publicationState`), then the draft variant. A 404 from
+  the probe is an answer. Draft-only **updates** and **publishes** stay
+  `NotFoundError` with `details["classified_from"] == "draft_only"`. A
+  DELETE 404 while the document is still readable stays
+  `AuthorizationError` (stock DELETE removes drafts). `remove` accepts
+  optional `query` so a locale-scoped delete can be probed the same way.
 
 ## [0.4.0] - 2026-08-19
 

@@ -209,13 +209,15 @@ data = {"title": "Updated Title"}
 response = client.update("articles", data, document_id="abc123")
 # Also valid: client.update("articles/1", data)
 
-# Opt-in write-404 classification (two probes: write status, then draft).
+# Opt-in write-404 classification (two probes: write addressing
+# params including locale, then draft).
 # Addressed variant readable → AuthorizationError
 #   details["classified_from"] == "write_404"
-# Draft-only (update) → NotFoundError
+# Draft-only (update / publish) → NotFoundError
 #   details["classified_from"] == "draft_only"
 # Delete 404 while the document is still readable → AuthorizationError
 client.update("articles", data, document_id="abc123", classify_write_404=True)
+client.publish("articles", "abc123", classify_write_404=True)
 ```
 
 ### Delete

@@ -5,7 +5,6 @@ automatic response format detection, error handling, and authentication.
 """
 
 import logging
-from collections.abc import Mapping
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
 from urllib.parse import quote
@@ -42,7 +41,7 @@ from ..exceptions import (
 from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
-from ..models.enums import DocumentAction, DocumentStatus, HttpMethod
+from ..models.enums import DocumentAction, DocumentStatus, HttpMethod, PublicationState
 from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
@@ -251,23 +250,44 @@ class BaseClient:
         """Query that requests the Strapi 5 draft version (``status=draft``)."""
         return StrapiQuery().with_document_status(DocumentStatus.DRAFT)
 
-    def _status_query_for_write_params(
-        self, write_params: Mapping[str, Any] | None
-    ) -> StrapiQuery | None:
-        """Rebuild the write's ``status`` query so the probe addresses the same variant."""
-        if not write_params:
-            return None
-        status = write_params.get("status")
-        if status == DocumentStatus.DRAFT:
-            return self._draft_status_query()
-        if status == DocumentStatus.PUBLISHED:
-            return StrapiQuery().with_document_status(DocumentStatus.PUBLISHED)
-        return None
+    def _write_query_is_draft(self, write_query: StrapiQuery | None) -> bool:
+        """Return True when the write already addressed the draft variant."""
+        return write_query is not None and write_query.document_status is DocumentStatus.DRAFT
 
-    def _write_params_are_draft(self, write_params: Mapping[str, Any] | None) -> bool:
-        if write_params is None:
-            return False
-        return write_params.get("status") == DocumentStatus.DRAFT
+    def _addressing_probe_query(
+        self,
+        write_query: StrapiQuery | None,
+        *,
+        draft: bool = False,
+    ) -> StrapiQuery | None:
+        """Build a GET probe that addresses the same locale as the write.
+
+        Copies only addressing params (``locale``, then ``status`` or v4
+        ``publicationState``). Populate, filters, and pagination are omitted
+        so a probe 400 cannot collapse narrowing.
+        """
+        probe = StrapiQuery()
+        locale = write_query.locale if write_query is not None else None
+        if locale:
+            probe = probe.with_locale(locale)
+
+        if draft:
+            if write_query is not None and write_query.publication_state is not None:
+                return probe.with_publication_state(PublicationState.PREVIEW)
+            return probe.with_document_status(DocumentStatus.DRAFT)
+
+        if write_query is None:
+            return probe if locale else None
+        if write_query.document_status is not None:
+            return probe.with_document_status(write_query.document_status)
+        if write_query.publication_state is not None:
+            return probe.with_publication_state(write_query.publication_state)
+        return probe if locale else None
+
+    def _publish_query(self, query: StrapiQuery | None) -> StrapiQuery:
+        """Query for stock REST publish (``status=published`` plus caller params)."""
+        publish_query = query.copy() if query is not None else StrapiQuery()
+        return publish_query.with_document_status(DocumentStatus.PUBLISHED)
 
     def _entity_identifies_document(self, entity: NormalizedEntity | None) -> bool:
         """Return True if a GET body identifies a document (``documentId`` or ``id``)."""
@@ -650,9 +670,7 @@ class BaseClient:
     ) -> tuple[str, dict[str, Any]]:
         """Build stock REST publish path and query (PUT + ``status=published``)."""
         path = self._single_segment_document_path(collection, document_id)
-        publish_query = query.copy() if query is not None else StrapiQuery()
-        publish_query = publish_query.with_document_status(DocumentStatus.PUBLISHED)
-        return path, publish_query.to_query_params()
+        return path, self._publish_query(query).to_query_params()
 
     def _parse_collection_response(
         self, response_data: dict[str, Any]

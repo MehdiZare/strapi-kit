@@ -546,10 +546,11 @@ with SyncClient(config) as client:
         print("document is published or draft")
 
     # v5 Draft & Publish. publish() is stock REST PUT ?status=published.
+    # classify_write_404 on publish/update probes locale + status, then draft.
     # unpublish() / discard_draft() need custom POST /actions/* routes
     # (not registered by stock Strapi 5 REST) and 404/405 if missing.
     if document_id:
-        client.publish("articles", document_id)
+        client.publish("articles", document_id, classify_write_404=True)
         client.unpublish("articles", document_id)
         client.discard_draft("articles", document_id)
 
