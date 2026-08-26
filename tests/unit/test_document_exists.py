@@ -617,6 +617,49 @@ class TestAsyncExistsInLocale:
         assert route.calls[2].request.url.params["status"] == "draft"
         assert "locale" not in route.calls[2].request.url.params
 
+    @pytest.mark.respx
+    async def test_both_404_false(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(return_value=_not_found())
+
+        async with AsyncClient(strapi_config) as client:
+            assert await client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is False
+
+        assert route.call_count == 2
+        assert route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    async def test_none_locale_matches_exists(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(return_value=Response(200, json=mock_v5_response))
+
+        async with AsyncClient(strapi_config) as client:
+            assert await client.exists_in_locale(COLLECTION, DOCUMENT_ID) is True
+
+        assert route.call_count == 1
+        assert "locale" not in route.calls[0].request.url.params
+
+    @pytest.mark.respx
+    async def test_unrelated_400_still_raises(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(
+            return_value=Response(400, json={"error": {"message": "Invalid key populate"}})
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="Invalid key populate"):
+                await client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr")
+
+        assert route.call_count == 1
+
+    async def test_rejects_multi_segment_collection(self, strapi_config: StrapiConfig) -> None:
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="single path segment"):
+                await client.exists_in_locale("articles/../upload", DOCUMENT_ID, locale="fr")
+
 
 class TestSyncClassifyWrite404:
     """Opt-in write-404 remapping on SyncClient.update / remove."""
