@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-26
+
+Locale-aware existence checks and write-404 classification that
+distinguishes draft-only updates from missing Publish / Update / Delete.
+Trackers: #161 #163.
+
+### Upgrade notes
+
+- `exists()` stays document-level (default published or draft). Use
+  `exists_in_locale(..., locale=)` for a locale-aware probe.
+- Opt-in `classify_write_404`: a draft-only **update** 404 stays
+  `NotFoundError` (`classified_from=draft_only`). A `publish()` 404
+  with only a draft readable is `AuthorizationError` (stock PUT
+  `?status=published` publishes drafts). A DELETE 404 while the
+  document is still readable stays `AuthorizationError`.
+
 ### Added
 
 - `exists_in_locale(collection, document_id, locale=None)` on sync and
@@ -623,7 +639,8 @@ stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55)
 - Dependency injection support with protocols
 - Full type hints and mypy strict mode compliance
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.1.0...v0.2.0
