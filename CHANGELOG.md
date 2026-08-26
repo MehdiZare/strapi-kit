@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `exists_in_locale(collection, document_id, locale=None)` on sync and
-  async clients (and `TypedClient`). Same published-then-draft probe as
+  async clients and the `StrapiClient` protocol. Same published-then-draft probe as
   `exists()`, plus optional `locale`. `Invalid key locale` retries that
   GET without `locale` (non-i18n types), matching import
   `_probe_document`. Public `exists()` stays document-level (#161).
