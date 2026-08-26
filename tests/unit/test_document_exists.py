@@ -1047,6 +1047,52 @@ class TestAsyncClassifyWrite404LocaleAndPublish:
         assert exc_info.value.message == "document exists; token likely lacks Publish."
         assert get_route.call_count == 2
         assert get_route.calls[0].request.url.params["status"] == "published"
+        assert get_route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    async def test_publish_404_addressed_variant_readable_is_authorization(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status(
+                Response(200, json=mock_v5_response),
+                _not_found(),
+            )
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(AuthorizationError) as exc_info:
+                await client.publish(COLLECTION, DOCUMENT_ID, classify_write_404=True)
+
+        assert exc_info.value.details["classified_from"] == "write_404"
+        assert exc_info.value.message == "document exists; token likely lacks Publish."
+        assert get_route.call_count == 1
+        assert get_route.calls[0].request.url.params["status"] == "published"
+
+    @pytest.mark.respx
+    async def test_publish_404_preserves_locale(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
+        get_route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status_and_locale(
+                _not_found(), Response(200, json=mock_v5_response), locale="fr"
+            )
+        )
+        query = StrapiQuery().with_locale("fr")
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(AuthorizationError) as exc_info:
+                await client.publish(COLLECTION, DOCUMENT_ID, query=query, classify_write_404=True)
+
+        assert exc_info.value.details["classified_from"] == "write_404"
+        assert exc_info.value.message == "document exists; token likely lacks Publish."
+        assert get_route.call_count == 2
+        assert get_route.calls[0].request.url.params["locale"] == "fr"
+        assert get_route.calls[0].request.url.params["status"] == "published"
+        assert get_route.calls[1].request.url.params["locale"] == "fr"
+        assert get_route.calls[1].request.url.params["status"] == "draft"
 
     @pytest.mark.respx
     async def test_update_404_publication_state_live_draft_only(
