@@ -45,7 +45,7 @@ from ..models.response.normalized import (
 from ..operations.media import build_media_download_url, build_upload_payload
 from ..protocols import AsyncHTTPClient, AuthProvider, ConfigProvider, ResponseParser
 from ..utils.rate_limiter import AsyncTokenBucketRateLimiter
-from .base import BaseClient
+from .base import BaseClient, Write404Operation
 
 logger = logging.getLogger(__name__)
 
@@ -516,6 +516,7 @@ class AsyncClient(BaseClient):
                     original,
                     write_query=query,
                     draft_hit_is_auth=False,
+                    operation="update",
                 )
             raise
         self._require_write_data_object(raw_response)
@@ -575,6 +576,7 @@ class AsyncClient(BaseClient):
                     original,
                     write_query=query,
                     draft_hit_is_auth=True,
+                    operation="delete",
                 )
             raise
         return self._parse_single_response(raw_response)
@@ -641,6 +643,7 @@ class AsyncClient(BaseClient):
         *,
         write_query: StrapiQuery | None,
         draft_hit_is_auth: bool,
+        operation: Write404Operation,
     ) -> NoReturn:
         """Two-probe write-404 narrowing; never mask the original error."""
         addressed = await self._probe_write_404_target(
@@ -658,6 +661,7 @@ class AsyncClient(BaseClient):
             draft=draft,
             write_addressed_draft=write_addressed_draft,
             draft_hit_is_auth=draft_hit_is_auth,
+            operation=operation,
         )
 
     async def publish(
@@ -683,9 +687,10 @@ class AsyncClient(BaseClient):
             classify_write_404: If True, a publish ``NotFoundError`` is
                 probed with the write's addressing params
                 (``status=published`` plus ``locale``), then
-                ``status=draft``. A readable published variant is
-                ``AuthorizationError``. Draft-only stays
-                ``NotFoundError`` with ``classified_from=draft_only``.
+                ``status=draft``. A readable published variant **or**
+                draft-only document is ``AuthorizationError`` with
+                ``classified_from=write_404`` (stock PUT publishes
+                drafts; a remaining draft means the write did not run).
 
         Returns:
             Normalized published entity
@@ -699,7 +704,8 @@ class AsyncClient(BaseClient):
                     path,
                     original,
                     write_query=self._publish_query(query),
-                    draft_hit_is_auth=False,
+                    draft_hit_is_auth=True,
+                    operation="publish",
                 )
             raise
         self._require_write_data_object(raw_response)

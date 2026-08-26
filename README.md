@@ -546,8 +546,9 @@ with SyncClient(config) as client:
         print("document is published or draft")
 
     # v5 Draft & Publish. publish() is stock REST PUT ?status=published.
-    # classify_write_404 on publish/update probes locale + status
-    # (or v4 publicationState), then draft.
+    # classify_write_404 on publish remaps a remaining-draft 404 to
+    # AuthorizationError (token likely lacks Publish), not draft_only.
+    # update() draft-only stays NotFoundError / classified_from=draft_only.
     # unpublish() / discard_draft() need custom POST /actions/* routes
     # (not registered by stock Strapi 5 REST) and 404/405 if missing.
     if document_id:

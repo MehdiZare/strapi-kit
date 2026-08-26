@@ -61,6 +61,14 @@ from ..utils.schema import (
 
 logger = logging.getLogger(__name__)
 
+Write404Operation = Literal["update", "delete", "publish"]
+
+_WRITE_404_PERMISSION: dict[Write404Operation, str] = {
+    "update": "Update",
+    "delete": "Delete",
+    "publish": "Publish",
+}
+
 # Per-task HTTP status for UnstructuredResponseError. Instance state would
 # race when one AsyncClient is used concurrently.
 _response_status_code: ContextVar[int | None] = ContextVar(
@@ -300,26 +308,31 @@ class BaseClient:
             return False
         return entity.document_id is not None or entity.id is not None
 
-    def _authorization_error_for_write_404(self, original: NotFoundError) -> AuthorizationError:
+    def _authorization_error_for_write_404(
+        self, original: NotFoundError, *, operation: Write404Operation
+    ) -> AuthorizationError:
         """Map a write 404 to AuthorizationError when the addressed variant is readable."""
         status_code = original.status_code if original.status_code is not None else 404
         details = dict(original.details)
         details["status_code"] = status_code
         details["classified_from"] = "write_404"
+        permission = _WRITE_404_PERMISSION[operation]
         return AuthorizationError(
-            "document exists; token likely lacks Update/Publish.",
+            f"document exists; token likely lacks {permission}.",
             details=details,
             status_code=status_code,
         )
 
-    def _draft_only_not_found_error(self, original: NotFoundError) -> NotFoundError:
+    def _draft_only_not_found_error(
+        self, original: NotFoundError, *, operation: Write404Operation
+    ) -> NotFoundError:
         """Write 404 while only the draft version is readable (no published version)."""
         status_code = original.status_code if original.status_code is not None else 404
         details = dict(original.details)
         details["status_code"] = status_code
         details["classified_from"] = "draft_only"
         return NotFoundError(
-            "document exists only as a draft; no published version to update.",
+            f"document exists only as a draft; no published version to {operation}.",
             details=details,
             status_code=status_code,
         )
@@ -332,6 +345,7 @@ class BaseClient:
         draft: Literal["hit", "miss", "error"],
         write_addressed_draft: bool,
         draft_hit_is_auth: bool,
+        operation: Write404Operation,
     ) -> NoReturn:
         """Narrow a write 404 using probe results (roboad-mono-repo #4508 / #4509).
 
@@ -343,20 +357,26 @@ class BaseClient:
         * draft hit, update path → ``NotFoundError`` with
           ``classified_from=draft_only`` (never-published; do **not** call
           this a missing token).
-        * draft hit, delete path (``draft_hit_is_auth``) →
-          ``AuthorizationError`` (stock DELETE removes drafts too; a
-          remaining draft means the delete did not run).
+        * draft hit, delete / publish path (``draft_hit_is_auth``) →
+          ``AuthorizationError``. Stock DELETE removes drafts; a remaining
+          draft means the delete did not run. Stock PUT ``?status=published``
+          publishes drafts; a remaining draft means publish did not run
+          (#163).
         """
         if addressed == "error":
             raise original from None
         if addressed == "hit":
-            raise self._authorization_error_for_write_404(original) from original
+            raise self._authorization_error_for_write_404(
+                original, operation=operation
+            ) from original
         if write_addressed_draft:
             raise original from None
         if draft == "hit":
             if draft_hit_is_auth:
-                raise self._authorization_error_for_write_404(original) from original
-            raise self._draft_only_not_found_error(original) from original
+                raise self._authorization_error_for_write_404(
+                    original, operation=operation
+                ) from original
+            raise self._draft_only_not_found_error(original, operation=operation) from original
         raise original from None
 
     def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
