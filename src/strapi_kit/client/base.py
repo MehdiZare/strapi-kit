@@ -355,8 +355,8 @@ class BaseClient:
         """Write 404 whose addressed variant still reads back (refused write).
 
         Not a missing token. Strapi 5 answers 401/403 in ``authorize`` for
-        an under-permissioned content-API token. A same-params GET hit
-        after a write 404 is a refused write (roboad AD-0123 / #4558).
+        an under-permissioned content-API token before the controller runs.
+        A same-params GET hit after a write 404 is a refused write (#171).
         """
         status_code = original.status_code if original.status_code is not None else 404
         details = dict(original.details)
@@ -396,7 +396,7 @@ class BaseClient:
         draft_hit_is_auth: bool,
         operation: Write404Operation,
     ) -> NoReturn:
-        """Narrow a write 404 using probe results (roboad-mono-repo #4508 / #4509).
+        """Narrow a write 404 using probe results (#160 two-probe, #171 write_rejected).
 
         A probe 404 is an answer, not a failed probe. ``error`` (transport /
         5xx / unstructured 2xx) keeps the original ``NotFoundError``.

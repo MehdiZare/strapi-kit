@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-26
+
+Opt-in write-404 classification: same-params readable hits are
+`write_rejected`, not `AuthorizationError`. Custom-route action classify.
+Trackers: #166 #171.
+
 ### Upgrade notes
 
 - Opt-in `classify_write_404`: a same-params GET hit is now
@@ -671,7 +677,8 @@ stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55)
 - Dependency injection support with protocols
 - Full type hints and mypy strict mode compliance
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...v0.3.0
