@@ -779,10 +779,12 @@ make pre-commit
 - ✅ Dry-run mode for validation
 - ✅ Progress callbacks for long operations
 
-**0.4.0**: i18n / nested-relation / dry-run / JSONL / e2e work is on
-`dev`. Cut from `dev` → `main`
-with `release:minor`. Tracker: GitHub issue #144. Changelog is the
-roadmap; there is no `IMPLEMENTATION_STATUS.md`.
+**0.5.0**: locale-aware `exists_in_locale` and write-404 classification
+(`#161` `#163`) on `dev`. Cut from `dev` → `main` with
+`release:minor`. Changelog is the roadmap; there is no
+`IMPLEMENTATION_STATUS.md`.
+
+**0.4.0**: i18n / nested-relation / dry-run / JSONL / e2e. Tracker: #144.
 
 ---
 

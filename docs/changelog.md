@@ -18,6 +18,44 @@ Opt-in `classify_write_404` on custom-route `unpublish()` /
 `publish` / `unpublish` / `discard_draft` are on the
 `StrapiClient` protocol.
 
+### Upgrade notes
+
+- Opt-in `classify_write_404` same-params GET hit is
+  `NotFoundError` / `write_rejected`, not `AuthorizationError`.
+  Remaining-draft delete / publish stays `AuthorizationError`.
+- Custom `StrapiClient` implementors need `publish` /
+  `unpublish` / `discard_draft`.
+
+## [0.5.0] - 2026-08-26
+
+Locale-aware existence checks and write-404 classification. Trackers:
+#161 #163.
+
+`exists_in_locale(collection, document_id, locale=None)` on the sync
+and async clients (and `StrapiClient`) is the same published-then-draft
+probe as `exists()`, plus optional `locale`. Non-i18n types retry
+without `locale` on `Invalid key locale`. `exists()` stays
+document-level.
+
+Opt-in `classify_write_404` no longer treats every readable draft as a
+missing token. The probe uses the write's addressing params, then the
+draft variant. Draft-only **updates** stay `NotFoundError`
+(`classified_from=draft_only`). A `publish()` 404 with only a draft
+readable is `AuthorizationError` — stock PUT `?status=published`
+publishes drafts, so a remaining draft means the write did not run.
+A DELETE 404 while the document is still readable stays
+`AuthorizationError`. `remove` accepts optional `query` for
+locale-scoped deletes. AuthorizationError copy names the operation
+(`Update` / `Delete` / `Publish`).
+
+### Upgrade notes
+
+- `exists()` stays document-level. Use `exists_in_locale(..., locale=)`
+  for a locale-aware probe.
+- Opt-in `classify_write_404`: draft-only update 404s stay
+  `NotFoundError`; publish 404 with a remaining draft is
+  `AuthorizationError`.
+
 ## [0.4.0] - 2026-08-19
 
 i18n localizations, nested component/dynamic-zone relations, dest media
@@ -212,7 +250,10 @@ stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55)
 - Extra `STRAPI_*` env vars no longer break `StrapiConfig`.
 - v5 Content-Type Builder list flattening.
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.6...v0.1.0
 [0.0.6]: https://github.com/MehdiZare/strapi-kit/compare/v0.0.5...v0.0.6

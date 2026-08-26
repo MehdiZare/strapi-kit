@@ -7,13 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- Opt-in `classify_write_404`: a same-params GET hit is now
+  `NotFoundError` (`classified_from=write_rejected`), not
+  `AuthorizationError`. Remaining-draft delete / publish is still
+  `AuthorizationError` (`classified_from=write_404`). Catch
+  `classified_from`, not the 0.5.0 auth type.
+- Custom `StrapiClient` implementors must add `publish` /
+  `unpublish` / `discard_draft` (with `classify_write_404`).
+
 ### Added
 
-- `exists_in_locale(collection, document_id, locale=None)` on sync and
-  async clients and the `StrapiClient` protocol. Same published-then-draft probe as
-  `exists()`, plus optional `locale`. `Invalid key locale` retries that
-  GET without `locale` (non-i18n types), matching import
-  `_probe_document`. Public `exists()` stays document-level (#161).
 - Opt-in `classify_write_404` on custom-route `unpublish()` /
   `discard_draft()` (sync + async). Probes the **document** path (write
   addressing params, then draft), never `/actions/*`. Default `False`
@@ -33,6 +38,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `classified_from=write_rejected` and copy that names **no** permission
   cause (`"{operation} was refused"`). A remaining-draft delete / publish
   is still `AuthorizationError` / `write_404` (#171).
+
+## [0.5.0] - 2026-08-26
+
+Locale-aware existence checks and write-404 classification that
+distinguishes draft-only updates from missing Publish / Update / Delete.
+Trackers: #161 #163.
+
+### Upgrade notes
+
+- `exists()` stays document-level (default published or draft). Use
+  `exists_in_locale(..., locale=)` for a locale-aware probe.
+- Opt-in `classify_write_404`: a draft-only **update** 404 stays
+  `NotFoundError` (`classified_from=draft_only`). A `publish()` 404
+  with only a draft readable is `AuthorizationError` (stock PUT
+  `?status=published` publishes drafts). A DELETE 404 while the
+  document is still readable stays `AuthorizationError`.
+
+### Added
+
+- `exists_in_locale(collection, document_id, locale=None)` on sync and
+  async clients and the `StrapiClient` protocol. Same published-then-draft probe as
+  `exists()`, plus optional `locale`. `Invalid key locale` retries that
+  GET without `locale` (non-i18n types), matching import
+  `_probe_document`. Public `exists()` stays document-level (#161).
+
+### Fixed
 
 - Opt-in `classify_write_404` on `update` / `remove` / `publish` no longer
   treats every readable draft as a missing token (roboad-mono-repo #4507 /
@@ -640,7 +671,8 @@ stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55)
 - Dependency injection support with protocols
 - Full type hints and mypy strict mode compliance
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.1.0...v0.2.0
