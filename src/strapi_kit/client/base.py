@@ -61,12 +61,16 @@ from ..utils.schema import (
 
 logger = logging.getLogger(__name__)
 
-Write404Operation = Literal["update", "delete", "publish"]
+Write404Operation = Literal["update", "delete", "publish", "unpublish", "discard"]
 
+# Unpublish / discard keys keep Write404Operation complete. Those
+# actions use draft_hit_is_auth=False and never take the auth path.
 _WRITE_404_PERMISSION: dict[Write404Operation, str] = {
     "update": "Update",
     "delete": "Delete",
     "publish": "Publish",
+    "unpublish": "Unpublish",
+    "discard": "Discard",
 }
 
 # Per-task HTTP status for UnstructuredResponseError. Instance state would
@@ -224,9 +228,10 @@ class BaseClient:
     def _single_segment_document_path(self, collection: str, document_id: str) -> str:
         """Build ``document_path`` after requiring a single collection segment.
 
-        Used by ``exists()`` and ``publish()`` so lookups and stock REST
-        publish share the CRUD encoder and cannot walk out of the collection
-        via ``/`` or ``\\`` in the name.
+        Used by ``exists()``, ``publish()``, and write-404 probes for
+        ``unpublish`` / ``discard_draft`` so lookups and document-path
+        probes share the CRUD encoder and cannot walk out of the
+        collection via ``/`` or ``\\`` in the name.
         """
         collection_name = collection.strip().strip("/")
         if not collection_name:
@@ -332,7 +337,7 @@ class BaseClient:
     def _authorization_error_for_write_404(
         self, original: NotFoundError, *, operation: Write404Operation
     ) -> AuthorizationError:
-        """Map a write 404 to AuthorizationError when the addressed variant is readable."""
+        """Map a remaining-draft write 404 to AuthorizationError (delete / publish)."""
         status_code = original.status_code if original.status_code is not None else 404
         details = dict(original.details)
         details["status_code"] = status_code
@@ -340,6 +345,25 @@ class BaseClient:
         permission = _WRITE_404_PERMISSION[operation]
         return AuthorizationError(
             f"document exists; token likely lacks {permission}.",
+            details=details,
+            status_code=status_code,
+        )
+
+    def _write_rejected_not_found_error(
+        self, original: NotFoundError, *, operation: Write404Operation
+    ) -> NotFoundError:
+        """Write 404 whose addressed variant still reads back (refused write).
+
+        Not a missing token. Strapi 5 answers 401/403 in ``authorize`` for
+        an under-permissioned content-API token. A same-params GET hit
+        after a write 404 is a refused write (roboad AD-0123 / #4558).
+        """
+        status_code = original.status_code if original.status_code is not None else 404
+        details = dict(original.details)
+        details["status_code"] = status_code
+        details["classified_from"] = "write_rejected"
+        return NotFoundError(
+            f"document exists; {operation} was refused.",
             details=details,
             status_code=status_code,
         )
@@ -352,8 +376,12 @@ class BaseClient:
         details = dict(original.details)
         details["status_code"] = status_code
         details["classified_from"] = "draft_only"
+        if operation == "discard":
+            message = "document exists only as a draft; nothing published to restore via discard."
+        else:
+            message = f"document exists only as a draft; no published version to {operation}."
         return NotFoundError(
-            f"document exists only as a draft; no published version to {operation}.",
+            message,
             details=details,
             status_code=status_code,
         )
@@ -373,11 +401,14 @@ class BaseClient:
         A probe 404 is an answer, not a failed probe. ``error`` (transport /
         5xx / unstructured 2xx) keeps the original ``NotFoundError``.
 
-        * addressed hit → ``AuthorizationError`` (readable variant the write
-          targeted, so the 404 is permission/routing).
-        * draft hit, update path → ``NotFoundError`` with
-          ``classified_from=draft_only`` (never-published; do **not** call
-          this a missing token).
+        * addressed hit → ``NotFoundError`` with
+          ``classified_from=write_rejected`` (readable variant the write
+          targeted; the write was refused). Names **no** permission cause
+          (#171). A same-params GET hit is not a missing token.
+        * draft hit, update / unpublish / discard path → ``NotFoundError``
+          with ``classified_from=draft_only`` (never-published; do **not**
+          call this a missing token). Nothing published to update,
+          unpublish, or restore via discard.
         * draft hit, delete / publish path (``draft_hit_is_auth``) →
           ``AuthorizationError``. Stock DELETE removes drafts; a remaining
           draft means the delete did not run. Stock PUT ``?status=published``
@@ -387,9 +418,7 @@ class BaseClient:
         if addressed == "error":
             raise original from None
         if addressed == "hit":
-            raise self._authorization_error_for_write_404(
-                original, operation=operation
-            ) from original
+            raise self._write_rejected_not_found_error(original, operation=operation) from original
         if write_addressed_draft:
             raise original from None
         if draft == "hit":

@@ -211,16 +211,22 @@ response = client.update("articles", data, document_id="abc123")
 
 # Opt-in write-404 classification (two probes: write addressing
 # params including locale + status or v4 publicationState, then draft).
-# Addressed variant readable → AuthorizationError
-#   details["classified_from"] == "write_404"
-#   copy names Update / Delete / Publish
-# Draft-only update → NotFoundError
+# Addressed variant readable → NotFoundError
+#   details["classified_from"] == "write_rejected"
+#   copy: "document exists; {operation} was refused." (no token/permission)
+# Draft-only update / unpublish / discard_draft → NotFoundError
 #   details["classified_from"] == "draft_only"
 # publish() 404 with only a draft readable → AuthorizationError
 #   (stock PUT publishes drafts; remaining draft means missing Publish)
-# Delete 404 while the document is still readable → AuthorizationError
+# Delete 404 with only a draft remaining → AuthorizationError
+# unpublish / discard_draft probes use the document path, not /actions/*.
+# Leave classify_write_404 off on those helpers until the custom
+# /actions/* routes exist; a readable document + missing route
+# remaps to write_rejected.
 client.update("articles", data, document_id="abc123", classify_write_404=True)
 client.publish("articles", "abc123", classify_write_404=True)
+client.unpublish("articles", "abc123")
+client.discard_draft("articles", "abc123")
 ```
 
 ### Delete
@@ -284,7 +290,8 @@ never_published = client.get_many(
 created = client.create("articles", {"title": "Draft"})
 # Stock REST: PUT /api/{collection}/{id}?status=published
 published = client.publish("articles", created.data.document_id)
-# unpublish / discard_draft need custom /actions/* routes (not stock REST)
+# unpublish / discard_draft need custom /actions/* routes (not stock REST).
+# Default classify_write_404=False keeps a missing-route 404/405.
 client.unpublish("articles", created.data.document_id)
 client.discard_draft("articles", created.data.document_id)
 ```

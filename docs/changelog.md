@@ -11,6 +11,21 @@ user-facing summary.
 
 ## [Unreleased]
 
+Opt-in `classify_write_404` on custom-route `unpublish()` /
+`discard_draft()` (document-path probes; draft-only stays
+`classified_from=draft_only`). Same-params GET hit is
+`NotFoundError` / `write_rejected`, not `AuthorizationError`.
+`publish` / `unpublish` / `discard_draft` are on the
+`StrapiClient` protocol.
+
+### Upgrade notes
+
+- Opt-in `classify_write_404` same-params GET hit is
+  `NotFoundError` / `write_rejected`, not `AuthorizationError`.
+  Remaining-draft delete / publish stays `AuthorizationError`.
+- Custom `StrapiClient` implementors need `publish` /
+  `unpublish` / `discard_draft`.
+
 ## [0.5.0] - 2026-08-26
 
 Locale-aware existence checks and write-404 classification. Trackers:
