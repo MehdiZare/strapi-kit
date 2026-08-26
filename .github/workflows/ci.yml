@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: 🛎️  Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -33,7 +33,7 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: ⚡  Install uv (with cache)
-        uses: astral-sh/setup-uv@v10.0.0
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 🛎️  Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 🐍  Set up Python
         uses: actions/setup-python@v7
@@ -73,7 +73,7 @@ jobs:
           python-version: "3.13"
 
       - name: ⚡  Install uv
-        uses: astral-sh/setup-uv@v10.0.0
+        uses: astral-sh/setup-uv@v10.0.1
 
       - name: 📊 Run all tests with coverage
         run: |
@@ -84,7 +84,7 @@ jobs:
           pytest tests/unit --cov=strapi_kit --cov-report=xml --cov-report=term --junitxml=junit.xml -o junit_family=legacy -v
 
       - name: 📈 Upload coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: MehdiZare/strapi-kit
