@@ -209,10 +209,15 @@ data = {"title": "Updated Title"}
 response = client.update("articles", data, document_id="abc123")
 # Also valid: client.update("articles/1", data)
 
-# Opt-in: write 404 while the draft is still readable → AuthorizationError
-# (token likely lacks Update/Publish). status_code=404 and
-# details["classified_from"] == "write_404".
+# Opt-in write-404 classification (two probes: write addressing
+# params including locale + status or v4 publicationState, then draft).
+# Addressed variant readable → AuthorizationError
+#   details["classified_from"] == "write_404"
+# Draft-only (update / publish) → NotFoundError
+#   details["classified_from"] == "draft_only"
+# Delete 404 while the document is still readable → AuthorizationError
 client.update("articles", data, document_id="abc123", classify_write_404=True)
+client.publish("articles", "abc123", classify_write_404=True)
 ```
 
 ### Delete
@@ -220,7 +225,13 @@ client.update("articles", data, document_id="abc123", classify_write_404=True)
 ```python
 response = client.remove("articles", document_id="abc123")
 # Also valid: client.remove("articles/1")
-client.remove("articles", document_id="abc123", classify_write_404=True)
+# query is forwarded on DELETE; probes keep locale/status/publicationState only.
+client.remove(
+    "articles",
+    document_id="abc123",
+    query=StrapiQuery().with_locale("en"),
+    classify_write_404=True,
+)
 ```
 
 ### Exists (published, then draft)

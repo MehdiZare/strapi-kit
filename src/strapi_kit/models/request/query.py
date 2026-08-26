@@ -163,6 +163,11 @@ class StrapiQuery:
         """v4 ``publicationState=`` value, or None if unset."""
         return self._publication_state
 
+    @property
+    def locale(self) -> str | None:
+        """i18n ``locale=`` value, or None if unset."""
+        return self._locale
+
     def filter(self, filters: FilterBuilder) -> StrapiQuery:
         """Add filter conditions to the query.
 
