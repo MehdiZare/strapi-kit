@@ -395,8 +395,11 @@ class StrapiClient(Protocol):
             query: Optional query configuration
             headers: Additional headers
             document_id: Optional document ID (percent-encoded onto the path)
-            classify_write_404: Opt-in remapping of write 404s when a draft GET
-                shows the document still exists
+            classify_write_404: Opt-in remapping of write 404s. Probe the
+                write's addressing params (status / locale /
+                publicationState), then draft. A readable addressed
+                variant is AuthorizationError. Draft-only stays
+                NotFoundError (classified_from=draft_only).
 
         Returns:
             Normalized single entity response
@@ -409,6 +412,7 @@ class StrapiClient(Protocol):
         headers: dict[str, str] | None = None,
         *,
         document_id: str | None = None,
+        query: Any = None,
         classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Delete an entity.
@@ -417,8 +421,10 @@ class StrapiClient(Protocol):
             endpoint: API endpoint path, or collection name when document_id is set
             headers: Additional headers
             document_id: Optional document ID (percent-encoded onto the path)
-            classify_write_404: Opt-in remapping of write 404s when a draft GET
-                shows the document still exists
+            query: Optional query forwarded on DELETE. Probes keep locale /
+                status / publicationState only.
+            classify_write_404: Opt-in remapping of DELETE 404s. A still-
+                readable document (published or draft) is AuthorizationError.
 
         Returns:
             Normalized single entity response
@@ -430,11 +436,32 @@ class StrapiClient(Protocol):
 
         A draft ``ValidationError`` is absent only for unknown
         ``status`` / ``publicationState``. Other 400s raise. Not
-        locale-scoped.
+        locale-scoped. Use :meth:`exists_in_locale` for a locale-aware
+        probe.
 
         Args:
             collection: Collection API id (single path segment)
             document_id: Document id (percent-encoded via document_path)
+
+        Returns:
+            True if a published or draft version is readable
+        """
+        ...
+
+    def exists_in_locale(
+        self, collection: str, document_id: str, locale: str | None = None
+    ) -> bool:
+        """Return whether a published or draft document exists in a locale.
+
+        Published-then-draft, matching import ``_probe_document``.
+        ``Invalid key locale`` retries that GET without ``locale``.
+        A draft unknown ``status`` / ``publicationState`` is absent.
+        Other 400s raise. ``locale=None`` matches :meth:`exists`.
+
+        Args:
+            collection: Collection API id (single path segment)
+            document_id: Document id (percent-encoded via document_path)
+            locale: Optional locale. ``None`` is document-level.
 
         Returns:
             True if a published or draft version is readable

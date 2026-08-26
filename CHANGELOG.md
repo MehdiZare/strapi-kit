@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-26
+
+Locale-aware existence checks and write-404 classification that
+distinguishes draft-only updates from missing Publish / Update / Delete.
+Trackers: #161 #163.
+
+### Upgrade notes
+
+- `exists()` stays document-level (default published or draft). Use
+  `exists_in_locale(..., locale=)` for a locale-aware probe.
+- Opt-in `classify_write_404`: a draft-only **update** 404 stays
+  `NotFoundError` (`classified_from=draft_only`). A `publish()` 404
+  with only a draft readable is `AuthorizationError` (stock PUT
+  `?status=published` publishes drafts). A DELETE 404 while the
+  document is still readable stays `AuthorizationError`.
+
+### Added
+
+- `exists_in_locale(collection, document_id, locale=None)` on sync and
+  async clients and the `StrapiClient` protocol. Same published-then-draft probe as
+  `exists()`, plus optional `locale`. `Invalid key locale` retries that
+  GET without `locale` (non-i18n types), matching import
+  `_probe_document`. Public `exists()` stays document-level (#161).
+
+### Fixed
+
+- Opt-in `classify_write_404` on `update` / `remove` / `publish` no longer
+  treats every readable draft as a missing token (roboad-mono-repo #4507 /
+  #4509). The probe uses the write's addressing params (`status`,
+  `locale`, v4 `publicationState`), then the draft variant. A 404 from
+  the probe is an answer. Draft-only **updates** stay `NotFoundError`
+  with `details["classified_from"] == "draft_only"`. A `publish()` 404
+  with only a draft readable is `AuthorizationError` with
+  `classified_from=write_404` (#163) — stock PUT `?status=published`
+  publishes drafts, so a remaining draft means the write did not run.
+  A DELETE 404 while the document is still readable stays
+  `AuthorizationError` (stock DELETE removes drafts). `remove` accepts
+  optional `query` so a locale-scoped delete can be probed the same way.
+  AuthorizationError copy names the operation (`Update` / `Delete` /
+  `Publish`) instead of always “token likely lacks Update/Publish.” (#161)
+
 ## [0.4.0] - 2026-08-19
 
 i18n localizations, nested component/dynamic-zone relations, dest media
@@ -598,7 +639,8 @@ stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55)
 - Dependency injection support with protocols
 - Full type hints and mypy strict mode compliance
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.1.0...v0.2.0

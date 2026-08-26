@@ -41,7 +41,7 @@ from ..exceptions import (
 from ..exceptions import (
     ConnectionError as StrapiConnectionError,
 )
-from ..models.enums import DocumentAction, DocumentStatus, HttpMethod
+from ..models.enums import DocumentAction, DocumentStatus, HttpMethod, PublicationState
 from ..models.request.query import StrapiQuery
 from ..models.response.media import MediaFile
 from ..models.response.normalized import (
@@ -60,6 +60,14 @@ from ..utils.schema import (
 )
 
 logger = logging.getLogger(__name__)
+
+Write404Operation = Literal["update", "delete", "publish"]
+
+_WRITE_404_PERMISSION: dict[Write404Operation, str] = {
+    "update": "Update",
+    "delete": "Delete",
+    "publish": "Publish",
+}
 
 # Per-task HTTP status for UnstructuredResponseError. Instance state would
 # race when one AsyncClient is used concurrently.
@@ -250,33 +258,147 @@ class BaseClient:
         """Query that requests the Strapi 5 draft version (``status=draft``)."""
         return StrapiQuery().with_document_status(DocumentStatus.DRAFT)
 
+    def _exists_published_query(self, locale: str | None) -> StrapiQuery | None:
+        """Published existence probe; ``locale`` is omitted when unset."""
+        return StrapiQuery().with_locale(locale) if locale else None
+
+    def _exists_draft_query(self, locale: str | None) -> StrapiQuery:
+        """Draft existence probe, optionally locale-scoped."""
+        draft = self._draft_status_query()
+        return draft.with_locale(locale) if locale else draft
+
+    @staticmethod
+    def _without_locale(query: StrapiQuery | None) -> StrapiQuery | None:
+        """Return a copy of ``query`` with ``locale`` cleared.
+
+        Matches import ``_probe_document``: an empty param set becomes
+        ``None`` so the retry is a bare GET.
+        """
+        if query is None:
+            return None
+        copied = query.copy().without_locale()
+        return copied if copied.to_query_params() else None
+
+    def _write_query_is_draft(self, write_query: StrapiQuery | None) -> bool:
+        """Return True when the write already addressed the draft variant."""
+        if write_query is None:
+            return False
+        return (
+            write_query.document_status is DocumentStatus.DRAFT
+            or write_query.publication_state is PublicationState.PREVIEW
+        )
+
+    def _addressing_probe_query(
+        self,
+        write_query: StrapiQuery | None,
+        *,
+        draft: bool = False,
+    ) -> StrapiQuery | None:
+        """Build a GET probe that addresses the same locale as the write.
+
+        Copies only addressing params (``locale``, then ``status`` or v4
+        ``publicationState``). Populate, filters, and pagination are omitted
+        so a probe 400 cannot collapse narrowing.
+        """
+        probe = StrapiQuery()
+        locale = write_query.locale if write_query is not None else None
+        if locale:
+            probe = probe.with_locale(locale)
+
+        if draft:
+            if write_query is not None and write_query.publication_state is not None:
+                return probe.with_publication_state(PublicationState.PREVIEW)
+            return probe.with_document_status(DocumentStatus.DRAFT)
+
+        if write_query is None:
+            return probe if locale else None
+        if write_query.document_status is not None:
+            return probe.with_document_status(write_query.document_status)
+        if write_query.publication_state is not None:
+            return probe.with_publication_state(write_query.publication_state)
+        return probe if locale else None
+
+    def _publish_query(self, query: StrapiQuery | None) -> StrapiQuery:
+        """Query for stock REST publish (``status=published`` plus caller params)."""
+        publish_query = query.copy() if query is not None else StrapiQuery()
+        return publish_query.with_document_status(DocumentStatus.PUBLISHED)
+
     def _entity_identifies_document(self, entity: NormalizedEntity | None) -> bool:
         """Return True if a GET body identifies a document (``documentId`` or ``id``)."""
         if entity is None:
             return False
         return entity.document_id is not None or entity.id is not None
 
-    def _authorization_error_for_write_404(self, original: NotFoundError) -> AuthorizationError:
-        """Map a write 404 to AuthorizationError when the document is readable."""
+    def _authorization_error_for_write_404(
+        self, original: NotFoundError, *, operation: Write404Operation
+    ) -> AuthorizationError:
+        """Map a write 404 to AuthorizationError when the addressed variant is readable."""
         status_code = original.status_code if original.status_code is not None else 404
         details = dict(original.details)
         details["status_code"] = status_code
         details["classified_from"] = "write_404"
+        permission = _WRITE_404_PERMISSION[operation]
         return AuthorizationError(
-            "document exists; token likely lacks Update/Publish.",
+            f"document exists; token likely lacks {permission}.",
             details=details,
             status_code=status_code,
         )
 
-    def _reraise_classified_write_404(
+    def _draft_only_not_found_error(
+        self, original: NotFoundError, *, operation: Write404Operation
+    ) -> NotFoundError:
+        """Write 404 while only the draft version is readable (no published version)."""
+        status_code = original.status_code if original.status_code is not None else 404
+        details = dict(original.details)
+        details["status_code"] = status_code
+        details["classified_from"] = "draft_only"
+        return NotFoundError(
+            f"document exists only as a draft; no published version to {operation}.",
+            details=details,
+            status_code=status_code,
+        )
+
+    def _raise_classified_write_404(
         self,
         original: NotFoundError,
-        probe_entity: NormalizedEntity | None,
+        *,
+        addressed: Literal["hit", "miss", "error"],
+        draft: Literal["hit", "miss", "error"],
+        write_addressed_draft: bool,
+        draft_hit_is_auth: bool,
+        operation: Write404Operation,
     ) -> NoReturn:
-        """Raise AuthorizationError if the draft probe found a document, else original."""
-        if self._entity_identifies_document(probe_entity):
-            raise self._authorization_error_for_write_404(original) from original
-        raise original
+        """Narrow a write 404 using probe results (roboad-mono-repo #4508 / #4509).
+
+        A probe 404 is an answer, not a failed probe. ``error`` (transport /
+        5xx / unstructured 2xx) keeps the original ``NotFoundError``.
+
+        * addressed hit → ``AuthorizationError`` (readable variant the write
+          targeted, so the 404 is permission/routing).
+        * draft hit, update path → ``NotFoundError`` with
+          ``classified_from=draft_only`` (never-published; do **not** call
+          this a missing token).
+        * draft hit, delete / publish path (``draft_hit_is_auth``) →
+          ``AuthorizationError``. Stock DELETE removes drafts; a remaining
+          draft means the delete did not run. Stock PUT ``?status=published``
+          publishes drafts; a remaining draft means publish did not run
+          (#163).
+        """
+        if addressed == "error":
+            raise original from None
+        if addressed == "hit":
+            raise self._authorization_error_for_write_404(
+                original, operation=operation
+            ) from original
+        if write_addressed_draft:
+            raise original from None
+        if draft == "hit":
+            if draft_hit_is_auth:
+                raise self._authorization_error_for_write_404(
+                    original, operation=operation
+                ) from original
+            raise self._draft_only_not_found_error(original, operation=operation) from original
+        raise original from None
 
     def _parse_success_response(self, response: httpx.Response, *, method: str) -> dict[str, Any]:
         """Parse a 2xx response body.
@@ -594,9 +716,7 @@ class BaseClient:
     ) -> tuple[str, dict[str, Any]]:
         """Build stock REST publish path and query (PUT + ``status=published``)."""
         path = self._single_segment_document_path(collection, document_id)
-        publish_query = query.copy() if query is not None else StrapiQuery()
-        publish_query = publish_query.with_document_status(DocumentStatus.PUBLISHED)
-        return path, publish_query.to_query_params()
+        return path, self._publish_query(query).to_query_params()
 
     def _parse_collection_response(
         self, response_data: dict[str, Any]

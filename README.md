@@ -518,7 +518,7 @@ with SyncClient(config) as client:
 Create, read, update, and delete entities:
 
 ```python
-from strapi_kit import SyncClient, StrapiConfig
+from strapi_kit import StrapiConfig, StrapiQuery, SyncClient
 
 config = StrapiConfig(base_url="http://localhost:1337", api_token="your-token")
 
@@ -541,21 +541,33 @@ with SyncClient(config) as client:
     data = {"title": "Updated Title"}
     response = client.update("articles", data, document_id=created_id)
 
-    # Draft-inclusive existence (v5 omitted status= is published)
+    # Draft-inclusive existence (v5 omitted status= is published).
+    # exists() is document-level. exists_in_locale matches import probes
+    # (published-then-draft, optional locale, Invalid key locale fallback).
     if document_id and client.exists("articles", document_id):
         print("document is published or draft")
+    if document_id and client.exists_in_locale("articles", document_id, locale="fr"):
+        print("fr published or draft is readable")
 
     # v5 Draft & Publish. publish() is stock REST PUT ?status=published.
+    # classify_write_404 on publish remaps a remaining-draft 404 to
+    # AuthorizationError (token likely lacks Publish), not draft_only.
+    # update() draft-only stays NotFoundError / classified_from=draft_only.
     # unpublish() / discard_draft() need custom POST /actions/* routes
     # (not registered by stock Strapi 5 REST) and 404/405 if missing.
     if document_id:
-        client.publish("articles", document_id)
+        client.publish("articles", document_id, classify_write_404=True)
         client.unpublish("articles", document_id)
         client.discard_draft("articles", document_id)
 
     # Delete. classify_write_404 remaps a 404 to AuthorizationError when
-    # a draft GET still finds the document (token likely lacks Update/Publish).
-    response = client.remove("articles", document_id=created_id, classify_write_404=True)
+    # the document is still readable (token likely lacks Delete).
+    response = client.remove(
+        "articles",
+        document_id=created_id,
+        query=StrapiQuery().with_locale("en"),
+        classify_write_404=True,
+    )
 
     # String endpoints still work (caller must encode special characters):
     # client.get_one("articles/abc")
@@ -1409,7 +1421,7 @@ This project is in active development. Currently implemented:
 - **Request Models**: Filters (24 operators), sorting, pagination, population, field selection
 - **Response Models**: V4/V5 parsing with automatic normalization
 - **Query Builder**: `StrapiQuery` fluent API with full type safety
-- **Typed Client Methods**: `get_one()`, `get_many()`, `create()`, `update()`, `remove()`, `exists()`, `publish()`, `unpublish()`, `discard_draft()`
+- **Typed Client Methods**: `get_one()`, `get_many()`, `create()`, `update()`, `remove()`, `exists()`, `exists_in_locale()`, `publish()`, `unpublish()`, `discard_draft()`
 - **Dependency Injection**: Full DI support with protocols for testability
 - **Full test coverage** with type-safe query building
 
