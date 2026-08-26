@@ -219,11 +219,14 @@ response = client.update("articles", data, document_id="abc123")
 # publish() 404 with only a draft readable → AuthorizationError
 #   (stock PUT publishes drafts; remaining draft means missing Publish)
 # Delete 404 with only a draft remaining → AuthorizationError
-# unpublish / discard_draft probes use the document path, not /actions/*
+# unpublish / discard_draft probes use the document path, not /actions/*.
+# Leave classify_write_404 off on those helpers until the custom
+# /actions/* routes exist; a readable document + missing route
+# remaps to write_rejected.
 client.update("articles", data, document_id="abc123", classify_write_404=True)
 client.publish("articles", "abc123", classify_write_404=True)
-client.unpublish("articles", "abc123", classify_write_404=True)
-client.discard_draft("articles", "abc123", classify_write_404=True)
+client.unpublish("articles", "abc123")
+client.discard_draft("articles", "abc123")
 ```
 
 ### Delete
@@ -287,9 +290,10 @@ never_published = client.get_many(
 created = client.create("articles", {"title": "Draft"})
 # Stock REST: PUT /api/{collection}/{id}?status=published
 published = client.publish("articles", created.data.document_id)
-# unpublish / discard_draft need custom /actions/* routes (not stock REST)
-client.unpublish("articles", created.data.document_id, classify_write_404=True)
-client.discard_draft("articles", created.data.document_id, classify_write_404=True)
+# unpublish / discard_draft need custom /actions/* routes (not stock REST).
+# Default classify_write_404=False keeps a missing-route 404/405.
+client.unpublish("articles", created.data.document_id)
+client.discard_draft("articles", created.data.document_id)
 ```
 
 A 2xx empty body, a non-object JSON body (`"Created"`), or a write

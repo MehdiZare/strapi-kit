@@ -63,6 +63,8 @@ logger = logging.getLogger(__name__)
 
 Write404Operation = Literal["update", "delete", "publish", "unpublish", "discard"]
 
+# Unpublish / discard keys keep Write404Operation complete. Those
+# actions use draft_hit_is_auth=False and never take the auth path.
 _WRITE_404_PERMISSION: dict[Write404Operation, str] = {
     "update": "Update",
     "delete": "Delete",
@@ -374,8 +376,12 @@ class BaseClient:
         details = dict(original.details)
         details["status_code"] = status_code
         details["classified_from"] = "draft_only"
+        if operation == "discard":
+            message = "document exists only as a draft; nothing published to restore via discard."
+        else:
+            message = f"document exists only as a draft; no published version to {operation}."
         return NotFoundError(
-            f"document exists only as a draft; no published version to {operation}.",
+            message,
             details=details,
             status_code=status_code,
         )

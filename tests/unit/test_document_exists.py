@@ -49,6 +49,27 @@ def _assert_write_rejected(error: NotFoundError, operation: str) -> None:
     assert "lacks" not in error.message
 
 
+def _assert_draft_only(error: NotFoundError, operation: str) -> None:
+    """Draft-only unpublish / discard stays NotFoundError (#166)."""
+    assert not isinstance(error, AuthorizationError)
+    assert error.details["classified_from"] == "draft_only"
+    if operation == "discard":
+        assert error.message == (
+            "document exists only as a draft; nothing published to restore via discard."
+        )
+    else:
+        assert error.message == (
+            f"document exists only as a draft; no published version to {operation}."
+        )
+
+
+def _assert_unclassified_not_found(error: NotFoundError) -> None:
+    """Document miss keeps the original write 404 (no classified_from)."""
+    assert not isinstance(error, AuthorizationError)
+    assert error.status_code == 404
+    assert error.details.get("classified_from") is None
+
+
 def _no_retry(strapi_config: StrapiConfig) -> StrapiConfig:
     return StrapiConfig(
         base_url=strapi_config.base_url,
@@ -1549,12 +1570,7 @@ class TestSyncClassifyWrite404Actions:
             with pytest.raises(NotFoundError) as exc_info:
                 getattr(client, method_name)(COLLECTION, DOCUMENT_ID, classify_write_404=True)
 
-        assert not isinstance(exc_info.value, AuthorizationError)
-        assert exc_info.value.details["classified_from"] == "draft_only"
-        assert (
-            exc_info.value.message
-            == f"document exists only as a draft; no published version to {verb}."
-        )
+        _assert_draft_only(exc_info.value, verb)
         assert get_route.call_count == 2
         assert "status" not in get_route.calls[0].request.url.params
         assert get_route.calls[1].request.url.params["status"] == "draft"
@@ -1581,9 +1597,7 @@ class TestSyncClassifyWrite404Actions:
                 getattr(client, method_name)(COLLECTION, DOCUMENT_ID, classify_write_404=True)
 
         assert get_route.call_count == 2
-        assert exc_info.value.status_code == 404
-        assert not isinstance(exc_info.value, AuthorizationError)
-        assert exc_info.value.details.get("classified_from") != "draft_only"
+        _assert_unclassified_not_found(exc_info.value)
 
     @pytest.mark.respx
     @pytest.mark.parametrize(
@@ -1642,10 +1656,36 @@ class TestAsyncClassifyWrite404Actions:
         get_route = respx_mock.get(DOCUMENT_URL).mock(return_value=_not_found())
 
         async with AsyncClient(strapi_config) as client:
-            with pytest.raises(NotFoundError):
+            with pytest.raises(NotFoundError) as exc_info:
                 await getattr(client, method_name)(COLLECTION, DOCUMENT_ID)
 
         assert get_route.call_count == 0
+        _assert_unclassified_not_found(exc_info.value)
+
+    @pytest.mark.respx
+    @pytest.mark.parametrize(
+        ("method_name", "action_segment", "_permission", "_verb"), _ACTION_CASES
+    )
+    async def test_default_405_unchanged(
+        self,
+        strapi_config: StrapiConfig,
+        respx_mock: respx.Router,
+        method_name: str,
+        action_segment: str,
+        _permission: str,
+        _verb: str,
+    ) -> None:
+        respx_mock.post(_action_url(action_segment)).mock(
+            return_value=Response(405, json={"error": {"message": "nope"}})
+        )
+        get_route = respx_mock.get(DOCUMENT_URL).mock(return_value=_not_found())
+
+        async with AsyncClient(strapi_config) as client:
+            with pytest.raises(MethodNotAllowedError) as exc_info:
+                await getattr(client, method_name)(COLLECTION, DOCUMENT_ID, classify_write_404=True)
+
+        assert get_route.call_count == 0
+        assert exc_info.value.status_code == 405
 
     @pytest.mark.respx
     @pytest.mark.parametrize(
@@ -1668,6 +1708,7 @@ class TestAsyncClassifyWrite404Actions:
                 _not_found(),
             )
         )
+        action_get = respx_mock.get(_action_url(action_segment)).mock(return_value=_not_found())
 
         async with AsyncClient(strapi_config) as client:
             with pytest.raises(NotFoundError) as addressed:
@@ -1675,6 +1716,7 @@ class TestAsyncClassifyWrite404Actions:
 
         _assert_write_rejected(addressed.value, verb)
         assert get_route.call_count == 1
+        assert action_get.call_count == 0
 
         get_route.reset()
         get_route.mock(
@@ -1685,12 +1727,9 @@ class TestAsyncClassifyWrite404Actions:
             with pytest.raises(NotFoundError) as draft_only:
                 await getattr(client, method_name)(COLLECTION, DOCUMENT_ID, classify_write_404=True)
 
-        assert draft_only.value.details["classified_from"] == "draft_only"
-        assert (
-            draft_only.value.message
-            == f"document exists only as a draft; no published version to {verb}."
-        )
+        _assert_draft_only(draft_only.value, verb)
         assert get_route.call_count == 2
+        assert action_get.call_count == 0
 
     @pytest.mark.respx
     @pytest.mark.parametrize(
@@ -1713,12 +1752,11 @@ class TestAsyncClassifyWrite404Actions:
                 await getattr(client, method_name)(COLLECTION, DOCUMENT_ID, classify_write_404=True)
 
         assert get_route.call_count == 2
-        assert not isinstance(exc_info.value, AuthorizationError)
-        assert exc_info.value.details.get("classified_from") != "draft_only"
+        _assert_unclassified_not_found(exc_info.value)
 
     @pytest.mark.respx
     @pytest.mark.parametrize(
-        ("method_name", "action_segment", "permission", "_verb"), _ACTION_CASES
+        ("method_name", "action_segment", "_permission", "_verb"), _ACTION_CASES
     )
     async def test_preserves_locale_on_probes(
         self,
@@ -1727,10 +1765,10 @@ class TestAsyncClassifyWrite404Actions:
         respx_mock: respx.Router,
         method_name: str,
         action_segment: str,
-        permission: str,
+        _permission: str,
         _verb: str,
     ) -> None:
-        respx_mock.post(_action_url(action_segment)).mock(return_value=_not_found())
+        post_route = respx_mock.post(_action_url(action_segment)).mock(return_value=_not_found())
         get_route = respx_mock.get(DOCUMENT_URL).mock(
             side_effect=_route_by_status_and_locale(
                 _not_found(), Response(200, json=mock_v5_response), locale="fr"
@@ -1744,7 +1782,8 @@ class TestAsyncClassifyWrite404Actions:
                     COLLECTION, DOCUMENT_ID, query=query, classify_write_404=True
                 )
 
-        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert post_route.calls[0].request.url.params["locale"] == "fr"
+        _assert_draft_only(exc_info.value, _verb)
         assert get_route.call_count == 2
         assert get_route.calls[0].request.url.params["locale"] == "fr"
         assert get_route.calls[1].request.url.params["locale"] == "fr"
