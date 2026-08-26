@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-26
+
+Opt-in write-404 classification: same-params readable hits are
+`write_rejected`, not `AuthorizationError`. Custom-route action classify.
+Trackers: #166 #171.
+
+### Upgrade notes
+
+- Opt-in `classify_write_404`: a same-params GET hit is now
+  `NotFoundError` (`classified_from=write_rejected`), not
+  `AuthorizationError`. Remaining-draft delete / publish is still
+  `AuthorizationError` (`classified_from=write_404`). Catch
+  `classified_from`, not the 0.5.0 auth type.
+- Custom `StrapiClient` implementors must add `publish` /
+  `unpublish` / `discard_draft` (with `classify_write_404`).
+
+### Added
+
+- Opt-in `classify_write_404` on custom-route `unpublish()` /
+  `discard_draft()` (sync + async). Probes the **document** path (write
+  addressing params, then draft), never `/actions/*`. Default `False`
+  still surfaces the stock 404/405. A document miss keeps the original
+  missing-route 404. Draft-only is `NotFoundError` /
+  `classified_from=draft_only` (nothing published to unpublish or
+  restore via discard). A readable published variant is
+  `NotFoundError` / `classified_from=write_rejected` (refused write,
+  no permission copy). Helpers remain custom-route only (#166).
+- `publish` / `unpublish` / `discard_draft` (with `classify_write_404`)
+  on the `StrapiClient` protocol.
+
+### Fixed
+
+- Opt-in `classify_write_404` no longer raises `AuthorizationError` when
+  the same-params GET hits. That arm is `NotFoundError` with
+  `classified_from=write_rejected` and copy that names **no** permission
+  cause (`"{operation} was refused"`). A remaining-draft delete / publish
+  is still `AuthorizationError` / `write_404` (#171).
+
 ## [0.5.0] - 2026-08-26
 
 Locale-aware existence checks and write-404 classification that
@@ -639,7 +677,8 @@ stream/export. Tracker: [#55](https://github.com/MehdiZare/strapi-kit/issues/55)
 - Dependency injection support with protocols
 - Full type hints and mypy strict mode compliance
 
-[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/MehdiZare/strapi-kit/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MehdiZare/strapi-kit/compare/v0.2.0...v0.3.0
