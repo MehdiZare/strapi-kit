@@ -399,6 +399,225 @@ class TestAsyncExists:
                 await client.exists("articles/../upload", DOCUMENT_ID)
 
 
+INVALID_LOCALE_BODY = {"error": {"message": "Invalid key locale"}}
+
+
+def _route_by_locale(
+    with_locale: Response,
+    without_locale: Response,
+    *,
+    locale: str,
+) -> Any:
+    def _handler(request: httpx.Request) -> Response:
+        if request.url.params.get("locale") == locale:
+            return with_locale
+        if "locale" not in request.url.params:
+            return without_locale
+        return _not_found()
+
+    return _handler
+
+
+class TestSyncExistsInLocale:
+    """SyncClient.exists_in_locale published-then-draft, optional locale."""
+
+    @pytest.mark.respx
+    def test_published_hit_sends_locale(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(return_value=Response(200, json=mock_v5_response))
+
+        with SyncClient(strapi_config) as client:
+            assert client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is True
+
+        assert route.call_count == 1
+        assert route.calls[0].request.url.params["locale"] == "fr"
+        assert "status" not in route.calls[0].request.url.params
+
+    @pytest.mark.respx
+    def test_published_404_draft_hit_keeps_locale(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status_and_locale(
+                _not_found(), Response(200, json=mock_v5_response), locale="fr"
+            )
+        )
+
+        with SyncClient(strapi_config) as client:
+            assert client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is True
+
+        assert route.call_count == 2
+        assert route.calls[0].request.url.params["locale"] == "fr"
+        assert "status" not in route.calls[0].request.url.params
+        assert route.calls[1].request.url.params["locale"] == "fr"
+        assert route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    def test_both_404_false(self, strapi_config: StrapiConfig, respx_mock: respx.Router) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(return_value=_not_found())
+
+        with SyncClient(strapi_config) as client:
+            assert client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is False
+
+        assert route.call_count == 2
+        assert route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    def test_invalid_key_locale_retries_published_without_locale(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_locale(
+                Response(400, json=INVALID_LOCALE_BODY),
+                Response(200, json=mock_v5_response),
+                locale="fr",
+            )
+        )
+
+        with SyncClient(strapi_config) as client:
+            assert client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is True
+
+        assert route.call_count == 2
+        assert route.calls[0].request.url.params["locale"] == "fr"
+        assert "locale" not in route.calls[1].request.url.params
+        assert "status" not in route.calls[1].request.url.params
+
+    @pytest.mark.respx
+    def test_invalid_key_locale_on_draft_keeps_status_draft(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        def _handler(request: httpx.Request) -> Response:
+            locale = request.url.params.get("locale")
+            status = request.url.params.get("status")
+            if locale == "fr" and status != "draft":
+                return _not_found()
+            if locale == "fr" and status == "draft":
+                return Response(400, json=INVALID_LOCALE_BODY)
+            if status == "draft" and locale is None:
+                return Response(200, json=mock_v5_response)
+            return _not_found()
+
+        route = respx_mock.get(DOCUMENT_URL).mock(side_effect=_handler)
+
+        with SyncClient(strapi_config) as client:
+            assert client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is True
+
+        assert route.call_count == 3
+        assert route.calls[0].request.url.params["locale"] == "fr"
+        assert "status" not in route.calls[0].request.url.params
+        assert route.calls[1].request.url.params["locale"] == "fr"
+        assert route.calls[1].request.url.params["status"] == "draft"
+        assert "locale" not in route.calls[2].request.url.params
+        assert route.calls[2].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    def test_none_locale_matches_exists(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(return_value=Response(200, json=mock_v5_response))
+
+        with SyncClient(strapi_config) as client:
+            assert client.exists_in_locale(COLLECTION, DOCUMENT_ID) is True
+
+        assert route.call_count == 1
+        assert "locale" not in route.calls[0].request.url.params
+
+    @pytest.mark.respx
+    def test_unrelated_400_still_raises(
+        self, strapi_config: StrapiConfig, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(
+            return_value=Response(400, json={"error": {"message": "Invalid key populate"}})
+        )
+
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="Invalid key populate"):
+                client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr")
+
+        assert route.call_count == 1
+
+    def test_rejects_multi_segment_collection(self, strapi_config: StrapiConfig) -> None:
+        with SyncClient(strapi_config) as client:
+            with pytest.raises(ValidationError, match="single path segment"):
+                client.exists_in_locale("articles/../upload", DOCUMENT_ID, locale="fr")
+
+
+class TestAsyncExistsInLocale:
+    """AsyncClient.exists_in_locale published-then-draft, optional locale."""
+
+    @pytest.mark.respx
+    async def test_published_hit_sends_locale(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(return_value=Response(200, json=mock_v5_response))
+
+        async with AsyncClient(strapi_config) as client:
+            assert await client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is True
+
+        assert route.call_count == 1
+        assert route.calls[0].request.url.params["locale"] == "fr"
+
+    @pytest.mark.respx
+    async def test_published_404_draft_hit_keeps_locale(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_status_and_locale(
+                _not_found(), Response(200, json=mock_v5_response), locale="fr"
+            )
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            assert await client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is True
+
+        assert route.call_count == 2
+        assert route.calls[1].request.url.params["locale"] == "fr"
+        assert route.calls[1].request.url.params["status"] == "draft"
+
+    @pytest.mark.respx
+    async def test_invalid_key_locale_retries_published_without_locale(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        route = respx_mock.get(DOCUMENT_URL).mock(
+            side_effect=_route_by_locale(
+                Response(400, json=INVALID_LOCALE_BODY),
+                Response(200, json=mock_v5_response),
+                locale="fr",
+            )
+        )
+
+        async with AsyncClient(strapi_config) as client:
+            assert await client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is True
+
+        assert route.call_count == 2
+        assert "locale" not in route.calls[1].request.url.params
+
+    @pytest.mark.respx
+    async def test_invalid_key_locale_on_draft_keeps_status_draft(
+        self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
+    ) -> None:
+        def _handler(request: httpx.Request) -> Response:
+            locale = request.url.params.get("locale")
+            status = request.url.params.get("status")
+            if locale == "fr" and status != "draft":
+                return _not_found()
+            if locale == "fr" and status == "draft":
+                return Response(400, json=INVALID_LOCALE_BODY)
+            if status == "draft" and locale is None:
+                return Response(200, json=mock_v5_response)
+            return _not_found()
+
+        route = respx_mock.get(DOCUMENT_URL).mock(side_effect=_handler)
+
+        async with AsyncClient(strapi_config) as client:
+            assert await client.exists_in_locale(COLLECTION, DOCUMENT_ID, locale="fr") is True
+
+        assert route.call_count == 3
+        assert route.calls[2].request.url.params["status"] == "draft"
+        assert "locale" not in route.calls[2].request.url.params
+
+
 class TestSyncClassifyWrite404:
     """Opt-in write-404 remapping on SyncClient.update / remove."""
 

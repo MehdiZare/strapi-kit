@@ -258,6 +258,27 @@ class BaseClient:
         """Query that requests the Strapi 5 draft version (``status=draft``)."""
         return StrapiQuery().with_document_status(DocumentStatus.DRAFT)
 
+    def _exists_published_query(self, locale: str | None) -> StrapiQuery | None:
+        """Published existence probe; ``locale`` is omitted when unset."""
+        return StrapiQuery().with_locale(locale) if locale else None
+
+    def _exists_draft_query(self, locale: str | None) -> StrapiQuery:
+        """Draft existence probe, optionally locale-scoped."""
+        draft = self._draft_status_query()
+        return draft.with_locale(locale) if locale else draft
+
+    @staticmethod
+    def _without_locale(query: StrapiQuery | None) -> StrapiQuery | None:
+        """Return a copy of ``query`` with ``locale`` cleared.
+
+        Matches import ``_probe_document``: an empty param set becomes
+        ``None`` so the retry is a bare GET.
+        """
+        if query is None:
+            return None
+        copied = query.copy().without_locale()
+        return copied if copied.to_query_params() else None
+
     def _write_query_is_draft(self, write_query: StrapiQuery | None) -> bool:
         """Return True when the write already addressed the draft variant."""
         if write_query is None:
