@@ -422,6 +422,7 @@ class TestSyncClassifyWrite404:
         assert get_route.call_count == 1
         assert "status" not in get_route.calls[0].request.url.params
         assert "document exists" in str(exc_info.value)
+        assert exc_info.value.message == "document exists; token likely lacks Update."
         assert exc_info.value.details["status_code"] == 404
         assert exc_info.value.details["classified_from"] == "write_404"
         assert exc_info.value.status_code == 404
@@ -441,6 +442,10 @@ class TestSyncClassifyWrite404:
 
         assert not isinstance(exc_info.value, AuthorizationError)
         assert exc_info.value.details["classified_from"] == "draft_only"
+        assert (
+            exc_info.value.message
+            == "document exists only as a draft; no published version to update."
+        )
         assert exc_info.value.status_code == 404
         assert get_route.call_count == 2
         assert "status" not in get_route.calls[0].request.url.params
@@ -485,6 +490,7 @@ class TestSyncClassifyWrite404:
 
         assert exc_info.value.details["status_code"] == 404
         assert exc_info.value.details["classified_from"] == "write_404"
+        assert exc_info.value.message == "document exists; token likely lacks Delete."
         assert get_route.call_count == 2
 
     @pytest.mark.respx
@@ -581,6 +587,7 @@ class TestAsyncClassifyWrite404:
         assert "status" not in get_route.calls[0].request.url.params
         assert exc_info.value.details["status_code"] == 404
         assert exc_info.value.details["classified_from"] == "write_404"
+        assert exc_info.value.message == "document exists; token likely lacks Update."
         assert exc_info.value.status_code == 404
 
     @pytest.mark.respx
@@ -598,6 +605,10 @@ class TestAsyncClassifyWrite404:
 
         assert not isinstance(exc_info.value, AuthorizationError)
         assert exc_info.value.details["classified_from"] == "draft_only"
+        assert (
+            exc_info.value.message
+            == "document exists only as a draft; no published version to update."
+        )
         assert get_route.call_count == 2
         assert get_route.calls[1].request.url.params["status"] == "draft"
 
@@ -615,6 +626,7 @@ class TestAsyncClassifyWrite404:
                 await client.remove(ENDPOINT, classify_write_404=True)
 
         assert exc_info.value.details["status_code"] == 404
+        assert exc_info.value.message == "document exists; token likely lacks Delete."
         assert get_route.call_count == 2
 
     @pytest.mark.respx
@@ -775,7 +787,7 @@ class TestSyncClassifyWrite404LocaleAndPublish:
         assert get_route.calls[1].request.url.params["status"] == "draft"
 
     @pytest.mark.respx
-    def test_publish_404_draft_only_stays_not_found(
+    def test_publish_404_draft_only_is_authorization(
         self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
         respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
@@ -784,10 +796,11 @@ class TestSyncClassifyWrite404LocaleAndPublish:
         )
 
         with SyncClient(strapi_config) as client:
-            with pytest.raises(NotFoundError) as exc_info:
+            with pytest.raises(AuthorizationError) as exc_info:
                 client.publish(COLLECTION, DOCUMENT_ID, classify_write_404=True)
 
-        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert exc_info.value.details["classified_from"] == "write_404"
+        assert exc_info.value.message == "document exists; token likely lacks Publish."
         assert get_route.call_count == 2
         assert get_route.calls[0].request.url.params["status"] == "published"
         assert get_route.calls[1].request.url.params["status"] == "draft"
@@ -809,6 +822,7 @@ class TestSyncClassifyWrite404LocaleAndPublish:
                 client.publish(COLLECTION, DOCUMENT_ID, classify_write_404=True)
 
         assert exc_info.value.details["classified_from"] == "write_404"
+        assert exc_info.value.message == "document exists; token likely lacks Publish."
         assert get_route.call_count == 1
         assert get_route.calls[0].request.url.params["status"] == "published"
 
@@ -825,10 +839,11 @@ class TestSyncClassifyWrite404LocaleAndPublish:
         query = StrapiQuery().with_locale("fr")
 
         with SyncClient(strapi_config) as client:
-            with pytest.raises(NotFoundError) as exc_info:
+            with pytest.raises(AuthorizationError) as exc_info:
                 client.publish(COLLECTION, DOCUMENT_ID, query=query, classify_write_404=True)
 
-        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert exc_info.value.details["classified_from"] == "write_404"
+        assert exc_info.value.message == "document exists; token likely lacks Publish."
         assert get_route.call_count == 2
         assert get_route.calls[0].request.url.params["locale"] == "fr"
         assert get_route.calls[0].request.url.params["status"] == "published"
@@ -1016,7 +1031,7 @@ class TestAsyncClassifyWrite404LocaleAndPublish:
         assert get_route.calls[1].request.url.params["locale"] == "fr"
 
     @pytest.mark.respx
-    async def test_publish_404_draft_only_stays_not_found(
+    async def test_publish_404_draft_only_is_authorization(
         self, strapi_config: StrapiConfig, mock_v5_response: dict, respx_mock: respx.Router
     ) -> None:
         respx_mock.put(DOCUMENT_URL).mock(return_value=_not_found())
@@ -1025,10 +1040,11 @@ class TestAsyncClassifyWrite404LocaleAndPublish:
         )
 
         async with AsyncClient(strapi_config) as client:
-            with pytest.raises(NotFoundError) as exc_info:
+            with pytest.raises(AuthorizationError) as exc_info:
                 await client.publish(COLLECTION, DOCUMENT_ID, classify_write_404=True)
 
-        assert exc_info.value.details["classified_from"] == "draft_only"
+        assert exc_info.value.details["classified_from"] == "write_404"
+        assert exc_info.value.message == "document exists; token likely lacks Publish."
         assert get_route.call_count == 2
         assert get_route.calls[0].request.url.params["status"] == "published"
 

@@ -213,8 +213,11 @@ response = client.update("articles", data, document_id="abc123")
 # params including locale + status or v4 publicationState, then draft).
 # Addressed variant readable → AuthorizationError
 #   details["classified_from"] == "write_404"
-# Draft-only (update / publish) → NotFoundError
+#   copy names Update / Delete / Publish
+# Draft-only update → NotFoundError
 #   details["classified_from"] == "draft_only"
+# publish() 404 with only a draft readable → AuthorizationError
+#   (stock PUT publishes drafts; remaining draft means missing Publish)
 # Delete 404 while the document is still readable → AuthorizationError
 client.update("articles", data, document_id="abc123", classify_write_404=True)
 client.publish("articles", "abc123", classify_write_404=True)
