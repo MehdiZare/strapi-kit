@@ -211,16 +211,19 @@ response = client.update("articles", data, document_id="abc123")
 
 # Opt-in write-404 classification (two probes: write addressing
 # params including locale + status or v4 publicationState, then draft).
-# Addressed variant readable → AuthorizationError
-#   details["classified_from"] == "write_404"
-#   copy names Update / Delete / Publish
-# Draft-only update → NotFoundError
+# Addressed variant readable → NotFoundError
+#   details["classified_from"] == "write_rejected"
+#   copy: "document exists; {operation} was refused." (no token/permission)
+# Draft-only update / unpublish / discard_draft → NotFoundError
 #   details["classified_from"] == "draft_only"
 # publish() 404 with only a draft readable → AuthorizationError
 #   (stock PUT publishes drafts; remaining draft means missing Publish)
-# Delete 404 while the document is still readable → AuthorizationError
+# Delete 404 with only a draft remaining → AuthorizationError
+# unpublish / discard_draft probes use the document path, not /actions/*
 client.update("articles", data, document_id="abc123", classify_write_404=True)
 client.publish("articles", "abc123", classify_write_404=True)
+client.unpublish("articles", "abc123", classify_write_404=True)
+client.discard_draft("articles", "abc123", classify_write_404=True)
 ```
 
 ### Delete
@@ -285,8 +288,8 @@ created = client.create("articles", {"title": "Draft"})
 # Stock REST: PUT /api/{collection}/{id}?status=published
 published = client.publish("articles", created.data.document_id)
 # unpublish / discard_draft need custom /actions/* routes (not stock REST)
-client.unpublish("articles", created.data.document_id)
-client.discard_draft("articles", created.data.document_id)
+client.unpublish("articles", created.data.document_id, classify_write_404=True)
+client.discard_draft("articles", created.data.document_id, classify_write_404=True)
 ```
 
 A 2xx empty body, a non-object JSON body (`"Created"`), or a write

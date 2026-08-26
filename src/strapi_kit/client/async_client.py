@@ -484,8 +484,10 @@ class AsyncClient(BaseClient):
             classify_write_404: If True, a write ``NotFoundError`` is probed
                 with the write's addressing params (``status`` / ``locale`` /
                 v4 ``publicationState``), then the draft variant. A readable
-                addressed variant is ``AuthorizationError``. A draft-only
-                document stays ``NotFoundError`` with
+                addressed variant stays ``NotFoundError`` with
+                ``details["classified_from"] == "write_rejected"`` (refused
+                write; not a missing token). A draft-only document stays
+                ``NotFoundError`` with
                 ``details["classified_from"] == "draft_only"``. Default
                 False keeps today's 404 mapping.
 
@@ -547,10 +549,11 @@ class AsyncClient(BaseClient):
                 ``status``, v4 ``publicationState``).
             classify_write_404: If True, a DELETE ``NotFoundError`` is
                 probed with the write's addressing params, then
-                ``status=draft``. A still-readable document is
-                ``AuthorizationError`` (stock DELETE removes drafts; a
-                remaining draft means the delete did not run). Default
-                False keeps today's 404 mapping.
+                ``status=draft``. A readable addressed variant stays
+                ``NotFoundError`` with ``classified_from=write_rejected``.
+                A remaining draft is ``AuthorizationError`` (stock DELETE
+                removes drafts; a remaining draft means the delete did
+                not run). Default False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response (deleted entity)
@@ -734,8 +737,9 @@ class AsyncClient(BaseClient):
             classify_write_404: If True, a publish ``NotFoundError`` is
                 probed with the write's addressing params
                 (``status=published`` plus ``locale``), then
-                ``status=draft``. A readable published variant **or**
-                draft-only document is ``AuthorizationError`` with
+                ``status=draft``. A readable published variant stays
+                ``NotFoundError`` with ``classified_from=write_rejected``.
+                A remaining draft is ``AuthorizationError`` with
                 ``classified_from=write_404`` (stock PUT publishes
                 drafts; a remaining draft means the write did not run).
 
@@ -764,6 +768,8 @@ class AsyncClient(BaseClient):
         document_id: str,
         query: StrapiQuery | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Unpublish a Strapi v5 live document.
 
@@ -778,13 +784,33 @@ class AsyncClient(BaseClient):
             document_id: Strapi v5 ``documentId``
             query: Optional query (populate / fields after unpublish)
             headers: Additional headers
+            classify_write_404: If True, an unpublish ``NotFoundError`` is
+                probed on the **document** path (same addressing params as
+                the write, then draft) — never ``/actions/*``. A readable
+                published variant stays ``NotFoundError`` with
+                ``classified_from=write_rejected``. Draft-only stays
+                ``NotFoundError`` with
+                ``details["classified_from"] == "draft_only"``. A document
+                miss keeps the original 404 (stock missing-route). Default
+                False keeps today's 404/405 mapping.
 
         Returns:
             Normalized unpublished entity
         """
         endpoint = self._document_action_endpoint(collection, document_id, DocumentAction.UNPUBLISH)
         params = query.to_query_params() if query else None
-        raw_response = await self.post(endpoint, json={}, params=params, headers=headers)
+        try:
+            raw_response = await self.post(endpoint, json={}, params=params, headers=headers)
+        except NotFoundError as original:
+            if classify_write_404:
+                await self._classify_write_404(
+                    self._single_segment_document_path(collection, document_id),
+                    original,
+                    write_query=query,
+                    draft_hit_is_auth=False,
+                    operation="unpublish",
+                )
+            raise
         return self._parse_single_response(raw_response)
 
     async def discard_draft(
@@ -793,6 +819,8 @@ class AsyncClient(BaseClient):
         document_id: str,
         query: StrapiQuery | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Discard a Strapi v5 draft and keep the published version.
 
@@ -807,6 +835,15 @@ class AsyncClient(BaseClient):
             document_id: Strapi v5 ``documentId``
             query: Optional query (populate / fields / locale)
             headers: Additional headers
+            classify_write_404: If True, a discard ``NotFoundError`` is
+                probed on the **document** path (same addressing params as
+                the write, then draft) — never ``/actions/*``. A readable
+                published variant stays ``NotFoundError`` with
+                ``classified_from=write_rejected``. Draft-only stays
+                ``NotFoundError`` with
+                ``details["classified_from"] == "draft_only"``. A document
+                miss keeps the original 404 (stock missing-route). Default
+                False keeps today's 404/405 mapping.
 
         Returns:
             Normalized entity after the draft is discarded
@@ -815,7 +852,18 @@ class AsyncClient(BaseClient):
             collection, document_id, DocumentAction.DISCARD_DRAFT
         )
         params = query.to_query_params() if query else None
-        raw_response = await self.post(endpoint, json={}, params=params, headers=headers)
+        try:
+            raw_response = await self.post(endpoint, json={}, params=params, headers=headers)
+        except NotFoundError as original:
+            if classify_write_404:
+                await self._classify_write_404(
+                    self._single_segment_document_path(collection, document_id),
+                    original,
+                    write_query=query,
+                    draft_hit_is_auth=False,
+                    operation="discard",
+                )
+            raise
         return self._parse_single_response(raw_response)
 
     # Media Operations

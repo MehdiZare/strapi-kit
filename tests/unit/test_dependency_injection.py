@@ -18,6 +18,7 @@ from strapi_kit import (
     VersionDetectingParser,
 )
 from strapi_kit.auth.api_token import APITokenAuth
+from strapi_kit.protocols import StrapiClient
 
 
 class MockAuth:
@@ -348,6 +349,14 @@ class TestProtocolCompliance:
         # Test required methods
         assert callable(parser.parse_single)
         assert callable(parser.parse_collection)
+
+    def test_sync_client_satisfies_strapi_client_protocol(self, strapi_config):
+        """SyncClient implements StrapiClient including document actions."""
+        with SyncClient(strapi_config) as client:
+            assert isinstance(client, StrapiClient)
+            assert callable(client.publish)
+            assert callable(client.unpublish)
+            assert callable(client.discard_draft)
 
 
 class TestDIUsageExamples:

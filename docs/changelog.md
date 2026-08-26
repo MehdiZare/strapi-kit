@@ -11,6 +11,13 @@ user-facing summary.
 
 ## [Unreleased]
 
+Opt-in `classify_write_404` on custom-route `unpublish()` /
+`discard_draft()` (document-path probes; draft-only stays
+`classified_from=draft_only`). Same-params GET hit is
+`NotFoundError` / `write_rejected`, not `AuthorizationError`.
+`publish` / `unpublish` / `discard_draft` are on the
+`StrapiClient` protocol.
+
 ## [0.4.0] - 2026-08-19
 
 i18n localizations, nested component/dynamic-zone relations, dest media

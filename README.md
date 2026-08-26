@@ -550,18 +550,22 @@ with SyncClient(config) as client:
         print("fr published or draft is readable")
 
     # v5 Draft & Publish. publish() is stock REST PUT ?status=published.
-    # classify_write_404 on publish remaps a remaining-draft 404 to
-    # AuthorizationError (token likely lacks Publish), not draft_only.
+    # classify_write_404: same-params GET hit → NotFoundError /
+    # classified_from=write_rejected (refused write, not a missing token).
+    # publish() remaining-draft 404 → AuthorizationError (lacks Publish).
     # update() draft-only stays NotFoundError / classified_from=draft_only.
     # unpublish() / discard_draft() need custom POST /actions/* routes
     # (not registered by stock Strapi 5 REST) and 404/405 if missing.
+    # classify_write_404 probes the document path, not /actions/*.
+    # Draft-only unpublish/discard stays NotFoundError / draft_only.
     if document_id:
         client.publish("articles", document_id, classify_write_404=True)
-        client.unpublish("articles", document_id)
-        client.discard_draft("articles", document_id)
+        client.unpublish("articles", document_id, classify_write_404=True)
+        client.discard_draft("articles", document_id, classify_write_404=True)
 
-    # Delete. classify_write_404 remaps a 404 to AuthorizationError when
-    # the document is still readable (token likely lacks Delete).
+    # Delete. classify_write_404: remaining draft → AuthorizationError
+    # (stock DELETE removes drafts). Same-params published hit →
+    # NotFoundError / write_rejected.
     response = client.remove(
         "articles",
         document_id=created_id,

@@ -14,8 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `exists()`, plus optional `locale`. `Invalid key locale` retries that
   GET without `locale` (non-i18n types), matching import
   `_probe_document`. Public `exists()` stays document-level (#161).
+- Opt-in `classify_write_404` on custom-route `unpublish()` /
+  `discard_draft()` (sync + async). Probes the **document** path (write
+  addressing params, then draft), never `/actions/*`. Default `False`
+  still surfaces the stock 404/405. A document miss keeps the original
+  missing-route 404. Draft-only is `NotFoundError` /
+  `classified_from=draft_only` (nothing published to unpublish or
+  restore via discard). A readable published variant is
+  `NotFoundError` / `classified_from=write_rejected` (refused write,
+  no permission copy). Helpers remain custom-route only (#166).
+- `publish` / `unpublish` / `discard_draft` (with `classify_write_404`)
+  on the `StrapiClient` protocol.
 
 ### Fixed
+
+- Opt-in `classify_write_404` no longer raises `AuthorizationError` when
+  the same-params GET hits. That arm is `NotFoundError` with
+  `classified_from=write_rejected` and copy that names **no** permission
+  cause (`"{operation} was refused"`). A remaining-draft delete / publish
+  is still `AuthorizationError` / `write_404` (#171).
 
 - Opt-in `classify_write_404` on `update` / `remove` / `publish` no longer
   treats every readable draft as a missing token (roboad-mono-repo #4507 /

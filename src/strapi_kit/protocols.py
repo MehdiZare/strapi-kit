@@ -398,8 +398,8 @@ class StrapiClient(Protocol):
             classify_write_404: Opt-in remapping of write 404s. Probe the
                 write's addressing params (status / locale /
                 publicationState), then draft. A readable addressed
-                variant is AuthorizationError. Draft-only stays
-                NotFoundError (classified_from=draft_only).
+                variant stays NotFoundError (classified_from=write_rejected).
+                Draft-only stays NotFoundError (classified_from=draft_only).
 
         Returns:
             Normalized single entity response
@@ -423,8 +423,10 @@ class StrapiClient(Protocol):
             document_id: Optional document ID (percent-encoded onto the path)
             query: Optional query forwarded on DELETE. Probes keep locale /
                 status / publicationState only.
-            classify_write_404: Opt-in remapping of DELETE 404s. A still-
-                readable document (published or draft) is AuthorizationError.
+            classify_write_404: Opt-in remapping of DELETE 404s. A
+                readable addressed variant stays NotFoundError
+                (classified_from=write_rejected). A remaining draft is
+                AuthorizationError.
 
         Returns:
             Normalized single entity response
@@ -465,6 +467,86 @@ class StrapiClient(Protocol):
 
         Returns:
             True if a published or draft version is readable
+        """
+        ...
+
+    def publish(
+        self,
+        collection: str,
+        document_id: str,
+        query: Any = None,
+        headers: dict[str, str] | None = None,
+        *,
+        classify_write_404: bool = False,
+    ) -> NormalizedSingleResponse:
+        """Publish a draft via stock REST PUT ``?status=published``.
+
+        Args:
+            collection: Collection API id (single path segment)
+            document_id: Document id (percent-encoded via document_path)
+            query: Optional query (populate / fields / locale)
+            headers: Additional headers
+            classify_write_404: Opt-in remapping of publish 404s. A
+                readable published variant stays NotFoundError
+                (classified_from=write_rejected). A remaining draft is
+                AuthorizationError (classified_from=write_404).
+
+        Returns:
+            Normalized published entity
+        """
+        ...
+
+    def unpublish(
+        self,
+        collection: str,
+        document_id: str,
+        query: Any = None,
+        headers: dict[str, str] | None = None,
+        *,
+        classify_write_404: bool = False,
+    ) -> NormalizedSingleResponse:
+        """Unpublish via custom POST ``/actions/unpublish`` (not stock REST).
+
+        Args:
+            collection: Collection API id (single path segment)
+            document_id: Document id (percent-encoded via document_path)
+            query: Optional query (populate / fields / locale)
+            headers: Additional headers
+            classify_write_404: Opt-in remapping of unpublish 404s.
+                Probes the document path, not ``/actions/*``. Published
+                hit stays NotFoundError (classified_from=write_rejected).
+                Draft-only stays NotFoundError (classified_from=draft_only).
+                Document miss keeps the original 404.
+
+        Returns:
+            Normalized unpublished entity
+        """
+        ...
+
+    def discard_draft(
+        self,
+        collection: str,
+        document_id: str,
+        query: Any = None,
+        headers: dict[str, str] | None = None,
+        *,
+        classify_write_404: bool = False,
+    ) -> NormalizedSingleResponse:
+        """Discard a draft via custom POST ``/actions/discardDraft``.
+
+        Args:
+            collection: Collection API id (single path segment)
+            document_id: Document id (percent-encoded via document_path)
+            query: Optional query (populate / fields / locale)
+            headers: Additional headers
+            classify_write_404: Opt-in remapping of discard 404s. Probes
+                the document path, not ``/actions/*``. Published hit stays
+                NotFoundError (classified_from=write_rejected). Draft-only
+                stays NotFoundError (classified_from=draft_only). Document
+                miss keeps the original 404.
+
+        Returns:
+            Normalized entity after the draft is discarded
         """
         ...
 
