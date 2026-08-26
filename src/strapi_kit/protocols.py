@@ -436,11 +436,32 @@ class StrapiClient(Protocol):
 
         A draft ``ValidationError`` is absent only for unknown
         ``status`` / ``publicationState``. Other 400s raise. Not
-        locale-scoped.
+        locale-scoped. Use :meth:`exists_in_locale` for a locale-aware
+        probe.
 
         Args:
             collection: Collection API id (single path segment)
             document_id: Document id (percent-encoded via document_path)
+
+        Returns:
+            True if a published or draft version is readable
+        """
+        ...
+
+    def exists_in_locale(
+        self, collection: str, document_id: str, locale: str | None = None
+    ) -> bool:
+        """Return whether a published or draft document exists in a locale.
+
+        Published-then-draft, matching import ``_probe_document``.
+        ``Invalid key locale`` retries that GET without ``locale``.
+        A draft unknown ``status`` / ``publicationState`` is absent.
+        Other 400s raise. ``locale=None`` matches :meth:`exists`.
+
+        Args:
+            collection: Collection API id (single path segment)
+            document_id: Document id (percent-encoded via document_path)
+            locale: Optional locale. ``None`` is document-level.
 
         Returns:
             True if a published or draft version is readable

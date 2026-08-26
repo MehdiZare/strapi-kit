@@ -246,8 +246,15 @@ the default GET. `exists()` retries once with `status=draft`. A draft
 on either read raise. Collection must be one path segment; `document_id`
 is percent-encoded. A 200 with no `id` / `documentId` is `False`.
 
+`exists()` is document-level (not locale-scoped). Use `exists_in_locale`
+for a locale-aware probe that matches import `_probe_document`:
+published-then-draft, optional `locale`, and `Invalid key locale` retries
+that GET without `locale` (non-i18n types).
+
 ```python
 if client.exists("articles", document_id):
+    ...
+if client.exists_in_locale("articles", document_id, locale="fr"):
     ...
 ```
 

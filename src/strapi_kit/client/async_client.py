@@ -24,6 +24,7 @@ from ..exceptions import (
     ServerError,
     StrapiError,
     ValidationError,
+    is_unknown_locale_param,
     is_unknown_status_param,
 )
 from ..exceptions import (
@@ -592,7 +593,8 @@ class AsyncClient(BaseClient):
         Auth, 5xx, and network errors on either read raise. Collection
         must be a single path segment; ``document_id`` is percent-encoded
         via :meth:`document_path`. This check is not locale-scoped: a hit
-        is the default published or draft version of the document.
+        is the default published or draft version of the document. Use
+        :meth:`exists_in_locale` for a locale-aware probe.
 
         Args:
             collection: Collection API id (e.g. ``"articles"``)
@@ -605,21 +607,66 @@ class AsyncClient(BaseClient):
             ValidationError: Draft probe 400 that is not an unknown
                 ``status`` / ``publicationState``
         """
+        return await self.exists_in_locale(collection, document_id)
+
+    async def exists_in_locale(
+        self, collection: str, document_id: str, locale: str | None = None
+    ) -> bool:
+        """Return whether a document exists as published or draft in a locale.
+
+        Same published-then-draft probe as :meth:`exists`, plus optional
+        ``locale``. ``Invalid key locale`` retries that GET once without
+        ``locale`` (non-i18n types), matching import ``_probe_document``.
+        A draft ``ValidationError`` is absent only for unknown
+        ``status`` / ``publicationState``. Other 400s raise. Auth, 5xx,
+        and network errors on either read raise. Collection must be a
+        single path segment; ``document_id`` is percent-encoded.
+
+        Args:
+            collection: Collection API id (e.g. ``"articles"``)
+            document_id: Strapi v5 ``documentId`` (or numeric id)
+            locale: Optional locale (e.g. ``"fr"``). ``None`` is the
+                same document-level check as :meth:`exists`.
+
+        Returns:
+            True if a published or draft version is readable
+
+        Raises:
+            ValidationError: Probe 400 that is not an unknown ``locale``
+                (retried) or unknown ``status`` / ``publicationState``
+                on the draft probe
+        """
         endpoint = self._single_segment_document_path(collection, document_id)
+        had_locale = bool(locale)
         try:
-            response = await self.get_one(endpoint)
-            return self._entity_identifies_document(response.data)
+            return await self._probe_exists_target(
+                endpoint, self._exists_published_query(locale), had_locale=had_locale
+            )
         except NotFoundError:
             pass
 
         try:
-            response = await self.get_one(endpoint, query=self._draft_status_query())
+            return await self._probe_exists_target(
+                endpoint, self._exists_draft_query(locale), had_locale=had_locale
+            )
         except NotFoundError:
             return False
         except ValidationError as error:
             if is_unknown_status_param(error):
                 return False
             raise
+
+    async def _probe_exists_target(
+        self, endpoint: str, query: StrapiQuery | None, *, had_locale: bool
+    ) -> bool:
+        """GET once; unknown ``locale`` retries without it. True if identified."""
+        try:
+            response = await self.get_one(endpoint, query=query)
+        except ValidationError as error:
+            if had_locale and is_unknown_locale_param(error):
+                response = await self.get_one(endpoint, query=self._without_locale(query))
+            else:
+                raise
         return self._entity_identifies_document(response.data)
 
     async def _probe_write_404_target(
