@@ -7,7 +7,7 @@ and applications that don't require concurrency.
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 if TYPE_CHECKING:
     from ..models.content_type import ComponentListItem, ContentTypeListItem
@@ -474,9 +474,12 @@ class SyncClient(BaseClient):
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
             classify_write_404: If True, a write ``NotFoundError`` is probed
-                with one draft GET. A readable document is remapped to
-                ``AuthorizationError`` (token likely lacks Update/Publish).
-                Default False keeps today's 404 mapping.
+                with the write's addressing params (``status`` / ``locale`` /
+                v4 ``publicationState``), then the draft variant. A readable
+                addressed variant is ``AuthorizationError``. A draft-only
+                document stays ``NotFoundError`` with
+                ``details["classified_from"] == "draft_only"``. Default
+                False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response
@@ -501,7 +504,12 @@ class SyncClient(BaseClient):
             raw_response = self.put(path, json=payload, params=params, headers=headers)
         except NotFoundError as original:
             if classify_write_404:
-                self._classify_write_404(path, original)
+                self._classify_write_404(
+                    path,
+                    original,
+                    write_query=query,
+                    draft_hit_is_auth=False,
+                )
             raise
         self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
@@ -512,6 +520,7 @@ class SyncClient(BaseClient):
         headers: dict[str, str] | None = None,
         *,
         document_id: str | None = None,
+        query: StrapiQuery | None = None,
         classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Delete an entity with typed, normalized response.
@@ -523,10 +532,16 @@ class SyncClient(BaseClient):
             headers: Additional headers
             document_id: Optional document ID. When provided, ``endpoint`` is
                 treated as the collection name and the ID is percent-encoded.
-            classify_write_404: If True, a write ``NotFoundError`` is probed
-                with one draft GET. A readable document is remapped to
-                ``AuthorizationError`` (token likely lacks Update/Publish).
-                Default False keeps today's 404 mapping.
+            query: Optional query forwarded on the DELETE (locale, status,
+                populate, filters, and the rest of ``to_query_params()``).
+                Write-404 probes copy only addressing params (``locale``,
+                ``status``, v4 ``publicationState``).
+            classify_write_404: If True, a DELETE ``NotFoundError`` is
+                probed with the write's addressing params, then
+                ``status=draft``. A still-readable document is
+                ``AuthorizationError`` (stock DELETE removes drafts; a
+                remaining draft means the delete did not run). Default
+                False keeps today's 404 mapping.
 
         Returns:
             Normalized single entity response (deleted entity)
@@ -543,11 +558,17 @@ class SyncClient(BaseClient):
             1
         """
         path = self._document_endpoint(endpoint, document_id)
+        params = query.to_query_params() if query else None
         try:
-            raw_response = self.delete(path, headers=headers)
+            raw_response = self.delete(path, params=params, headers=headers)
         except NotFoundError as original:
             if classify_write_404:
-                self._classify_write_404(path, original)
+                self._classify_write_404(
+                    path,
+                    original,
+                    write_query=query,
+                    draft_hit_is_auth=True,
+                )
             raise
         return self._parse_single_response(raw_response)
 
@@ -592,13 +613,45 @@ class SyncClient(BaseClient):
             raise
         return self._entity_identifies_document(response.data)
 
-    def _classify_write_404(self, endpoint: str, original: NotFoundError) -> NoReturn:
-        """Probe one draft GET after a write 404; never mask the original error."""
+    def _probe_write_404_target(
+        self, endpoint: str, query: StrapiQuery | None
+    ) -> Literal["hit", "miss", "error"]:
+        """GET the write target; a 404 is a miss, not a failed probe."""
         try:
-            response = self.get_one(endpoint, query=self._draft_status_query())
+            response = self.get_one(endpoint, query=query)
+        except NotFoundError:
+            return "miss"
         except Exception:
-            raise original from None
-        self._reraise_classified_write_404(original, response.data)
+            return "error"
+        if self._entity_identifies_document(response.data):
+            return "hit"
+        return "error"
+
+    def _classify_write_404(
+        self,
+        endpoint: str,
+        original: NotFoundError,
+        *,
+        write_query: StrapiQuery | None,
+        draft_hit_is_auth: bool,
+    ) -> NoReturn:
+        """Two-probe write-404 narrowing; never mask the original error."""
+        addressed = self._probe_write_404_target(
+            endpoint, self._addressing_probe_query(write_query)
+        )
+        write_addressed_draft = self._write_query_is_draft(write_query)
+        draft: Literal["hit", "miss", "error"] = "miss"
+        if addressed == "miss" and not write_addressed_draft:
+            draft = self._probe_write_404_target(
+                endpoint, self._addressing_probe_query(write_query, draft=True)
+            )
+        self._raise_classified_write_404(
+            original,
+            addressed=addressed,
+            draft=draft,
+            write_addressed_draft=write_addressed_draft,
+            draft_hit_is_auth=draft_hit_is_auth,
+        )
 
     def publish(
         self,
@@ -606,6 +659,8 @@ class SyncClient(BaseClient):
         document_id: str,
         query: StrapiQuery | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        classify_write_404: bool = False,
     ) -> NormalizedSingleResponse:
         """Publish a Strapi v5 draft via stock REST.
 
@@ -616,14 +671,30 @@ class SyncClient(BaseClient):
         Args:
             collection: Collection API id (e.g. ``"articles"``)
             document_id: Strapi v5 ``documentId``
-            query: Optional query (populate / fields after publish)
+            query: Optional query (populate / fields / locale after publish)
             headers: Additional headers
+            classify_write_404: If True, a publish ``NotFoundError`` is
+                probed with the write's addressing params
+                (``status=published`` plus ``locale``), then
+                ``status=draft``. A readable published variant is
+                ``AuthorizationError``. Draft-only stays
+                ``NotFoundError`` with ``classified_from=draft_only``.
 
         Returns:
             Normalized published entity
         """
         path, params = self._publish_put_args(collection, document_id, query)
-        raw_response = self.put(path, json={"data": {}}, params=params, headers=headers)
+        try:
+            raw_response = self.put(path, json={"data": {}}, params=params, headers=headers)
+        except NotFoundError as original:
+            if classify_write_404:
+                self._classify_write_404(
+                    path,
+                    original,
+                    write_query=self._publish_query(query),
+                    draft_hit_is_auth=False,
+                )
+            raise
         self._require_write_data_object(raw_response)
         return self._parse_single_response(raw_response)
 
